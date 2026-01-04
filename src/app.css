@@ -1,0 +1,306 @@
+/* 
+ * Church Tracker Dashboard - Global Styles
+ * =========================================
+ * 
+ * Premium dark mode design system for the church member tracking dashboard.
+ * Uses CSS custom properties (variables) for consistent theming throughout
+ * the application. All colors are defined in HSL format for easy manipulation.
+ * 
+ * Design System Reference:
+ * - Background: #0f0f0f (--background) - deep pure black
+ * - Card background: #161616 (--card) with gradient to #1a1a1a
+ * - Accent: #06b6d4 (--primary) - Cyan (use sparingly)
+ * - Text: #f5f5f5 (--foreground)
+ * - Muted text: #999999 (--muted-foreground)
+ * - Spacing: 8px base grid (xs=4px, sm=8px, md=16px, lg=24px, xl=32px)
+ */
+
+/* Import Tailwind CSS layers */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* 
+   * CSS Custom Properties (Design Tokens)
+   * -------------------------------------
+   * All values are in HSL format without the hsl() wrapper
+   * to allow for opacity modifiers in Tailwind (e.g., bg-primary/50)
+   */
+  :root {
+    /* 
+     * Premium Background Colors
+     * Used for main page backgrounds and base surfaces
+     */
+    --background: 0 0% 6%; /* #0f0f0f - deep pure black */
+    --card: 0 0% 9%; /* #161616 - card background */
+    --card-elevated: 0 0% 10%; /* #1a1a1a - slightly lighter for charts */
+    --foreground: 0 0% 96%; /* #f5f5f5 - Primary text color */
+    --card-foreground: 0 0% 96%; /* Text on cards */
+    
+    /* 
+     * Border Colors
+     * Used for form inputs, dividers, and borders
+     */
+    --border: 0 0% 16%; /* #2a2a2a - subtle borders */
+    --border-hover: 0 0% 20%; /* #333333 - hover state borders */
+    
+    /* 
+     * Text Colors
+     * Various text color options for hierarchy
+     */
+    --muted-foreground: 0 0% 70%; /* #b3b3b3 - secondary text (improved contrast) */
+    --muted: 0 0% 60%; /* #999999 - axis labels */
+    --subtle: 0 0% 50%; /* #808080 - timestamps */
+    
+    /* 
+     * Primary Accent - Cyan
+     * Used for primary actions, links, and key UI elements (use sparingly)
+     */
+    --primary: 187 100% 43%; /* #06b6d4 - Primary cyan accent */
+    --primary-glow: 187 100% 43%; /* For glow effects */
+    --primary-foreground: 0 0% 0%; /* Text on primary backgrounds */
+    
+    /* 
+     * Secondary Colors
+     * Used for secondary actions and less prominent UI elements
+     */
+    --secondary: 0 0% 16%; /* #2a2a2a - Secondary background */
+    --secondary-foreground: 0 0% 96%; /* Text on secondary backgrounds */
+    
+    /* 
+     * Accent Colors
+     * Alternative accent for hover states and highlights
+     */
+    --accent: 187 100% 43%; /* Same as primary for consistency */
+    --accent-foreground: 0 0% 0%;
+    
+    /* 
+     * Semantic Colors - Status
+     * Used for various states and indicators
+     */
+    --success: 160 84% 39%; /* #10b981 - positive */
+    --success-foreground: 0 0% 100%;
+    
+    --destructive: 0 84% 60%; /* #ef4444 - negative */
+    --destructive-foreground: 0 0% 100%;
+    
+    --warning: 38 92% 50%; /* #f59e0b - warning */
+    --warning-foreground: 0 0% 0%;
+    
+    /* 
+     * Input and Ring Colors
+     * Used for form inputs and focus states
+     */
+    --input: 0 0% 9%; /* Input background matching card */
+    --ring: 187 100% 43%; /* Focus ring color matching primary */
+    
+    /* 
+     * Border Radius
+     * Base radius value used throughout the design system
+     */
+    --radius: 0.75rem; /* 12px - Premium border radius */
+  }
+
+  /* 
+   * Global Border Reset
+   * Ensures all borders use the design system border color
+   */
+  * {
+    @apply border-border;
+  }
+
+  /* 
+   * Body Styles
+   * Sets up the base dark mode appearance with premium styling
+   */
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* 
+     * Font Feature Settings
+     * - rlig: Required ligatures for proper text rendering
+     * - calt: Contextual alternates for improved typography
+     */
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* 
+   * Focus Visible Styles
+   * Ensures keyboard navigation is visible for accessibility (WCAG AA)
+   */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* 
+   * Selection Styles
+   * Custom text selection colors for better UX
+   */
+  ::selection {
+    @apply bg-primary/30 text-foreground;
+  }
+}
+
+/* 
+ * Component Layer
+ * ---------------
+ * Reusable component styles that can be applied with @apply
+ */
+@layer components {
+  /* 
+   * Typography Classes
+   * Premium typography system for dashboard
+   */
+  
+  /* Dashboard Title - 48px+ semi-bold, -0.02em letter-spacing */
+  .text-dashboard-title {
+    font-size: 3rem; /* 48px */
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    color: hsl(var(--foreground));
+  }
+
+  /* Section Title - 24px semi-bold */
+  .text-section-title {
+    font-size: 1.5rem; /* 24px */
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    color: hsl(var(--foreground));
+  }
+
+  /* Label - 12px uppercase, +0.05em letter-spacing, #999 */
+  .text-label {
+    font-size: 0.75rem; /* 12px */
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+
+  /* Body text - 14px regular, proper line-height */
+  .text-body {
+    font-size: 0.875rem; /* 14px */
+    font-weight: 400;
+    line-height: 1.5;
+    color: hsl(var(--foreground));
+  }
+
+  /* Body text large - 16px regular */
+  .text-body-lg {
+    font-size: 1rem; /* 16px */
+    font-weight: 400;
+    line-height: 1.5;
+    color: hsl(var(--foreground));
+  }
+
+  /* 
+   * Premium Card Base
+   * Standard card styling with gradient background
+   */
+  .card-base {
+    background: linear-gradient(135deg, hsl(var(--card)) 0%, hsl(0 0% 10%) 100%);
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    padding: 1.25rem; /* 20px minimum */
+    color: hsl(var(--card-foreground));
+  }
+
+  /* 
+   * Premium Interactive Card
+   * Card with hover state for clickable items
+   */
+  .card-interactive {
+    background: linear-gradient(135deg, hsl(var(--card)) 0%, hsl(0 0% 10%) 100%);
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    color: hsl(var(--card-foreground));
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .card-interactive:hover {
+    transform: translateY(-2px);
+    border-color: hsl(var(--border-hover));
+    box-shadow: 0 0 20px rgba(6, 182, 212, 0.1);
+  }
+
+  /* Focus ring for accessibility */
+  .card-interactive:focus-visible {
+    outline: 2px solid hsl(var(--primary));
+    outline-offset: 4px;
+  }
+}
+
+/* 
+ * Custom Utility Classes
+ * ----------------------
+ * Additional utilities that extend Tailwind's defaults
+ */
+@layer utilities {
+  /* 
+   * Text Balance
+   * Improves text wrapping for headings
+   */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* 
+   * Premium transition
+   * Standard transition for all premium interactions
+   */
+  .transition-premium {
+    transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* 
+   * Subtle glow on hover
+   * Cyan glow effect for interactive elements
+   */
+  .hover-glow:hover {
+    box-shadow: 0 0 20px rgba(6, 182, 212, 0.1);
+  }
+
+  /* 
+   * Lift effect
+   * Subtle lift animation on hover
+   */
+  .hover-lift:hover {
+    transform: translateY(-2px);
+  }
+
+  /* 
+   * Scrollbar Styles
+   * Custom dark mode scrollbar for consistency
+   */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted));
+    border-radius: var(--radius);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground));
+  }
+}
