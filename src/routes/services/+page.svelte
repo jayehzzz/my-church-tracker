@@ -36,6 +36,14 @@
   // Import chart components
   import AttendanceTrend from "$lib/components/charts/AttendanceTrend.svelte";
 
+  // Import centralized mock data
+  import {
+    mockPeople,
+    mockServices as centralMockServices,
+    getPersonById as getCentralPersonById,
+    getServiceIndividuals,
+  } from "$lib/data/mockData";
+
   // State
   let services = $state([]);
   let loading = $state(true);
@@ -85,71 +93,9 @@
     { value: "special_service", label: "Special Service" },
   ];
 
-  // Mock people data for individual attendance
-  const mockPeople = [
-    {
-      id: "p1",
-      first_name: "John",
-      last_name: "Smith",
-      member_status: "Member",
-    },
-    {
-      id: "p2",
-      first_name: "Mary",
-      last_name: "Johnson",
-      member_status: "Member",
-    },
-    {
-      id: "p3",
-      first_name: "James",
-      last_name: "Williams",
-      member_status: "Member",
-    },
-    {
-      id: "p4",
-      first_name: "Sarah",
-      last_name: "Brown",
-      member_status: "Member",
-    },
-    {
-      id: "p5",
-      first_name: "Michael",
-      last_name: "Davis",
-      member_status: "Guest",
-    },
-    {
-      id: "p6",
-      first_name: "Emily",
-      last_name: "Wilson",
-      member_status: "Member",
-    },
-    {
-      id: "p7",
-      first_name: "David",
-      last_name: "Taylor",
-      member_status: "Member",
-    },
-    {
-      id: "p8",
-      first_name: "Lisa",
-      last_name: "Anderson",
-      member_status: "Guest",
-    },
-    {
-      id: "p9",
-      first_name: "Robert",
-      last_name: "Thomas",
-      member_status: "Member",
-    },
-    {
-      id: "p10",
-      first_name: "Jennifer",
-      last_name: "Jackson",
-      member_status: "Member",
-    },
-  ];
+  // People data now imported from centralized mockData
 
-  // Mock data for development when Supabase is not configured
+  // Mock data for development when Convex is not configured
   const mockServices = [
     {
       id: "1",
@@ -253,15 +199,9 @@
     },
   ];
 
-  // Get person by ID
+  // Get person by ID - use centralized function
   function getPersonById(id) {
-    return mockPeople.find((p) => p.id === id);
-  }
-
-  // Get individuals for a service
-  function getServiceIndividuals(service) {
-    if (!service?.individuals || !Array.isArray(service.individuals)) return [];
-    return service.individuals.map((id) => getPersonById(id)).filter(Boolean);
+    return getCentralPersonById(id);
   }
 
   // Format service type for display
@@ -488,8 +428,8 @@
       services = result.data || [];
       usingMockData = false;
     } catch (e) {
-      console.warn("Failed to load from Supabase, using mock data:", e.message);
-      services = mockServices;
+      console.warn("Failed to load from Convex, using mock data:", e.message);
+      services = centralMockServices;
       usingMockData = true;
       error = null;
     } finally {
@@ -632,7 +572,7 @@
 
   <!-- Page Header with Add Button -->
   <div
-    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6"
+    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 animate-in"
   >
     <PageHeader
       title="Sunday Services"
@@ -660,7 +600,7 @@
   <!-- Mock Data Banner -->
   {#if usingMockData}
     <div
-      class="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning text-sm flex items-center gap-2"
+      class="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning text-sm flex items-center gap-2 animate-in delay-1"
     >
       <svg
         class="w-5 h-5 flex-shrink-0"
@@ -676,7 +616,7 @@
         />
       </svg>
       <span
-        >Using demo data. Configure Supabase environment variables to connect to
+        >Using demo data. Configure Convex environment variables to connect to
         your database.</span
       >
     </div>
@@ -684,7 +624,7 @@
 
   <!-- View Toggle Tabs -->
   <div
-    class="mb-6 flex items-center gap-1 p-1 bg-secondary/30 rounded-lg w-fit"
+    class="mb-6 flex items-center gap-1 p-1 bg-secondary/30 rounded-lg w-fit animate-in delay-2"
   >
     <button
       type="button"

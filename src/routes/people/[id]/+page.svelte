@@ -13,7 +13,7 @@
     let error = $state(null);
     let usingMockData = $state(false);
 
-    // Mock people data for development/testing when Supabase is not configured
+    // Mock people data for development/testing when Convex is not configured
     const mockPeople = {
         "1": {
             id: "1",
@@ -318,7 +318,7 @@
                 attendanceResult.error ||
                 !personResult.data
             ) {
-                throw new Error("Supabase not configured or data not found");
+                throw new Error("Convex not configured or data not found");
             }
 
             person = personResult.data;
@@ -523,8 +523,8 @@
                     />
                 </svg>
                 <span
-                    >Using demo data. Configure Supabase environment variables
-                    to connect to your database.</span
+                    >Using demo data. Configure Convex environment variables to
+                    connect to your database.</span
                 >
             </div>
         {/if}

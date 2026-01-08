@@ -36,10 +36,12 @@
   {/snippet}
 
   <!-- Page Header -->
-  <PageHeader title="Dashboard" />
+  <div class="animate-in">
+    <PageHeader title="Dashboard" />
+  </div>
 
   <!-- KPI Cards Section -->
-  <section class="mb-6">
+  <section class="mb-6 animate-in delay-1">
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       {#each kpiData as kpi}
         <KPICard
@@ -53,7 +55,9 @@
   </section>
 
   <!-- Charts & Activity Section -->
-  <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-10">
+  <section
+    class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-10 animate-in delay-2"
+  >
     <!-- Attendance Chart -->
     <AttendanceChart data={attendanceChartData} />
 

@@ -35,6 +35,13 @@
   import InviterProfilePopup from "$lib/components/dashboard/InviterProfilePopup.svelte";
   import { goto } from "$app/navigation";
 
+  // Import centralized mock data
+  import {
+    mockPeople as centralMockPeople,
+    mockEvangelismContacts as centralMockContacts,
+    getPersonById,
+  } from "$lib/data/mockData";
+
   // State
   let contacts = $state([]);
   let people = $state([]); // For inviter dropdown
@@ -84,7 +91,7 @@
     { value: "do_not_contact", label: "Do Not Contact" },
   ];
 
-  // Mock data for development when Supabase is not configured
+  // Mock data for development when Convex is not configured
   // Varied distribution: Nov=8, Oct=6, Sep=5, Dec=3, Aug=4, others=1-2
   const mockContacts = [
     // December 2025 (3 contacts)
@@ -1076,12 +1083,8 @@
       }
     } catch (e) {
       console.warn("Failed to load people:", e.message);
-      // Mock people for demo
-      people = [
-        { id: "p1", first_name: "John", last_name: "Smith" },
-        { id: "p2", first_name: "Mary", last_name: "Johnson" },
-        { id: "p3", first_name: "Peter", last_name: "Williams" },
-      ];
+      // Use centralized mock people for demo
+      people = centralMockPeople;
     }
   }
 
@@ -1102,8 +1105,8 @@
       contacts = result.data || [];
       usingMockData = false;
     } catch (e) {
-      console.warn("Failed to load from Supabase, using mock data:", e.message);
-      contacts = mockContacts;
+      console.warn("Failed to load from Convex, using mock data:", e.message);
+      contacts = centralMockContacts;
       usingMockData = true;
       error = null;
     } finally {
@@ -1230,7 +1233,7 @@
 
   <!-- Page Header with Add Button -->
   <div
-    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6"
+    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 animate-in"
   >
     <PageHeader
       title="Evangelism Contacts"
@@ -1258,7 +1261,7 @@
   <!-- Mock Data Banner -->
   {#if usingMockData}
     <div
-      class="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning text-sm flex items-center gap-2"
+      class="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning text-sm flex items-center gap-2 animate-in delay-1"
     >
       <svg
         class="w-5 h-5 flex-shrink-0"
@@ -1274,7 +1277,7 @@
         />
       </svg>
       <span
-        >Using demo data. Configure Supabase environment variables to connect to
+        >Using demo data. Configure Convex environment variables to connect to
         your database.</span
       >
     </div>
@@ -1282,7 +1285,7 @@
 
   <!-- View Toggle Tabs -->
   <div
-    class="mb-6 flex items-center gap-1 p-1 bg-secondary/30 rounded-lg w-fit"
+    class="mb-6 flex items-center gap-1 p-1 bg-secondary/30 rounded-lg w-fit animate-in delay-2"
   >
     <button
       type="button"

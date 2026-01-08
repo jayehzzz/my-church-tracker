@@ -56,7 +56,7 @@
     { value: "sat", label: "SAT" },
   ];
 
-  // Mock data for development when Supabase is not configured
+  // Mock data for development when Convex is not configured
   const mockMeetings = [
     {
       id: "1",
@@ -348,7 +348,7 @@
       meetings = result.data || [];
       usingMockData = false;
     } catch (e) {
-      console.warn("Failed to load from Supabase, using mock data:", e.message);
+      console.warn("Failed to load from Convex, using mock data:", e.message);
       meetings = mockMeetings;
       usingMockData = true;
       error = null;
@@ -426,7 +426,7 @@
 
   <!-- Page Header with Add Button -->
   <div
-    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6"
+    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 animate-in"
   >
     <PageHeader
       title="Meetings & Prayer"
@@ -454,7 +454,7 @@
   <!-- Mock Data Banner -->
   {#if usingMockData}
     <div
-      class="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning text-sm flex items-center gap-2"
+      class="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning text-sm flex items-center gap-2 animate-in delay-1"
     >
       <svg
         class="w-5 h-5 flex-shrink-0"
@@ -470,14 +470,16 @@
         />
       </svg>
       <span
-        >Using demo data. Configure Supabase environment variables to connect to
+        >Using demo data. Configure Convex environment variables to connect to
         your database.</span
       >
     </div>
   {/if}
 
   <!-- KPI Cards Section -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div
+    class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 animate-in delay-2"
+  >
     <KPICard
       title="Total Prayer Hours"
       value={kpis().totalHours}

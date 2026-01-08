@@ -1,55 +1,85 @@
-import { supabase } from '../supabase.js';
+/**
+ * Activities Service - Convex Backend
+ */
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../convex/_generated/api.js";
+
+function getClient() {
+  const convexUrl = import.meta.env?.VITE_CONVEX_URL;
+  if (!convexUrl) return null;
+  return new ConvexHttpClient(convexUrl);
+}
+
+const notConfigured = () => ({ data: null, error: new Error('Convex not configured') });
 
 export async function getAll() {
-  const { data, error } = await supabase
-    .from('activities')
-    .select('*')
-    .order('activity_date', { ascending: false });
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.query(api.activities.getAll);
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function getById(id) {
-  const { data, error } = await supabase
-    .from('activities')
-    .select('*')
-    .eq('id', id)
-    .single();
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.query(api.activities.getById, { id });
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function create(activityData) {
-  const { data, error } = await supabase
-    .from('activities')
-    .insert([activityData])
-    .select()
-    .single();
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.mutation(api.activities.create, activityData);
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function getByType(activityType) {
-  const { data, error } = await supabase
-    .from('activities')
-    .select('*')
-    .eq('activity_type', activityType)
-    .order('activity_date', { ascending: false });
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.query(api.activities.getByType, { activityType });
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function getByDateRange(startDate, endDate) {
-  const { data, error } = await supabase
-    .from('activities')
-    .select('*')
-    .gte('activity_date', startDate)
-    .lte('activity_date', endDate)
-    .order('activity_date', { ascending: false });
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.query(api.activities.getByDateRange, { startDate, endDate });
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function getRecent(limit = 10) {
-  const { data, error } = await supabase
-    .from('activities')
-    .select('*')
-    .order('activity_date', { ascending: false })
-    .limit(limit);
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.query(api.activities.getRecent, { limit });
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }

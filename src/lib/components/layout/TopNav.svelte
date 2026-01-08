@@ -15,10 +15,16 @@
 -->
 
 <script>
-  import { navigationStore } from "$lib/stores/navigationStore";
+  import { navigationStore, sidebarVisible } from "$lib/stores/navigationStore";
   import { openSearch } from "$lib/stores/searchStore";
   import { page } from "$app/stores";
   import GlobalSearch from "./GlobalSearch.svelte";
+
+  // Handle sidebar toggle
+  function toggleSidebar() {
+    navigationStore.toggleSidebar();
+    navigationStore.saveToStorage();
+  }
 
   // Page title mapping based on routes
   const pageTitles = {
@@ -64,13 +70,59 @@
 <header
   class="sticky top-0 z-30 w-full border-b border-border bg-card/80 backdrop-blur-md supports-[backdrop-filter]:bg-card/60 transition-all duration-200"
 >
-  <div class="flex h-16 items-center justify-between px-4 md:px-6">
-    <!-- Left Section: Mobile Menu + Title -->
-    <div class="flex items-center space-x-4">
+  <div class="flex h-16 items-center justify-between">
+    <!-- Left Section: Logo + Toggle + Title -->
+    <div class="flex items-center">
+      <!-- Logo/Brand Area - width matches sidebar -->
+      <div
+        class="hidden md:flex items-center justify-between px-4 border-r border-border/50 transition-all duration-300 {$sidebarVisible
+          ? 'w-64'
+          : 'w-16'}"
+      >
+        {#if $sidebarVisible}
+          <div class="flex items-center space-x-3">
+            <div
+              class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center"
+            >
+              <span class="text-primary-foreground font-bold text-sm">CT</span>
+            </div>
+            <span class="font-semibold text-foreground">Church Tracker</span>
+          </div>
+        {:else}
+          <div
+            class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center mx-auto"
+          >
+            <span class="text-primary-foreground font-bold text-sm">CT</span>
+          </div>
+        {/if}
+        <!-- Collapse Toggle Button -->
+        {#if $sidebarVisible}
+          <button
+            onclick={toggleSidebar}
+            class="w-6 h-6 flex items-center justify-center rounded hover:bg-secondary transition-colors"
+            aria-label="Collapse sidebar"
+          >
+            <svg
+              class="w-4 h-4 text-muted-foreground"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+          </button>
+        {/if}
+      </div>
+
       <!-- Mobile Hamburger Menu -->
       <button
         onclick={toggleMobileSidebar}
-        class="md:hidden flex items-center justify-center w-10 h-10 rounded-lg hover:bg-secondary transition-colors"
+        class="md:hidden flex items-center justify-center w-10 h-10 ml-4 rounded-lg hover:bg-secondary transition-colors"
         aria-label="Toggle mobile menu"
       >
         <svg
@@ -88,8 +140,31 @@
         </svg>
       </button>
 
+      <!-- Expand button when collapsed (shown inline with title) -->
+      {#if !$sidebarVisible}
+        <button
+          onclick={toggleSidebar}
+          class="hidden md:flex w-6 h-6 ml-2 items-center justify-center rounded hover:bg-secondary transition-colors"
+          aria-label="Expand sidebar"
+        >
+          <svg
+            class="w-4 h-4 text-muted-foreground"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 5l7 7-7 7"
+            />
+          </svg>
+        </button>
+      {/if}
+
       <!-- Page Title -->
-      <div class="flex items-center space-x-2">
+      <div class="flex items-center ml-4">
         <h1 class="text-lg font-semibold text-foreground truncate">
           {currentTitle}
         </h1>
@@ -97,7 +172,7 @@
     </div>
 
     <!-- Right Section: Search + Notifications + Profile -->
-    <div class="flex items-center space-x-3">
+    <div class="flex items-center space-x-3 pr-4 md:pr-6">
       <!-- Search Input (Placeholder) -->
       <div class="hidden md:flex items-center">
         <div class="relative">

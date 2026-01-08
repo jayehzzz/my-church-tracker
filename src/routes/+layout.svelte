@@ -20,20 +20,20 @@
    * Import global styles
    * This imports our Tailwind CSS configuration and custom design tokens
    */
-  import '../app.css';
-  
+  import "../app.css";
+
   /**
    * Import filter store for initialization and persistence
    */
-  import { filterStore } from '$lib/stores/filterStore';
-  import { onMount } from 'svelte';
-  import { browser } from '$app/environment';
-  
+  import { filterStore } from "$lib/stores/filterStore";
+  import { onMount } from "svelte";
+  import { browser } from "$app/environment";
+
   /**
    * Svelte 5: Props with children snippet for slot replacement
    */
   let { children } = $props();
-  
+
   /**
    * Initialize filters on mount
    * Priority: URL params > localStorage > defaults
@@ -42,7 +42,7 @@
     // Initialize filter state from URL or localStorage
     filterStore.initialize();
   });
-  
+
   /**
    * Subscribe to filter changes and sync to URL/localStorage
    * Using $effect for reactive side effects in Svelte 5
@@ -65,10 +65,10 @@
 <svelte:head>
   <!-- Ensure proper scaling on mobile devices -->
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  
+
   <!-- Theme color for browser chrome (matches our dark background) -->
   <meta name="theme-color" content="#1a1a1a" />
-  
+
   <!-- Prevent light mode flash on page load -->
   <meta name="color-scheme" content="dark" />
 </svelte:head>

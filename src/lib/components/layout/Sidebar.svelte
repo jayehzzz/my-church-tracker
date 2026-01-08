@@ -131,7 +131,7 @@
 <!-- Sidebar -->
 <aside
   class={`
-    fixed left-0 top-0 h-full z-50
+    fixed left-0 top-16 h-[calc(100vh-4rem)] z-40
     bg-sidebar border-r border-border
     transition-all duration-300 ease-in-out
     {$sidebarVisible ? 'w-64' : 'w-16'}
@@ -139,49 +139,6 @@
   `}
   style="background-color: hsl(var(--card));"
 >
-  <!-- Logo/Brand Area -->
-  <div class="flex items-center justify-between p-4 border-b border-border">
-    {#if $sidebarVisible}
-      <div class="flex items-center space-x-3">
-        <div
-          class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center"
-        >
-          <span class="text-primary-foreground font-bold text-sm">CT</span>
-        </div>
-        <span class="font-semibold text-foreground">Church Tracker</span>
-      </div>
-    {:else}
-      <div
-        class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center"
-      >
-        <span class="text-primary-foreground font-bold text-sm">CT</span>
-      </div>
-    {/if}
-
-    <!-- Collapse Toggle Button -->
-    <button
-      onclick={toggleSidebar}
-      class="hidden md:flex w-8 h-8 items-center justify-center rounded-lg hover:bg-secondary transition-colors"
-      aria-label={$sidebarVisible ? "Collapse sidebar" : "Expand sidebar"}
-    >
-      <svg
-        class="w-4 h-4 text-muted-foreground transition-transform {$sidebarVisible
-          ? ''
-          : 'rotate-180'}"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M15 19l-7-7 7-7"
-        />
-      </svg>
-    </button>
-  </div>
-
   <!-- Navigation Items -->
   <nav class="flex-1 px-3 py-4 space-y-1">
     {#each navItems as item}

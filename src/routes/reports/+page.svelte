@@ -221,7 +221,7 @@
 
     <!-- Page Header -->
     <div
-        class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6"
+        class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 animate-in"
     >
         <PageHeader
             title="Reports"

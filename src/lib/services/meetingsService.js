@@ -1,78 +1,121 @@
-import { supabase } from '../supabase.js';
+/**
+ * Meetings Service - Convex Backend
+ */
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../../convex/_generated/api.js";
+
+function getClient() {
+  const convexUrl = import.meta.env?.VITE_CONVEX_URL;
+  if (!convexUrl) return null;
+  return new ConvexHttpClient(convexUrl);
+}
+
+const notConfigured = () => ({ data: null, error: new Error('Convex not configured') });
 
 export async function getAll() {
-  const { data, error } = await supabase
-    .from('meetings')
-    .select('*, leader:leader_id(*)')
-    .order('meeting_date', { ascending: false });
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.query(api.meetings.getAll);
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function getById(id) {
-  const { data, error } = await supabase
-    .from('meetings')
-    .select('*, leader:leader_id(*)')
-    .eq('id', id)
-    .single();
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.query(api.meetings.getById, { id });
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function create(meetingData) {
-  const { data, error } = await supabase
-    .from('meetings')
-    .insert([meetingData])
-    .select()
-    .single();
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.mutation(api.meetings.create, meetingData);
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function update(id, meetingData) {
-  const { data, error } = await supabase
-    .from('meetings')
-    .update({ ...meetingData, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select()
-    .single();
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.mutation(api.meetings.update, { id, ...meetingData });
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function remove(id) {
-  const { error } = await supabase.from('meetings').delete().eq('id', id);
-  return { error };
+  const client = getClient();
+  if (!client) return { error: new Error('Convex not configured') };
+
+  try {
+    await client.mutation(api.meetings.remove, { id });
+    return { error: null };
+  } catch (error) {
+    return { error };
+  }
 }
 
 export async function getByType(meetingType) {
-  const { data, error } = await supabase
-    .from('meetings')
-    .select('*, leader:leader_id(*)')
-    .eq('meeting_type', meetingType)
-    .order('meeting_date', { ascending: false });
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.query(api.meetings.getByType, { meetingType });
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function getByDateRange(startDate, endDate) {
-  const { data, error } = await supabase
-    .from('meetings')
-    .select('*, leader:leader_id(*)')
-    .gte('meeting_date', startDate)
-    .lte('meeting_date', endDate)
-    .order('meeting_date', { ascending: false });
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.query(api.meetings.getByDateRange, { startDate, endDate });
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function addAttendee(meetingId, personId) {
-  const { data, error } = await supabase
-    .from('meeting_attendance')
-    .insert([{ meeting_id: meetingId, person_id: personId }])
-    .select()
-    .single();
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.mutation(api.meetings.addAttendee, { meetingId, personId });
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
 
 export async function getAttendees(meetingId) {
-  const { data, error } = await supabase
-    .from('meeting_attendance')
-    .select('*, people(*)')
-    .eq('meeting_id', meetingId);
-  return { data, error };
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.query(api.meetings.getAttendees, { meetingId });
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 }
