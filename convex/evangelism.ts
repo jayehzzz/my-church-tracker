@@ -1,45 +1,69 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
-// Get all evangelism contacts with inviter data
+/**
+ * REFACTORED: Now queries the Unified `people` table for guests/contacts.
+ * Acts as an ADAPTER to map unified unified schema fields back to legacy fields expected by frontend.
+ */
+
+// Helper to map Person -> EvangelismContact format
+const mapToContact = (person: any, inviter: any = null) => {
+    return {
+        ...person,
+        id: person._id, // Ensure ID is accessible as 'id' if needed
+
+        // Mapped fields
+        response: person.contact_category,
+        status: person.member_status,
+        converted: person.member_status === "member",
+
+        // Enrichment
+        contacted_by_person: inviter,
+    };
+};
+
 export const getAll = query({
     args: {},
     handler: async (ctx) => {
-        const contacts = await ctx.db.query("evangelism_contacts").collect();
+        const contacts = await ctx.db
+            .query("people")
+            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
+            .collect();
+
         const results = await Promise.all(
             contacts.map(async (contact) => {
-                // Get inviter person if exists
-                let contacted_by_person = null;
+                let inviter = null;
                 if (contact.invited_by_id) {
-                    // Try to find the person by matching the string ID
-                    const people = await ctx.db.query("people").collect();
-                    contacted_by_person = people.find(p => p._id.toString().includes(contact.invited_by_id!)) || null;
+                    inviter = await ctx.db.get(contact.invited_by_id);
                 }
-                return { ...contact, contacted_by_person };
+                return mapToContact(contact, inviter);
             })
         );
+
         return results.sort(
-            (a, b) => new Date(b.contact_date).getTime() - new Date(a.contact_date).getTime()
+            (a, b) => {
+                const dateA = a.contact_date || a.created_at;
+                const dateB = b.contact_date || b.created_at;
+                return new Date(dateB).getTime() - new Date(dateA).getTime();
+            }
         );
     },
 });
 
-// Get contact by ID
 export const getById = query({
-    args: { id: v.id("evangelism_contacts") },
+    args: { id: v.id("people") },
     handler: async (ctx, args) => {
         const contact = await ctx.db.get(args.id);
         if (!contact) return null;
-        let contacted_by_person = null;
+
+        let inviter = null;
         if (contact.invited_by_id) {
-            const people = await ctx.db.query("people").collect();
-            contacted_by_person = people.find(p => p._id.toString().includes(contact.invited_by_id!)) || null;
+            inviter = await ctx.db.get(contact.invited_by_id);
         }
-        return { ...contact, contacted_by_person };
+        return mapToContact(contact, inviter);
     },
 });
 
-// Create evangelism contact
 export const create = mutation({
     args: {
         first_name: v.string(),
@@ -48,170 +72,199 @@ export const create = mutation({
         phone: v.optional(v.string()),
         address: v.optional(v.string()),
         contact_date: v.string(),
-        response: v.string(),
+        response: v.string(), // Maps to contact_category
+        invited_by_id: v.optional(v.id("people")),
+        comments: v.optional(v.array(v.string())),
+
+        // Frontend might send these
+        contact_method: v.optional(v.string()),
         follow_up_date: v.optional(v.string()),
-        converted: v.boolean(),
-        conversion_date: v.optional(v.string()),
-        status: v.optional(v.string()),
         attended_church: v.optional(v.boolean()),
         salvation_decision: v.optional(v.boolean()),
-        invited_by_id: v.optional(v.string()),
-        comments: v.optional(v.array(v.string())),
+        converted: v.optional(v.boolean()),
+        conversion_date: v.optional(v.string()),
+        notes: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         const now = new Date().toISOString();
-        const id = await ctx.db.insert("evangelism_contacts", {
-            ...args,
+
+        // If 'converted' is true, set status to member
+        const status = args.converted ? "member" : "guest";
+
+        const id = await ctx.db.insert("people", {
+            first_name: args.first_name,
+            last_name: args.last_name || "",
+            email: args.email,
+            phone: args.phone,
+            address: args.address,
+
+            member_status: status,
+            contact_category: args.response,
+            contact_date: args.contact_date,
+            invited_by_id: args.invited_by_id,
+
+            // New unified fields for attendance/spiritual tracking
+            membership_date: args.conversion_date,
+
             created_at: now,
+            updated_at: now,
         });
+
         return await ctx.db.get(id);
     },
 });
 
-// Update evangelism contact
 export const update = mutation({
     args: {
-        id: v.id("evangelism_contacts"),
+        id: v.id("people"),
         first_name: v.optional(v.string()),
         last_name: v.optional(v.string()),
         email: v.optional(v.string()),
         phone: v.optional(v.string()),
         address: v.optional(v.string()),
-        contact_date: v.optional(v.string()),
+
         response: v.optional(v.string()),
+        invited_by_id: v.optional(v.id("people")),
+        contact_date: v.optional(v.string()),
+
+        contact_method: v.optional(v.string()),
         follow_up_date: v.optional(v.string()),
-        converted: v.optional(v.boolean()),
-        conversion_date: v.optional(v.string()),
-        status: v.optional(v.string()),
         attended_church: v.optional(v.boolean()),
         salvation_decision: v.optional(v.boolean()),
-        invited_by_id: v.optional(v.string()),
-        added_as_person_id: v.optional(v.id("people")),
-        comments: v.optional(v.array(v.string())),
+        converted: v.optional(v.boolean()),
+        conversion_date: v.optional(v.string()),
+        notes: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const { id, ...updates } = args;
-        await ctx.db.patch(id, {
-            ...updates,
+        const { id, response, converted, conversion_date, ...rest } = args;
+
+        const updates: any = {
+            ...rest,
             updated_at: new Date().toISOString(),
-        });
+        };
+
+        if (response) updates.contact_category = response;
+        if (converted !== undefined) {
+            updates.member_status = converted ? "member" : "guest";
+        }
+        if (conversion_date) {
+            updates.membership_date = conversion_date;
+        }
+
+        // Clean up fields not in people schema
+        delete updates.contact_method;
+        delete updates.follow_up_date;
+        delete updates.notes;
+
+        await ctx.db.patch(id, updates);
         return await ctx.db.get(id);
     },
 });
 
-// Delete evangelism contact
 export const remove = mutation({
-    args: { id: v.id("evangelism_contacts") },
+    args: { id: v.id("people") },
     handler: async (ctx, args) => {
         await ctx.db.delete(args.id);
         return { success: true };
     },
 });
 
-// Get contacts by response type
+export const markAsConverted = mutation({
+    args: {
+        id: v.id("people"),
+        addToPeople: v.optional(v.boolean()), // Legacy, ignored
+    },
+    handler: async (ctx, args) => {
+        const now = new Date().toISOString();
+        const today = now.split('T')[0];
+
+        await ctx.db.patch(args.id, {
+            member_status: "member",
+            membership_date: today,
+            updated_at: now,
+        });
+
+        return await ctx.db.get(args.id);
+    },
+});
+
 export const getByResponse = query({
     args: { response: v.string() },
     handler: async (ctx, args) => {
         const contacts = await ctx.db
-            .query("evangelism_contacts")
-            .withIndex("by_response", (q) => q.eq("response", args.response))
+            .query("people")
+            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
             .collect();
-        return contacts.sort(
-            (a, b) => new Date(b.contact_date).getTime() - new Date(a.contact_date).getTime()
-        );
+
+        const filtered = contacts.filter(c => c.contact_category === args.response);
+
+        return await Promise.all(filtered.map(async (c) => {
+            let inviter = null;
+            if (c.invited_by_id) inviter = await ctx.db.get(c.invited_by_id);
+            return mapToContact(c, inviter);
+        }));
     },
 });
 
-// Get contacts requiring follow-up
 export const getRequiringFollowUp = query({
     args: {},
     handler: async (ctx) => {
-        const today = new Date().toISOString().split("T")[0];
-        const contacts = await ctx.db.query("evangelism_contacts").collect();
-        return contacts
-            .filter(
-                (c) =>
-                    c.follow_up_date !== null &&
-                    c.follow_up_date !== undefined &&
-                    c.follow_up_date <= today &&
-                    !c.converted
-            )
-            .sort((a, b) => {
-                if (!a.follow_up_date) return 1;
-                if (!b.follow_up_date) return -1;
-                return a.follow_up_date.localeCompare(b.follow_up_date);
-            });
+        return []; // TODO: Implement follow-up logic in unified model
     },
 });
 
-// Get converted contacts
 export const getConverted = query({
     args: {},
     handler: async (ctx) => {
-        const contacts = await ctx.db
-            .query("evangelism_contacts")
-            .withIndex("by_converted", (q) => q.eq("converted", true))
+        const members = await ctx.db
+            .query("people")
+            .withIndex("by_member_status", (q) => q.eq("member_status", "member"))
             .collect();
-        return contacts.sort((a, b) => {
-            if (!a.conversion_date) return 1;
-            if (!b.conversion_date) return -1;
-            return new Date(b.conversion_date).getTime() - new Date(a.conversion_date).getTime();
-        });
+
+        // Filter those who came from evangelism (have contact_date)
+        const convertedContacts = members.filter(m => m.contact_date != null);
+
+        return await Promise.all(convertedContacts.map(async (c) => {
+            let inviter = null;
+            if (c.invited_by_id) inviter = await ctx.db.get(c.invited_by_id);
+            return mapToContact(c, inviter);
+        }));
     },
 });
 
-// Get contacts by date range
 export const getByDateRange = query({
     args: { startDate: v.string(), endDate: v.string() },
     handler: async (ctx, args) => {
-        const contacts = await ctx.db.query("evangelism_contacts").collect();
-        return contacts
-            .filter(
-                (c) => c.contact_date >= args.startDate && c.contact_date <= args.endDate
-            )
-            .sort(
-                (a, b) => new Date(b.contact_date).getTime() - new Date(a.contact_date).getTime()
-            );
+        const contacts = await ctx.db
+            .query("people")
+            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
+            .collect();
+
+        const filtered = contacts.filter(c => {
+            if (!c.contact_date) return false;
+            return c.contact_date >= args.startDate && c.contact_date <= args.endDate;
+        });
+
+        return await Promise.all(filtered.map(async (c) => {
+            let inviter = null;
+            if (c.invited_by_id) inviter = await ctx.db.get(c.invited_by_id);
+            return mapToContact(c, inviter);
+        }));
     },
 });
 
-// Mark contact as converted
-export const markAsConverted = mutation({
-    args: {
-        id: v.id("evangelism_contacts"),
-        addToPeople: v.optional(v.boolean()),
-    },
+export const getByInviter = query({
+    args: { personId: v.id("people") },
     handler: async (ctx, args) => {
-        const contact = await ctx.db.get(args.id);
-        if (!contact) return { data: null, error: "Contact not found" };
+        const contacts = await ctx.db
+            .query("people")
+            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
+            .filter(q => q.eq(q.field("invited_by_id"), args.personId))
+            .collect();
 
-        const today = new Date().toISOString().split("T")[0];
-        let addedPersonId = null;
-
-        // Add to people if requested
-        if (args.addToPeople) {
-            const now = new Date().toISOString();
-            const personId = await ctx.db.insert("people", {
-                first_name: contact.first_name,
-                last_name: contact.last_name || "",
-                email: contact.email,
-                phone: contact.phone,
-                address: contact.address,
-                member_status: "visitor",
-                created_at: now,
-                updated_at: now,
-            });
-            addedPersonId = personId;
-        }
-
-        // Update the contact
-        await ctx.db.patch(args.id, {
-            converted: true,
-            conversion_date: today,
-            added_as_person_id: addedPersonId,
-            updated_at: new Date().toISOString(),
-        });
-
-        return await ctx.db.get(args.id);
+        return await Promise.all(contacts.map(async (c) => {
+            const inviter = await ctx.db.get(args.personId);
+            return mapToContact(c, inviter);
+        }));
     },
 });

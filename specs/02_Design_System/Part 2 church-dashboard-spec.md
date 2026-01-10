@@ -946,7 +946,7 @@ aria-current="page" - Current page in navigation
 
 ### Technology Stack Clarification
 
-**IMPORTANT:** This project uses **standard Svelte (v5 if possible) + ShadCN/UI + Tailwind CSS + Supabase**.
+**IMPORTANT:** This project uses **standard Svelte (v5 if possible) + ShadCN/UI + Tailwind CSS + Convex**.
 
 - **Kilo Code** is the IDE/development environment being used to build this application
 - All code produced must be **standard, exportable Svelte code** that can run independently
@@ -963,82 +963,144 @@ aria-current="page" - Current page in navigation
 
 2. **Data Binding:**
    - Use Svelte's native reactivity ($state, $derived, $effect in Svelte 5)
-   - Bind form inputs directly to Supabase via standard JavaScript/TypeScript
+   - Bind form inputs directly to logic that calls Convex mutations
    - Create calculated fields using derived stores or computed properties
 
 3. **State Management:**
    - Use Svelte stores for global state
-   - Leverage Supabase real-time subscriptions for live updates
-   - Implement standard async/await patterns for data fetching
+   - Leverage Convex's reactive `useQuery` for live data updates
+   - Implement standard async/await patterns for actions/mutations
 
-4. **Database Design (Supabase):**
+4. **Data Model (Convex Schema):**
 
-   **Unified People Table:**
-   ```sql
-   -- Single table for ALL people (guests, members, leaders)
-   CREATE TABLE people (
-     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-     name TEXT NOT NULL,
-     phone TEXT,
-     email TEXT,
-     address TEXT,
-     date_of_birth DATE,
-     gender TEXT,
-     status TEXT DEFAULT 'guest', -- 'guest', 'member', 'leader', 'archived'
-     role TEXT, -- 'basonta_worker', 'bacenta_leader', etc.
-     baptised BOOLEAN DEFAULT FALSE,
-     tithe_status BOOLEAN DEFAULT FALSE,
-     join_date DATE,
-     invited_by_id UUID REFERENCES people(id),
-     salvation_decision_date DATE, -- When they made a decision for Christ
-     membership_join_date DATE, -- When guest became member
-     created_at TIMESTAMPTZ DEFAULT NOW(),
-     updated_at TIMESTAMPTZ DEFAULT NOW()
-   );
-   ```
+   **Convex Schema Definition (`convex/schema.ts`):**
+   ```typescript
+   import { defineSchema, defineTable } from "convex/server";
+   import { v } from "convex/values";
 
-   **Meetings Table:**
-   ```sql
-   CREATE TABLE meetings (
-     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-     meeting_type TEXT NOT NULL, -- 'sunday_service', 'bacenta', 'flow_prayer', etc.
-     date DATE NOT NULL,
-     topic TEXT,
-     location TEXT,
-     notes TEXT,
-     created_at TIMESTAMPTZ DEFAULT NOW()
-   );
-   ```
+   export default defineSchema({
+       // People - Church members, visitors, and leaders
+       people: defineTable({
+           first_name: v.string(),
+           last_name: v.string(),
+           email: v.optional(v.string()),
+           phone: v.optional(v.string()),
+           member_status: v.string(), // "member", "visitor", "leader", "archived"
+           role: v.optional(v.string()), // "basonta_leader", "bacenta_leader", "basonta_worker", "no_role"
+           activity_status: v.optional(v.string()), // "regular", "irregular", "dormant"
+           leader_id: v.optional(v.string()),
+           address: v.optional(v.string()),
+           lat: v.optional(v.float64()),
+           lng: v.optional(v.float64()),
+           avatar_url: v.optional(v.string()),
+           membership_date: v.optional(v.string()),
+           created_at: v.string(),
+           updated_at: v.string(),
+       }).index("by_member_status", ["member_status"])
+         .index("by_last_name", ["last_name"]),
 
-   **Meeting Attendance (Many-to-Many Junction Table):**
-   ```sql
-   -- Links people to meetings they attended
-   CREATE TABLE meeting_attendance (
-     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-     person_id UUID REFERENCES people(id) ON DELETE CASCADE,
-     meeting_id UUID REFERENCES meetings(id) ON DELETE CASCADE,
-     attended BOOLEAN DEFAULT TRUE,
-     role_at_meeting TEXT, -- 'attendee', 'leader', 'speaker', etc.
-     notes TEXT,
-     created_at TIMESTAMPTZ DEFAULT NOW(),
-     UNIQUE(person_id, meeting_id)
-   );
-   ```
+       // Services - Church services
+       services: defineTable({
+           service_date: v.string(),
+           service_type: v.string(), // "sunday_service", "special_service"
+           service_time: v.optional(v.string()),
+           location: v.optional(v.string()),
+           sermon_topic: v.optional(v.string()),
+           sermon_speaker: v.optional(v.string()),
+           total_attendance: v.optional(v.float64()),
+           guests_count: v.optional(v.float64()),
+           salvation_decisions: v.optional(v.float64()),
+           tithers_count: v.optional(v.float64()),
+           individuals: v.optional(v.array(v.string())),
+           photos: v.optional(v.array(v.string())),
+           created_at: v.string(),
+           updated_at: v.optional(v.string()),
+       }).index("by_service_date", ["service_date"]),
 
-   **Evangelism Contacts Table:**
-   ```sql
-   CREATE TABLE evangelism_contacts (
-     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-     person_id UUID REFERENCES people(id) ON DELETE CASCADE,
-     category TEXT, -- 'responsive', 'non_responsive', 'has_church', etc.
-     date_contacted DATE,
-     salvation_decision BOOLEAN DEFAULT FALSE, -- Did they make a decision for Christ?
-     attended_church BOOLEAN DEFAULT FALSE,
-     invited_by_id UUID REFERENCES people(id),
-     comments TEXT,
-     created_at TIMESTAMPTZ DEFAULT NOW(),
-     updated_at TIMESTAMPTZ DEFAULT NOW()
-   );
+       // Attendance - Links people to services
+       attendance: defineTable({
+           service_id: v.id("services"),
+           person_id: v.id("people"),
+           created_at: v.string(),
+       }).index("by_service", ["service_id"])
+         .index("by_person", ["person_id"]),
+
+       // Evangelism Contacts - Outreach records
+       evangelism_contacts: defineTable({
+           first_name: v.string(),
+           last_name: v.optional(v.string()),
+           email: v.optional(v.string()),
+           phone: v.optional(v.string()),
+           address: v.optional(v.string()),
+           contact_date: v.string(),
+           response: v.string(), // "responsive", "non_responsive", "events_only", "do_not_contact", "has_church"
+           follow_up_date: v.optional(v.string()),
+           converted: v.boolean(),
+           conversion_date: v.optional(v.string()),
+           status: v.optional(v.string()),
+           attended_church: v.optional(v.boolean()),
+           salvation_decision: v.optional(v.boolean()),
+           invited_by_id: v.optional(v.string()),
+           added_as_person_id: v.optional(v.id("people")),
+           comments: v.optional(v.array(v.string())),
+           created_at: v.string(),
+           updated_at: v.optional(v.string()),
+       }).index("by_contact_date", ["contact_date"])
+         .index("by_response", ["response"])
+         .index("by_converted", ["converted"]),
+
+       // Meetings - Prayer meetings and group gatherings
+       meetings: defineTable({
+           meeting_date: v.string(),
+           meeting_type: v.string(), // "bacenta", "flow_prayer", "all_night_prayer", "basonta", "sat", "farley_prayer"
+           start_time: v.optional(v.string()),
+           end_time: v.optional(v.string()),
+           duration_minutes: v.optional(v.float64()),
+           location: v.optional(v.string()),
+           attendance_count: v.optional(v.float64()),
+           leaders_count: v.optional(v.float64()),
+           leader_id: v.optional(v.string()),
+           notes: v.optional(v.string()),
+           created_at: v.string(),
+           updated_at: v.optional(v.string()),
+       }).index("by_meeting_date", ["meeting_date"])
+         .index("by_meeting_type", ["meeting_type"]),
+
+       // Meeting Attendance - Links people to meetings
+       meeting_attendance: defineTable({
+           meeting_id: v.id("meetings"),
+           person_id: v.id("people"),
+           created_at: v.string(),
+       }).index("by_meeting", ["meeting_id"])
+         .index("by_person", ["person_id"]),
+
+       // Visitations - Home visit records
+       visitations: defineTable({
+           person_id: v.id("people"),
+           person_visited_name: v.optional(v.string()),
+           visited_by_name: v.optional(v.string()),
+           visited_by_id: v.optional(v.string()),
+           visit_date: v.string(),
+           outcome: v.string(), // "welcomed_encouraged", "prayer_request_received", "not_home", "concerns_shared", "invited_to_service"
+           follow_up_required: v.boolean(),
+           follow_up_date: v.optional(v.string()),
+           notes: v.optional(v.string()),
+           created_at: v.string(),
+           updated_at: v.optional(v.string()),
+       }).index("by_visit_date", ["visit_date"])
+         .index("by_person", ["person_id"])
+         .index("by_follow_up", ["follow_up_required"]),
+
+       // Activities - Activity log entries
+       activities: defineTable({
+           activity_type: v.string(),
+           activity_date: v.string(),
+           description: v.optional(v.string()),
+           participants_count: v.optional(v.float64()),
+           notes: v.optional(v.string()),
+           created_at: v.string(),
+       }).index("by_activity_date", ["activity_date"]),
+   });
    ```
 
 5. **Security Model (Single-Tenant):**
@@ -1233,7 +1295,7 @@ To avoid confusion, this project uses specific terminology:
 **Created:** December 9, 2025  
 **Last Updated:** December 9, 2025  
 **Audience:** AI model implementation, development team, design review  
-**Technology Stack:** Standard Svelte 5, ShadCN/UI, Tailwind CSS, Supabase  
+**Technology Stack:** Standard Svelte 5, ShadCN/UI, Tailwind CSS, Convex  
 **Development Environment:** Kilo Code (IDE only - all code is standard, exportable Svelte)  
 **Status:** Ready for AI implementation  
 

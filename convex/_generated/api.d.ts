@@ -12,6 +12,7 @@ import type * as attendance from "../attendance.js";
 import type * as evangelism from "../evangelism.js";
 import type * as meetings from "../meetings.js";
 import type * as people from "../people.js";
+import type * as seed from "../seed.js";
 import type * as services from "../services.js";
 import type * as visitations from "../visitations.js";
 
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   evangelism: typeof evangelism;
   meetings: typeof meetings;
   people: typeof people;
+  seed: typeof seed;
   services: typeof services;
   visitations: typeof visitations;
 }>;

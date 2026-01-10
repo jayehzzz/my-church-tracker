@@ -25,15 +25,33 @@ export const create = mutation({
         last_name: v.string(),
         email: v.optional(v.string()),
         phone: v.optional(v.string()),
+        address: v.optional(v.string()),
+
+        // Identity & Demographics
+        preferred_name: v.optional(v.string()),
+        birthday: v.optional(v.string()),
+
+        // Status & Role
         member_status: v.string(),
         role: v.optional(v.string()),
         activity_status: v.optional(v.string()),
         leader_id: v.optional(v.string()),
-        address: v.optional(v.string()),
+
+        // Evangelism / Contact Info
+        contact_category: v.optional(v.string()),
+        contact_date: v.optional(v.string()),
+        invited_by_id: v.optional(v.id("people")),
+
+        // Spiritual Milestones
+        first_visit_date: v.optional(v.string()),
+        membership_date: v.optional(v.string()),
+        is_baptised: v.optional(v.boolean()),
+        is_tither: v.optional(v.boolean()),
+
+        // System
         lat: v.optional(v.float64()),
         lng: v.optional(v.float64()),
         avatar_url: v.optional(v.string()),
-        membership_date: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         const now = new Date().toISOString();
@@ -50,19 +68,33 @@ export const create = mutation({
 export const update = mutation({
     args: {
         id: v.id("people"),
+
         first_name: v.optional(v.string()),
         last_name: v.optional(v.string()),
         email: v.optional(v.string()),
         phone: v.optional(v.string()),
+        address: v.optional(v.string()),
+
+        preferred_name: v.optional(v.string()),
+        birthday: v.optional(v.string()),
+
         member_status: v.optional(v.string()),
         role: v.optional(v.string()),
         activity_status: v.optional(v.string()),
         leader_id: v.optional(v.string()),
-        address: v.optional(v.string()),
+
+        contact_category: v.optional(v.string()),
+        contact_date: v.optional(v.string()),
+        invited_by_id: v.optional(v.id("people")),
+
+        first_visit_date: v.optional(v.string()),
+        membership_date: v.optional(v.string()),
+        is_baptised: v.optional(v.boolean()),
+        is_tither: v.optional(v.boolean()),
+
         lat: v.optional(v.float64()),
         lng: v.optional(v.float64()),
         avatar_url: v.optional(v.string()),
-        membership_date: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         const { id, ...updates } = args;

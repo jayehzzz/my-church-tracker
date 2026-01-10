@@ -3,7 +3,7 @@
 **Version:** 1.1  
 **Date:** December 9, 2025  
 **Project Type:** Web-based Church Management Dashboard  
-**Tech Stack:** Standard Svelte (v5) + ShadCN/UI + Tailwind CSS + Supabase  
+**Tech Stack:** Standard Svelte (v5) + ShadCN/UI + Tailwind CSS + Convex  
 **Design Inspiration:** Kole Jain, Sajid Coder, Modern SaaS Dashboards  
 
 ---
@@ -62,7 +62,7 @@ This project uses **standard, exportable Svelte code**:
 | **Svelte v5** | Frontend framework | Standard Svelte, not SvelteKit (unless routing needed) |
 | **ShadCN/UI (Svelte)** | Component library | Pre-built accessible components |
 | **Tailwind CSS** | Styling | Utility-first CSS framework |
-| **Supabase** | Backend | Database, Auth, Real-time subscriptions |
+| **Convex** | Backend | Real-time Database, Backend Functions |
 
 ### Development Environment Note
 **"Kilo Code"** refers to the IDE/development environment being used to build this project. It is NOT a framework, component library, or low-code platform. 

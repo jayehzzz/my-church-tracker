@@ -340,19 +340,18 @@ function getDateRange(filterType, year, month, quarter) {
 
 ### Database Query with Filter
 ```javascript
-// Supabase query with date filtering
-async function getEvangelismDataFiltered(startDate, endDate) {
-  const { data, error } = await supabase
-    .from('contacts')
-    .select('*')
-    .gte('date_contacted', startDate)
-    .lte('date_contacted', endDate)
-    .order('date_contacted', { ascending: false });
+// Convex query with date filtering
+const contacts = await ctx.db
+  .query("contacts")
+  .filter((q) => 
+    q.and(
+      q.gte(q.field("date_contacted"), startDate),
+      q.lte(q.field("date_contacted"), endDate)
+    )
+  )
+  .order("desc")
+  .collect();
     
-  if (error) console.error('Query error:', error);
-  return data;
-}
-
 // Example: Get October 2024 data
 // getEvangelismDataFiltered('2024-10-01', '2024-10-31')
 // → Returns only contacts added in October 2024

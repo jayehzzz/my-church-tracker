@@ -6,6 +6,8 @@
   import AttendanceChart from "$lib/components/dashboard/AttendanceChart.svelte";
   import RecentActivityList from "$lib/components/dashboard/RecentActivityList.svelte";
 
+  import Motion from "$lib/components/ui/Motion.svelte";
+
   // Import filter store for reactive date range
   import { dateRange } from "$lib/stores/filterStore";
 
@@ -30,38 +32,41 @@
 </script>
 
 <DashboardLayout>
-  <!-- Filters in the named snippet slot -->
   {#snippet filters()}
     <FilterBar />
   {/snippet}
 
   <!-- Page Header -->
-  <div class="animate-in">
+  <Motion>
     <PageHeader title="Dashboard" />
-  </div>
+  </Motion>
 
   <!-- KPI Cards Section -->
-  <section class="mb-6 animate-in delay-1">
+  <section class="mb-6">
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      {#each kpiData as kpi}
-        <KPICard
-          title={kpi.title}
-          value={kpi.value}
-          trend={kpi.trend}
-          format={kpi.format}
-        />
+      {#each kpiData as kpi, i}
+        <Motion delay={100 + i * 50}>
+          <KPICard
+            title={kpi.title}
+            value={kpi.value}
+            trend={kpi.trend}
+            format={kpi.format}
+          />
+        </Motion>
       {/each}
     </div>
   </section>
 
   <!-- Charts & Activity Section -->
-  <section
-    class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-10 animate-in delay-2"
-  >
+  <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-10">
     <!-- Attendance Chart -->
-    <AttendanceChart data={attendanceChartData} />
+    <Motion delay={300} class="w-full min-w-0">
+      <AttendanceChart data={attendanceChartData} />
+    </Motion>
 
     <!-- Recent Activity -->
-    <RecentActivityList activities={recentActivities} />
+    <Motion delay={400} class="w-full min-w-0">
+      <RecentActivityList activities={recentActivities} />
+    </Motion>
   </section>
 </DashboardLayout>

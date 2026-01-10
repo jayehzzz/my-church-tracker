@@ -14,24 +14,24 @@
 
 <script>
   // Import the dateRange store for filter awareness
-  import { dateRange } from '$lib/stores/filterStore';
-  
+  import { dateRange } from "$lib/stores/filterStore";
+
   /**
    * Default mock data for demonstration purposes (used when no data prop provided)
    */
   const defaultData = [
-    { month: 'Jan', attendance: 120 },
-    { month: 'Feb', attendance: 135 },
-    { month: 'Mar', attendance: 142 },
-    { month: 'Apr', attendance: 128 },
-    { month: 'May', attendance: 155 },
-    { month: 'Jun', attendance: 148 },
-    { month: 'Jul', attendance: 132 },
-    { month: 'Aug', attendance: 145 },
-    { month: 'Sep', attendance: 168 },
-    { month: 'Oct', attendance: 175 },
-    { month: 'Nov', attendance: 182 },
-    { month: 'Dec', attendance: 190 }
+    { month: "Jan", attendance: 120 },
+    { month: "Feb", attendance: 135 },
+    { month: "Mar", attendance: 142 },
+    { month: "Apr", attendance: 128 },
+    { month: "May", attendance: 155 },
+    { month: "Jun", attendance: 148 },
+    { month: "Jul", attendance: 132 },
+    { month: "Aug", attendance: 145 },
+    { month: "Sep", attendance: 168 },
+    { month: "Oct", attendance: 175 },
+    { month: "Nov", attendance: 182 },
+    { month: "Dec", attendance: 190 },
   ];
 
   /**
@@ -39,50 +39,69 @@
    * @param {Array} [data] - Array of monthly attendance data
    * @param {string} [title='Attendance Trend'] - Chart title
    */
-  let { data = defaultData, title = 'Attendance Trend' } = $props();
+  let { data = defaultData, title = "Attendance Trend" } = $props();
 
   // Track which bar is currently hovered for tooltip display
   let hoveredIndex = $state(null);
-  
+
   // Get the current filter label for display using $derived
-  const filterLabel = $derived($dateRange?.label || 'All Time');
-  
+  const filterLabel = $derived($dateRange?.label || "All Time");
+
   // Check if we have valid data to display
   const hasData = $derived(data && data.length > 0);
-  
+
   // Use provided data or fall back to default
   const chartData = $derived(hasData ? data : defaultData);
 
   /**
    * Calculate the maximum attendance value for scaling bar heights
    */
-  const maxAttendance = $derived(hasData ? Math.max(...chartData.map(d => d.attendance)) * 1.1 : 200);
+  const maxAttendance = $derived(
+    hasData ? Math.max(...chartData.map((d) => d.attendance)) * 1.1 : 200,
+  );
 
   /**
    * Calculate the minimum attendance value for statistics display
    */
-  const minAttendance = $derived(hasData ? Math.min(...chartData.map(d => d.attendance)) : 0);
+  const minAttendance = $derived(
+    hasData ? Math.min(...chartData.map((d) => d.attendance)) : 0,
+  );
 
   /**
    * Calculate the average attendance across all months
    */
-  const averageAttendance = $derived(hasData
-    ? Math.round(chartData.reduce((sum, d) => sum + d.attendance, 0) / chartData.length)
-    : 0);
+  const averageAttendance = $derived(
+    hasData
+      ? Math.round(
+          chartData.reduce((sum, d) => sum + d.attendance, 0) /
+            chartData.length,
+        )
+      : 0,
+  );
 
   /**
    * Find the month with highest attendance
    */
-  const highestMonth = $derived(hasData
-    ? chartData.reduce((max, d) => d.attendance > max.attendance ? d : max, chartData[0])
-    : { month: '-', attendance: 0 });
+  const highestMonth = $derived(
+    hasData
+      ? chartData.reduce(
+          (max, d) => (d.attendance > max.attendance ? d : max),
+          chartData[0],
+        )
+      : { month: "-", attendance: 0 },
+  );
 
   /**
    * Find the month with lowest attendance
    */
-  const lowestMonth = $derived(hasData
-    ? chartData.reduce((min, d) => d.attendance < min.attendance ? d : min, chartData[0])
-    : { month: '-', attendance: 0 });
+  const lowestMonth = $derived(
+    hasData
+      ? chartData.reduce(
+          (min, d) => (d.attendance < min.attendance ? d : min),
+          chartData[0],
+        )
+      : { month: "-", attendance: 0 },
+  );
 
   /**
    * Calculate the percentage height for a bar based on attendance value
@@ -95,36 +114,41 @@
   /**
    * Generate Y-axis gridline values for the chart
    */
-  const yAxisValues = $derived((() => {
-    const max = Math.ceil(maxAttendance / 50) * 50;
-    const step = max / 4;
-    return [0, step, step * 2, step * 3, max].map(v => Math.round(v));
-  })());
+  const yAxisValues = $derived(
+    (() => {
+      const max = Math.ceil(maxAttendance / 50) * 50;
+      const step = max / 4;
+      return [0, step, step * 2, step * 3, max].map((v) => Math.round(v));
+    })(),
+  );
 
   /**
    * Generate accessible description of the attendance trend
    */
-  const trendDescription = $derived((() => {
-    if (!hasData) {
-      return 'No attendance data available for the selected time period.';
-    }
-    const trend = chartData[chartData.length - 1].attendance > chartData[0].attendance ? 'increasing' : 'decreasing';
-    return `Attendance chart showing ${trend} trend. ` +
-           `Average attendance is ${averageAttendance}. ` +
-           `Highest was ${highestMonth.attendance} in ${highestMonth.month}. ` +
-           `Lowest was ${lowestMonth.attendance} in ${lowestMonth.month}.`;
-  })());
+  const trendDescription = $derived(
+    (() => {
+      if (!hasData) {
+        return "No attendance data available for the selected time period.";
+      }
+      const trend =
+        chartData[chartData.length - 1].attendance > chartData[0].attendance
+          ? "increasing"
+          : "decreasing";
+      return (
+        `Attendance chart showing ${trend} trend. ` +
+        `Average attendance is ${averageAttendance}. ` +
+        `Highest was ${highestMonth.attendance} in ${highestMonth.month}. ` +
+        `Lowest was ${lowestMonth.attendance} in ${lowestMonth.month}.`
+      );
+    })(),
+  );
 </script>
 
 <!--
   Main card container using semantic article element
   Uses elevated background for premium styling
 -->
-<article
-  class="chart-card"
-  role="img"
-  aria-label={trendDescription}
->
+<article class="chart-card" role="img" aria-label={trendDescription}>
   <!-- Chart header with title and subtitle -->
   <header class="chart-header">
     <div>
@@ -136,8 +160,18 @@
   {#if !hasData}
     <!-- Empty state when no data in range -->
     <div class="empty-state">
-      <svg class="empty-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+      <svg
+        class="empty-icon"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        stroke-width="1.5"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
+        />
       </svg>
       <p class="empty-text">No attendance data for this period</p>
       <p class="empty-subtext">Try selecting a different date range</p>
@@ -166,10 +200,10 @@
           {#each chartData as item, index}
             <div
               class="bar-wrapper"
-              onmouseenter={() => hoveredIndex = index}
-              onmouseleave={() => hoveredIndex = null}
-              onfocus={() => hoveredIndex = index}
-              onblur={() => hoveredIndex = null}
+              onmouseenter={() => (hoveredIndex = index)}
+              onmouseleave={() => (hoveredIndex = null)}
+              onfocus={() => (hoveredIndex = index)}
+              onblur={() => (hoveredIndex = null)}
               role="button"
               tabindex="0"
               aria-label="{item.month}: {item.attendance} attendees"
@@ -188,7 +222,7 @@
                   </div>
                 {/if}
               </div>
-              
+
               <!-- Month label below bar -->
               <span class="month-label" aria-hidden="true">
                 {item.month}
@@ -330,6 +364,7 @@
     position: relative;
     display: flex;
     flex-direction: column;
+    min-width: 0; /* Prevent flex blowout */
   }
 
   /*
@@ -428,7 +463,7 @@
   }
 
   .tooltip::after {
-    content: '';
+    content: "";
     position: absolute;
     top: 100%;
     left: 50%;

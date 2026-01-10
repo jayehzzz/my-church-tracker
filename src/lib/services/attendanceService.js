@@ -113,7 +113,7 @@ export async function syncAttendance(serviceId, personIds) {
   if (!client) return { error: new Error('Convex not configured') };
 
   try {
-    const result = await client.mutation(api.attendance.syncAttendance, { serviceId, personIds });
+    const result = await client.mutation(api.attendance.syncAttendance, { serviceId, attendanceData });
     return result;
   } catch (error) {
     return { error };

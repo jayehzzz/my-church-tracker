@@ -14,13 +14,19 @@ function getClient() {
 
 const notConfigured = () => ({ data: null, error: new Error('Convex not configured') });
 
+// Helper to map _id to id
+function mapDoc(doc) {
+  if (!doc) return null;
+  return { ...doc, id: doc._id };
+}
+
 export async function getAll() {
   const client = getClient();
   if (!client) return notConfigured();
 
   try {
     const data = await client.query(api.people.getAll);
-    return { data, error: null };
+    return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
     return { data: null, error };
   }
@@ -32,7 +38,7 @@ export async function getById(id) {
 
   try {
     const data = await client.query(api.people.getById, { id });
-    return { data, error: null };
+    return { data: mapDoc(data), error: null };
   } catch (error) {
     return { data: null, error };
   }
@@ -51,7 +57,7 @@ export async function create(personData) {
 
   try {
     const data = await client.mutation(api.people.create, cleanData(personData));
-    return { data, error: null };
+    return { data: mapDoc(data), error: null };
   } catch (error) {
     return { data: null, error };
   }
@@ -63,7 +69,7 @@ export async function update(id, personData) {
 
   try {
     const data = await client.mutation(api.people.update, { id, ...cleanData(personData) });
-    return { data, error: null };
+    return { data: mapDoc(data), error: null };
   } catch (error) {
     return { data: null, error };
   }
@@ -87,7 +93,7 @@ export async function getByStatus(status) {
 
   try {
     const data = await client.query(api.people.getByStatus, { status });
-    return { data, error: null };
+    return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
     return { data: null, error };
   }
@@ -99,7 +105,7 @@ export async function search(searchTerm) {
 
   try {
     const data = await client.query(api.people.search, { searchTerm });
-    return { data, error: null };
+    return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
     return { data: null, error };
   }

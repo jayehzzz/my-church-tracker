@@ -131,3 +131,15 @@ export async function markAsConverted(id, addToPeople = false) {
     return { data: null, error };
   }
 }
+
+export async function getByInviter(personId) {
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.query(api.evangelism.getByInviter, { personId });
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}

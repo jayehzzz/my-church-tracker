@@ -20,6 +20,7 @@
    * Import global styles
    * This imports our Tailwind CSS configuration and custom design tokens
    */
+  import "@fontsource/inter";
   import "../app.css";
 
   /**

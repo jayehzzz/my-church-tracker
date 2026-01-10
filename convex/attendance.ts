@@ -36,6 +36,11 @@ export const create = mutation({
     args: {
         service_id: v.id("services"),
         person_id: v.id("people"),
+
+        // Metadata
+        made_salvation_decision: v.optional(v.boolean()),
+        gave_tithe: v.optional(v.boolean()),
+        first_timer: v.optional(v.boolean()),
     },
     handler: async (ctx, args) => {
         const now = new Date().toISOString();
@@ -53,6 +58,10 @@ export const update = mutation({
         id: v.id("attendance"),
         service_id: v.optional(v.id("services")),
         person_id: v.optional(v.id("people")),
+
+        made_salvation_decision: v.optional(v.boolean()),
+        gave_tithe: v.optional(v.boolean()),
+        first_timer: v.optional(v.boolean()),
     },
     handler: async (ctx, args) => {
         const { id, ...updates } = args;
@@ -113,6 +122,9 @@ export const bulkCreate = mutation({
         records: v.array(v.object({
             service_id: v.id("services"),
             person_id: v.id("people"),
+            made_salvation_decision: v.optional(v.boolean()),
+            gave_tithe: v.optional(v.boolean()),
+            first_timer: v.optional(v.boolean()),
         }))
     },
     handler: async (ctx, args) => {
@@ -126,39 +138,72 @@ export const bulkCreate = mutation({
     },
 });
 
-// Sync attendance for a service (add missing, remove extra)
+// Sync attendance for a service (Smart Check-in: Upsert with Metadata)
 export const syncAttendance = mutation({
     args: {
         serviceId: v.id("services"),
-        personIds: v.array(v.id("people")),
+        // NOW accepts full objects with metadata!
+        attendanceData: v.array(v.object({
+            person_id: v.id("people"),
+            made_salvation_decision: v.optional(v.boolean()),
+            gave_tithe: v.optional(v.boolean()),
+            first_timer: v.optional(v.boolean()),
+            // Add other metadata fields here if needed
+        })),
     },
     handler: async (ctx, args) => {
-        // Get existing attendance
+        // Get existing attendance for this service
         const existing = await ctx.db
             .query("attendance")
             .withIndex("by_service", (q) => q.eq("service_id", args.serviceId))
             .collect();
 
-        const existingPersonIds = new Set(existing.map((r) => r.person_id));
-        const newPersonIds = new Set(args.personIds);
+        // Create a map for fast lookup of existing records by person_id
+        const existingMap = new Map(existing.map(r => [r.person_id, r]));
 
-        // Find additions and removals
-        const toAdd = args.personIds.filter((id) => !existingPersonIds.has(id));
+        // Sets for tracking IDs
+        const newPersonIds = new Set(args.attendanceData.map(d => d.person_id));
+
+        // 1. Identify Removals (Calculated from input: if in DB but not in input list, delete it)
         const toRemove = existing.filter((r) => !newPersonIds.has(r.person_id));
 
-        // Perform updates
-        const now = new Date().toISOString();
+        // 2. Identify Upserts (Additions + Updates)
+        const upsertPromises = args.attendanceData.map(async (data) => {
+            const existingRecord = existingMap.get(data.person_id);
+
+            if (existingRecord) {
+                // UPDATE: Patch existing record with new metadata
+                // Only patch if data actually changed to save writes? 
+                // For simplicity, just patch. Convex handles no-op patches efficiently.
+                await ctx.db.patch(existingRecord._id, {
+                    made_salvation_decision: data.made_salvation_decision ?? existingRecord.made_salvation_decision,
+                    gave_tithe: data.gave_tithe ?? existingRecord.gave_tithe,
+                    first_timer: data.first_timer ?? existingRecord.first_timer,
+                    // Preserve creation time
+                });
+            } else {
+                // INSERT: Create new record
+                await ctx.db.insert("attendance", {
+                    service_id: args.serviceId,
+                    person_id: data.person_id,
+                    made_salvation_decision: data.made_salvation_decision || false,
+                    gave_tithe: data.gave_tithe || false,
+                    first_timer: data.first_timer || false,
+                    created_at: new Date().toISOString(),
+                });
+            }
+        });
+
+        // Execute all operations
         await Promise.all([
             ...toRemove.map((r) => ctx.db.delete(r._id)),
-            ...toAdd.map((personId) =>
-                ctx.db.insert("attendance", {
-                    service_id: args.serviceId,
-                    person_id: personId,
-                    created_at: now,
-                })
-            ),
+            ...upsertPromises
         ]);
 
-        return { success: true, added: toAdd.length, removed: toRemove.length };
+        return {
+            success: true,
+            upserted: args.attendanceData.length,
+            removed: toRemove.length
+        };
     },
 });

@@ -719,20 +719,26 @@ export function updateFilter(newFilter) {
 }
 ```
 
-### Supabase Query with Filter
+### Convex Query with Filter
 
 ```javascript
 // API call with date range
-async function getEvangelismData(startDate, endDate) {
-  const { data, error } = await supabase
-    .from('contacts')
-    .select('*')
-    .gte('date_contacted', startDate.toISOString())
-    .lte('date_contacted', endDate.toISOString())
-    .order('date_contacted', { ascending: false });
-    
-  return data;
-}
+export const getEvangelismData = query({
+  args: { startDate: v.string(), endDate: v.string() },
+  handler: async (ctx, args) => {
+    const contacts = await ctx.db
+      .query("contacts")
+      .filter((q) => 
+        q.and(
+          q.gte(q.field("date_contacted"), args.startDate),
+          q.lte(q.field("date_contacted"), args.endDate)
+        )
+      )
+      .collect();
+      
+    return contacts.sort((a, b) => b.date_contacted.localeCompare(a.date_contacted));
+  },
+});
 ```
 
 ---

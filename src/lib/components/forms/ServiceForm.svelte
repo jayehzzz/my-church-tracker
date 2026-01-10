@@ -42,6 +42,8 @@
     let activeTab = $state("details");
     let people = $state([]);
     let selectedPersonIds = $state(new Set());
+    // Metadata for each selected person: { [id]: { gave_tithe: bool, made_salvation_decision: bool, first_timer: bool } }
+    let attendanceMetadata = $state({});
     let searchQuery = $state("");
     let loadingPeople = $state(false);
 
@@ -133,17 +135,34 @@
             people = data || [];
 
             if (mode === "edit" && service?.id) {
-                const attendanceService = await import(
-                    "$lib/services/attendanceService"
-                );
+                const attendanceService =
+                    await import("$lib/services/attendanceService");
                 const { data: attendance } =
                     await attendanceService.getByService(service.id);
                 if (attendance) {
                     selectedPersonIds = new Set(
                         attendance.map((a) => a.person_id),
                     );
+                    // Populate metadata
+                    const meta = {};
+                    attendance.forEach((a) => {
+                        if (
+                            a.gave_tithe ||
+                            a.made_salvation_decision ||
+                            a.first_timer
+                        ) {
+                            meta[a.person_id] = {
+                                gave_tithe: a.gave_tithe,
+                                made_salvation_decision:
+                                    a.made_salvation_decision,
+                                first_timer: a.first_timer,
+                            };
+                        }
+                    });
+                    attendanceMetadata = meta;
                 } else {
                     selectedPersonIds = new Set();
+                    attendanceMetadata = {};
                 }
             } else {
                 selectedPersonIds = new Set();
@@ -165,7 +184,20 @@
         selectedPersonIds = newSet;
 
         // Auto-update total attendance if it matches selected count (optional convenience)
-        // For now, let's just track it independently as requested
+        selectedPersonIds = newSet;
+    }
+
+    function toggleMetadata(personId, field) {
+        if (!selectedPersonIds.has(personId)) return; // Should not happen given UI
+
+        const currentMeta = attendanceMetadata[personId] || {};
+        attendanceMetadata = {
+            ...attendanceMetadata,
+            [personId]: {
+                ...currentMeta,
+                [field]: !currentMeta[field],
+            },
+        };
     }
 
     // Handle file upload
@@ -257,9 +289,8 @@
 
         try {
             // Dynamically import to avoid SSR issues
-            const servicesService = await import(
-                "$lib/services/servicesService"
-            );
+            const servicesService =
+                await import("$lib/services/servicesService");
 
             // Clean up data - convert numbers, empty strings to null
             const cleanData = {
@@ -269,18 +300,26 @@
                 location: formData.location || null,
                 sermon_topic: formData.sermon_topic || null,
                 sermon_speaker: formData.sermon_speaker || null,
-                total_attendance: formData.total_attendance
-                    ? parseInt(formData.total_attendance)
-                    : null,
-                guests_count: formData.guests_count
-                    ? parseInt(formData.guests_count)
-                    : null,
-                salvation_decisions: formData.salvation_decisions
-                    ? parseInt(formData.salvation_decisions)
-                    : null,
-                tithers_count: formData.tithers_count
-                    ? parseInt(formData.tithers_count)
-                    : null,
+                total_attendance:
+                    formData.total_attendance !== "" &&
+                    formData.total_attendance !== null
+                        ? parseInt(formData.total_attendance)
+                        : null,
+                guests_count:
+                    formData.guests_count !== "" &&
+                    formData.guests_count !== null
+                        ? parseInt(formData.guests_count)
+                        : null,
+                salvation_decisions:
+                    formData.salvation_decisions !== "" &&
+                    formData.salvation_decisions !== null
+                        ? parseInt(formData.salvation_decisions)
+                        : null,
+                tithers_count:
+                    formData.tithers_count !== "" &&
+                    formData.tithers_count !== null
+                        ? parseInt(formData.tithers_count)
+                        : null,
 
                 notes: formData.notes || null,
                 photos: photos, // Include photos in the payload
@@ -302,12 +341,25 @@
             // Save attendance
             const serviceId = result.data.id;
             if (serviceId) {
-                const attendanceService = await import(
-                    "$lib/services/attendanceService"
+                const attendanceService =
+                    await import("$lib/services/attendanceService");
+                // Prepare rich attendance data
+                const attendanceData = Array.from(selectedPersonIds).map(
+                    (personId) => {
+                        const meta = attendanceMetadata[personId] || {};
+                        return {
+                            person_id: personId,
+                            gave_tithe: meta.gave_tithe || false,
+                            made_salvation_decision:
+                                meta.made_salvation_decision || false,
+                            first_timer: meta.first_timer || false,
+                        };
+                    },
                 );
+
                 await attendanceService.syncAttendance(
                     serviceId,
-                    Array.from(selectedPersonIds),
+                    attendanceData,
                 );
             }
 
@@ -527,57 +579,123 @@
                     {:else}
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {#each filteredPeople as person}
-                                <button
-                                    type="button"
-                                    class="flex items-center p-2 rounded hover:bg-secondary/50 transition-colors text-left
+                                <div
+                                    class="flex flex-col p-2 rounded hover:bg-secondary/50 transition-colors text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-primary
                                            {selectedPersonIds.has(person.id)
                                         ? 'bg-primary/10 border border-primary/20'
                                         : ''}"
+                                    role="button"
+                                    tabindex="0"
                                     onclick={() => togglePerson(person.id)}
+                                    onkeydown={(e) =>
+                                        (e.key === "Enter" || e.key === " ") &&
+                                        togglePerson(person.id)}
                                 >
-                                    <div class="mr-3 flex-shrink-0">
-                                        {#if selectedPersonIds.has(person.id)}
-                                            <div
-                                                class="w-5 h-5 bg-primary rounded flex items-center justify-center text-primary-foreground"
-                                            >
-                                                <svg
-                                                    class="w-3.5 h-3.5"
-                                                    fill="none"
-                                                    viewBox="0 0 24 24"
-                                                    stroke="currentColor"
+                                    <div class="flex items-center w-full">
+                                        <div class="mr-3 flex-shrink-0">
+                                            {#if selectedPersonIds.has(person.id)}
+                                                <div
+                                                    class="w-5 h-5 bg-primary rounded flex items-center justify-center text-primary-foreground"
                                                 >
-                                                    <path
-                                                        stroke-linecap="round"
-                                                        stroke-linejoin="round"
-                                                        stroke-width="3"
-                                                        d="M5 13l4 4L19 7"
-                                                    />
-                                                </svg>
-                                            </div>
-                                        {:else}
+                                                    <svg
+                                                        class="w-3.5 h-3.5"
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        stroke="currentColor"
+                                                    >
+                                                        <path
+                                                            stroke-linecap="round"
+                                                            stroke-linejoin="round"
+                                                            stroke-width="3"
+                                                            d="M5 13l4 4L19 7"
+                                                        />
+                                                    </svg>
+                                                </div>
+                                            {:else}
+                                                <div
+                                                    class="w-5 h-5 border border-muted-foreground rounded"
+                                                ></div>
+                                            {/if}
+                                        </div>
+                                        <div class="truncate flex-1">
                                             <div
-                                                class="w-5 h-5 border border-muted-foreground rounded"
-                                            ></div>
-                                        {/if}
-                                    </div>
-                                    <div class="truncate">
-                                        <div
-                                            class="text-sm font-medium {selectedPersonIds.has(
-                                                person.id,
-                                            )
-                                                ? 'text-primary'
-                                                : 'text-foreground'}"
-                                        >
-                                            {person.first_name}
-                                            {person.last_name}
-                                        </div>
-                                        <div
-                                            class="text-xs text-muted-foreground truncate"
-                                        >
-                                            {person.member_status || "Guest"}
+                                                class="text-sm font-medium {selectedPersonIds.has(
+                                                    person.id,
+                                                )
+                                                    ? 'text-primary'
+                                                    : 'text-foreground'}"
+                                            >
+                                                {person.first_name}
+                                                {person.last_name}
+                                            </div>
+                                            <div
+                                                class="text-xs text-muted-foreground truncate"
+                                            >
+                                                {person.member_status ||
+                                                    "Guest"}
+                                            </div>
                                         </div>
                                     </div>
-                                </button>
+
+                                    {#if selectedPersonIds.has(person.id)}
+                                        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                                        <div
+                                            class="mt-2 pl-8 flex flex-wrap gap-2"
+                                            onclick={(e) => e.stopPropagation()}
+                                        >
+                                            <button
+                                                type="button"
+                                                class="px-2 py-1 text-xs rounded-full border transition-colors flex items-center gap-1
+                                                    {attendanceMetadata[
+                                                    person.id
+                                                ]?.gave_tithe
+                                                    ? 'bg-green-500/20 border-green-500 text-green-600'
+                                                    : 'bg-background border-border text-muted-foreground hover:border-green-500 hover:text-green-600'}"
+                                                onclick={() =>
+                                                    toggleMetadata(
+                                                        person.id,
+                                                        "gave_tithe",
+                                                    )}
+                                            >
+                                                <span>💰</span> Tithe
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                class="px-2 py-1 text-xs rounded-full border transition-colors flex items-center gap-1
+                                                    {attendanceMetadata[
+                                                    person.id
+                                                ]?.made_salvation_decision
+                                                    ? 'bg-red-500/20 border-red-500 text-red-600'
+                                                    : 'bg-background border-border text-muted-foreground hover:border-red-500 hover:text-red-600'}"
+                                                onclick={() =>
+                                                    toggleMetadata(
+                                                        person.id,
+                                                        "made_salvation_decision",
+                                                    )}
+                                            >
+                                                <span>❤️</span> Saved
+                                            </button>
+
+                                            <button
+                                                type="button"
+                                                class="px-2 py-1 text-xs rounded-full border transition-colors flex items-center gap-1
+                                                    {attendanceMetadata[
+                                                    person.id
+                                                ]?.first_timer
+                                                    ? 'bg-blue-500/20 border-blue-500 text-blue-600'
+                                                    : 'bg-background border-border text-muted-foreground hover:border-blue-500 hover:text-blue-600'}"
+                                                onclick={() =>
+                                                    toggleMetadata(
+                                                        person.id,
+                                                        "first_timer",
+                                                    )}
+                                            >
+                                                <span>✨</span> First Timer
+                                            </button>
+                                        </div>
+                                    {/if}
+                                </div>
                             {/each}
                         </div>
                     {/if}

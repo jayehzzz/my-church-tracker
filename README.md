@@ -2,7 +2,7 @@
 
 ![SvelteKit](https://img.shields.io/badge/SvelteKit-FF3E00?style=for-the-badge&logo=svelte&logoColor=white)
 ![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
-![Supabase](https://img.shields.io/badge/Supabase-181818?style=for-the-badge&logo=supabase&logoColor=white)
+![Convex](https://img.shields.io/badge/Convex-EF4823?style=for-the-badge&logo=convex&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)
 
 > **A modern, data-driven dashboard for tracking church health, member engagement, and community impact.**
@@ -42,7 +42,7 @@ This project leverages the bleeding edge of web development:
 *   **Styling:** [Tailwind CSS](https://tailwindcss.com/)
 *   **Charts:** [Recharts](https://recharts.org/) / Custom SVG Components
 *   **Icons:** [Lucide Icons](https://lucide.dev/)
-*   **Backend:** [Supabase](https://supabase.com/) (PostgreSQL)
+*   **Backend:** [Convex](https://www.convex.dev/)
 
 ---
 

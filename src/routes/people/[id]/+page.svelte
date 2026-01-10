@@ -3,12 +3,17 @@
     import { goto } from "$app/navigation";
     import { Card, Button, Badge } from "$lib/components/ui";
     import * as peopleService from "$lib/services/peopleService";
+
     import * as attendanceService from "$lib/services/attendanceService";
+    import * as evangelismService from "$lib/services/evangelismService";
+    import * as visitationsService from "$lib/services/visitationsService";
 
     let { data } = $props();
 
     let person = $state(null);
     let attendanceHistory = $state([]);
+    let outreachContacts = $state([]);
+    let visitations = $state([]);
     let loading = $state(true);
     let error = $state(null);
     let usingMockData = $state(false);
@@ -250,6 +255,60 @@
         "5": [],
     };
 
+    // Mock outreach data
+    const mockOutreachData = {
+        "1": [
+            {
+                id: "e1",
+                first_name: "Michael",
+                last_name: "Johnson",
+                contact_date: "2025-11-28",
+                response: "responsive",
+                status: "visitor",
+            },
+            {
+                id: "e2",
+                first_name: "Sarah",
+                last_name: "Connor",
+                contact_date: "2025-11-15",
+                response: "events_only",
+                status: "guest",
+            },
+        ],
+        "2": [
+            {
+                id: "e3",
+                first_name: "Kyle",
+                last_name: "Reese",
+                contact_date: "2025-12-05",
+                response: "responsive",
+                status: "member",
+            },
+        ],
+    };
+
+    // Mock visitation data
+    const mockVisitationData = {
+        "3": [
+            {
+                id: "v1",
+                visit_date: "2025-12-27",
+                visited_by_name: "John Doe",
+                outcome: "welcomed_encouraged",
+                notes: "Very positive first visit.",
+            },
+        ],
+        "6": [
+            {
+                id: "v2",
+                visit_date: "2025-12-20",
+                visited_by_name: "Sarah Smith",
+                outcome: "prayer_request_received",
+                notes: "Needs prayer for health.",
+            },
+        ],
+    };
+
     // Stats
     let totalAttendance = $derived(attendanceHistory.length);
     let lastAttended = $derived(
@@ -307,9 +366,16 @@
             error = null;
             usingMockData = false;
 
-            const [personResult, attendanceResult] = await Promise.all([
+            const [
+                personResult,
+                attendanceResult,
+                evangelismResult,
+                visitationsResult,
+            ] = await Promise.all([
                 peopleService.getById(id),
                 attendanceService.getByPerson(id),
+                evangelismService.getByInviter(id),
+                visitationsService.getByPerson(id),
             ]);
 
             // Check for errors - if any error, fall back to mock data
@@ -318,7 +384,14 @@
                 attendanceResult.error ||
                 !personResult.data
             ) {
-                throw new Error("Convex not configured or data not found");
+                // If specific service fails (like new ones not deployed yet), just log and continue with partial data if person exists
+                if (personResult.data) {
+                    console.warn(
+                        "Some data services failed or not implemented yet",
+                    );
+                } else {
+                    throw new Error("Convex not configured or data not found");
+                }
             }
 
             person = personResult.data;
@@ -330,6 +403,14 @@
                         new Date(b.services.service_date) -
                         new Date(a.services.service_date),
                 );
+
+            outreachContacts = (evangelismResult.data || []).sort(
+                (a, b) => new Date(b.contact_date) - new Date(a.contact_date),
+            );
+
+            visitations = (visitationsResult.data || []).sort(
+                (a, b) => new Date(b.visit_date) - new Date(a.visit_date),
+            );
         } catch (e) {
             console.warn("Using mock data for profile:", e.message);
 
@@ -342,6 +423,11 @@
                         new Date(b.services.service_date) -
                         new Date(a.services.service_date),
                 );
+                outreachContacts = mockOutreachData[id] || [];
+                // For visitations, we check if this person ID is a target of visitation OR (optional enhancement) if they did the visiting
+                // checking mock data for visitations WHERE person_id matches
+                visitations = mockVisitationData[id] || [];
+
                 usingMockData = true;
                 error = null; // Clear error since we have mock data
             } else {
@@ -436,6 +522,28 @@
             dormant: "Dormant",
         };
         return map[status] || status || "—";
+    }
+
+    function formatOutcome(outcome) {
+        const map = {
+            welcomed_encouraged: "Welcomed & Encouraged",
+            prayer_request_received: "Prayer Request",
+            not_home: "Not Home",
+            concerns_shared: "Concerns Shared",
+            invited_to_service: "Invited to Service",
+        };
+        return map[outcome] || outcome || "—";
+    }
+
+    function getOutcomeVariant(outcome) {
+        const map = {
+            welcomed_encouraged: "success",
+            prayer_request_received: "info",
+            not_home: "secondary",
+            concerns_shared: "warning",
+            invited_to_service: "default",
+        };
+        return map[outcome] || "secondary";
     }
 
     // Is this person a guest (for conditional sections)
@@ -858,6 +966,161 @@
                             {/if}
                         </div>
                     </div>
+                </div>
+            </Card>
+
+            <!-- Evangelism / Outreach Card (For Leaders/Members) -->
+            {#if person.member_status === "leader" || person.member_status === "member"}
+                <Card>
+                    <div class="p-6">
+                        <h3
+                            class="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"
+                        >
+                            <svg
+                                class="w-5 h-5 text-muted-foreground"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                            >
+                                <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                                />
+                            </svg>
+                            Outreach & Evangelism
+                        </h3>
+
+                        {#if outreachContacts.length === 0}
+                            <p class="text-sm text-muted-foreground">
+                                No outreach contacts recorded yet.
+                            </p>
+                        {:else}
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-sm">
+                                    <thead class="border-b border-border">
+                                        <tr>
+                                            <th
+                                                class="pb-2 font-medium text-muted-foreground"
+                                                >Name</th
+                                            >
+                                            <th
+                                                class="pb-2 font-medium text-muted-foreground"
+                                                >Date</th
+                                            >
+                                            <th
+                                                class="pb-2 font-medium text-muted-foreground"
+                                                >Result</th
+                                            >
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-border">
+                                        {#each outreachContacts as contact}
+                                            <tr class="group">
+                                                <td class="py-2 font-medium"
+                                                    >{contact.first_name}
+                                                    {contact.last_name ||
+                                                        ""}</td
+                                                >
+                                                <td
+                                                    class="py-2 text-muted-foreground"
+                                                    >{formatShortDate(
+                                                        contact.contact_date,
+                                                    )}</td
+                                                >
+                                                <td class="py-2 text-right">
+                                                    <Badge
+                                                        variant={contact.response ===
+                                                        "responsive"
+                                                            ? "success"
+                                                            : "secondary"}
+                                                        size="sm"
+                                                    >
+                                                        {formatContactCategory(
+                                                            contact.response,
+                                                        )}
+                                                    </Badge>
+                                                </td>
+                                            </tr>
+                                        {/each}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {/if}
+                    </div>
+                </Card>
+            {/if}
+
+            <!-- Visitation History Card (For Everyone) -->
+            <Card>
+                <div class="p-6">
+                    <h3
+                        class="text-lg font-semibold text-foreground mb-4 flex items-center gap-2"
+                    >
+                        <svg
+                            class="w-5 h-5 text-muted-foreground"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+                            />
+                        </svg>
+                        Visitation History
+                    </h3>
+
+                    {#if visitations.length === 0}
+                        <p class="text-sm text-muted-foreground">
+                            No home visits recorded.
+                        </p>
+                    {:else}
+                        <div class="space-y-4">
+                            {#each visitations as visit}
+                                <div
+                                    class="border-b border-border last:border-0 pb-3 last:pb-0"
+                                >
+                                    <div
+                                        class="flex justify-between items-start mb-1"
+                                    >
+                                        <span class="text-sm font-medium"
+                                            >{formatShortDate(
+                                                visit.visit_date,
+                                            )}</span
+                                        >
+                                        <Badge
+                                            variant={getOutcomeVariant(
+                                                visit.outcome,
+                                            )}
+                                            size="sm"
+                                        >
+                                            {formatOutcome(visit.outcome)}
+                                        </Badge>
+                                    </div>
+                                    <p
+                                        class="text-xs text-muted-foreground mb-1"
+                                    >
+                                        Visited by: <span
+                                            class="text-foreground"
+                                            >{visit.visited_by_name ||
+                                                "Unknown"}</span
+                                        >
+                                    </p>
+                                    {#if visit.notes}
+                                        <p
+                                            class="text-sm italic text-muted-foreground"
+                                        >
+                                            "{visit.notes}"
+                                        </p>
+                                    {/if}
+                                </div>
+                            {/each}
+                        </div>
+                    {/if}
                 </div>
             </Card>
 
