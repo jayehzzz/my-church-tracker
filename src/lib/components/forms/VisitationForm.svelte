@@ -128,21 +128,21 @@
 
         try {
             // Dynamically import to avoid SSR issues
-            const visitationsService = await import(
-                "$lib/services/visitationsService"
-            );
+            const visitationsService =
+                await import("$lib/services/visitationsService");
 
-            // Clean up data
+            // Clean up data - use person_id as expected by backend
+            // The service layer's cleanData will remove undefined/null values
             const cleanData = {
+                person_id: formData.person_visited_id || undefined, // Backend expects person_id
                 person_visited_name: formData.person_visited_name,
-                person_visited_id: formData.person_visited_id || null,
-                visited_by_name: formData.visited_by_name || null,
-                visited_by_id: formData.visited_by_id || null,
+                visited_by_name: formData.visited_by_name || undefined,
+                visited_by_id: formData.visited_by_id || undefined,
                 visit_date: formData.visit_date,
                 outcome: formData.outcome,
                 follow_up_required: formData.follow_up_required,
-                follow_up_date: formData.follow_up_date || null,
-                notes: formData.notes || null,
+                follow_up_date: formData.follow_up_date || undefined,
+                notes: formData.notes || undefined,
             };
 
             let result;

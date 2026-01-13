@@ -8,7 +8,8 @@ export const getAll = query({
         const visitations = await ctx.db.query("visitations").collect();
         const results = await Promise.all(
             visitations.map(async (visitation) => {
-                const person = await ctx.db.get(visitation.person_id);
+                // person_id is now optional
+                const person = visitation.person_id ? await ctx.db.get(visitation.person_id) : null;
                 return { ...visitation, people: person };
             })
         );
@@ -24,7 +25,8 @@ export const getById = query({
     handler: async (ctx, args) => {
         const visitation = await ctx.db.get(args.id);
         if (!visitation) return null;
-        const person = await ctx.db.get(visitation.person_id);
+        // person_id is now optional
+        const person = visitation.person_id ? await ctx.db.get(visitation.person_id) : null;
         return { ...visitation, people: person };
     },
 });
@@ -32,10 +34,10 @@ export const getById = query({
 // Create visitation
 export const create = mutation({
     args: {
-        person_id: v.id("people"),
+        person_id: v.optional(v.id("people")), // Optional to support name-only visitations
         person_visited_name: v.optional(v.string()),
         visited_by_name: v.optional(v.string()),
-        visited_by_id: v.optional(v.string()),
+        visited_by_id: v.optional(v.id("people")),
         visit_date: v.string(),
         outcome: v.string(),
         follow_up_required: v.boolean(),
@@ -59,7 +61,7 @@ export const update = mutation({
         person_id: v.optional(v.id("people")),
         person_visited_name: v.optional(v.string()),
         visited_by_name: v.optional(v.string()),
-        visited_by_id: v.optional(v.string()),
+        visited_by_id: v.optional(v.id("people")),
         visit_date: v.optional(v.string()),
         outcome: v.optional(v.string()),
         follow_up_required: v.optional(v.boolean()),
@@ -109,7 +111,7 @@ export const getRequiringFollowUp = query({
             .collect();
         const results = await Promise.all(
             visitations.map(async (visitation) => {
-                const person = await ctx.db.get(visitation.person_id);
+                const person = visitation.person_id ? await ctx.db.get(visitation.person_id) : null;
                 return { ...visitation, people: person };
             })
         );
@@ -131,7 +133,7 @@ export const getByDateRange = query({
         );
         const results = await Promise.all(
             filtered.map(async (visitation) => {
-                const person = await ctx.db.get(visitation.person_id);
+                const person = visitation.person_id ? await ctx.db.get(visitation.person_id) : null;
                 return { ...visitation, people: person };
             })
         );

@@ -18,6 +18,7 @@
   import DashboardLayout from "$lib/components/layout/DashboardLayout.svelte";
   import PageHeader from "$lib/components/shared/PageHeader.svelte";
   import FilterBar from "$lib/components/filters/FilterBar.svelte";
+  import MultiSelectFilter from "$lib/components/filters/MultiSelectFilter.svelte";
   import { DataTable, Modal, Button, Badge } from "$lib/components/ui";
   import KPICard from "$lib/components/dashboard/KPICard.svelte";
   import EvangelismContactForm from "$lib/components/forms/EvangelismContactForm.svelte";
@@ -27,11 +28,8 @@
 
   // Import chart components
   import ConversionFunnel from "$lib/components/charts/ConversionFunnel.svelte";
-  import CategoryDonut from "$lib/components/charts/CategoryDonut.svelte";
   import MonthlyContactsBar from "$lib/components/charts/MonthlyContactsBar.svelte";
-  import InviterBarChart from "$lib/components/charts/InviterBarChart.svelte";
   import ContactsByMonthTimeline from "$lib/components/charts/ContactsByMonthTimeline.svelte";
-  import SalvationTimeline from "$lib/components/charts/SalvationTimeline.svelte";
   import InviterProfilePopup from "$lib/components/dashboard/InviterProfilePopup.svelte";
   import { goto } from "$app/navigation";
 
@@ -55,14 +53,13 @@
   let isInviterPopupOpen = $state(false);
   let selectedInviter = $state(null);
 
-  // Filter state
-  let responseFilter = $state("all");
-  let inviterFilter = $state("all");
-  let statusFilter = $state("all"); // Status filter (guest/member/archived)
+  // Filter state - now using arrays for multi-select
+  let responseFilter = $state([]);
+  let inviterFilter = $state([]);
+  let statusFilter = $state([]); // Status filter (guest/member/archived)
 
-  // Status options for filter
+  // Status options for filter (removed 'all' option since empty array = all)
   const statusOptions = [
-    { value: "all", label: "All Statuses" },
     { value: "guest", label: "Guest" },
     { value: "member", label: "Member" },
     { value: "archived", label: "Archived" },
@@ -79,9 +76,8 @@
   // Track if using mock data
   let usingMockData = $state(false);
 
-  // Response options for filter
+  // Response options for filter (removed 'all' option since empty array = all)
   const responseOptions = [
-    { value: "all", label: "All Categories" },
     { value: "responsive", label: "Responsive" },
     { value: "non_responsive", label: "Non-Responsive" },
     { value: "has_church", label: "Has Church" },
@@ -851,6 +847,7 @@
   }
 
   // Filter contacts by response, inviter, status, AND date range
+  // Now using array-based filtering (empty array = show all, OR within each filter type)
   const filteredContacts = $derived(() => {
     const range = $dateRange;
     let filtered = contacts;
@@ -858,32 +855,34 @@
     // Filter by date range first
     filtered = filtered.filter((c) => isWithinDateRange(c.contact_date, range));
 
-    // Then filter by response category
-    if (responseFilter !== "all") {
-      filtered = filtered.filter((c) => c.response === responseFilter);
+    // Then filter by response category (OR logic - match ANY selected)
+    if (responseFilter.length > 0) {
+      filtered = filtered.filter((c) => responseFilter.includes(c.response));
     }
 
-    // Filter by inviter
-    if (inviterFilter !== "all") {
-      filtered = filtered.filter((c) => c.invited_by_id === inviterFilter);
+    // Filter by inviter (OR logic - match ANY selected)
+    if (inviterFilter.length > 0) {
+      filtered = filtered.filter((c) =>
+        inviterFilter.includes(c.invited_by_id),
+      );
     }
 
-    // Filter by status
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((c) => c.status === statusFilter);
+    // Filter by status (OR logic - match ANY selected)
+    if (statusFilter.length > 0) {
+      filtered = filtered.filter((c) => statusFilter.includes(c.status));
     }
 
     return filtered;
   });
 
-  // Get unique inviters for filter dropdown
+  // Get unique inviters for filter dropdown (no 'all' option needed for multi-select)
   const inviterOptions = $derived(() => {
     const inviters = contacts
       .filter((c) => c.invited_by_id)
       .map((c) => c.invited_by_id)
       .filter((v, i, a) => a.indexOf(v) === i); // unique values
 
-    const options = [{ value: "all", label: "All Inviters" }];
+    const options = [];
     inviters.forEach((id) => {
       const person = people.find((p) => p.id === id);
       if (person) {
@@ -1285,14 +1284,25 @@
 
   <!-- View Toggle Tabs -->
   <div
-    class="mb-6 flex items-center gap-1 p-1 bg-secondary/30 rounded-lg w-fit animate-in delay-2"
+    class="mb-6 relative grid grid-cols-2 gap-1 p-1 bg-secondary/30 rounded-lg w-fit animate-in delay-2 isolate"
   >
+    <!-- Sliding Pill Background -->
+    <div
+      class="absolute top-1 bottom-1 rounded-md bg-primary shadow-sm transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]"
+      style="
+            width: calc((100% - 0.75rem) / 2);
+            left: calc(0.25rem + {activeView === 'dashboard'
+        ? 1
+        : 0} * ((100% - 0.75rem) / 2 + 0.25rem));
+        "
+    ></div>
+
     <button
       type="button"
-      class="px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 {activeView ===
+      class="relative z-10 px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 {activeView ===
       'list'
-        ? 'bg-primary text-primary-foreground shadow-sm'
-        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'}"
+        ? 'text-primary-foreground'
+        : 'text-muted-foreground hover:text-foreground'}"
       onclick={() => (activeView = "list")}
     >
       <svg
@@ -1312,10 +1322,10 @@
     </button>
     <button
       type="button"
-      class="px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 {activeView ===
+      class="relative z-10 px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 {activeView ===
       'dashboard'
-        ? 'bg-primary text-primary-foreground shadow-sm'
-        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'}"
+        ? 'text-primary-foreground'
+        : 'text-muted-foreground hover:text-foreground'}"
       onclick={() => (activeView = "dashboard")}
     >
       <svg
@@ -1335,381 +1345,301 @@
     </button>
   </div>
 
-  <!-- DASHBOARD VIEW -->
+  <!-- DASHBOARD VIEW - Apple-Style Clean Design -->
   {#if activeView === "dashboard"}
-    <!-- KPI Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      <KPICard
-        title="Total Contacts"
-        value={kpis().total}
-        icon="users"
-        trend={null}
-      />
-      <KPICard
-        title="Membership Join Rate"
-        value={`${kpis().membershipJoinRate}%`}
-        icon="trending-up"
-        variant="info"
-        trend={null}
-      />
-      <KPICard
-        title="Salvation Decisions"
-        value={kpis().converted}
-        icon="check-circle"
-        variant="success"
-        trend={null}
-      />
-      <KPICard
-        title="Follow-ups Needed"
-        value={kpis().needingFollowUp}
-        icon="clock"
-        variant={kpis().needingFollowUp > 0 ? "warning" : "default"}
-        trend={null}
-      />
-    </div>
-
-    <!-- Monthly Contacts Bar Chart (Full Width) -->
-    <div class="mb-6">
-      <MonthlyContactsBar
-        data={monthlyContactsData()}
-        title="Contacts by Month"
-        onMonthClick={(item) => {
-          console.log("Month clicked:", item);
-        }}
-      >
-        {#snippet filterContent()}
-          <FilterBar />
-        {/snippet}
-      </MonthlyContactsBar>
-    </div>
-
-    <!-- Charts Row 1 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-      <InviterBarChart
-        data={inviterChartData()}
-        title="Top Inviters"
-        onInviterClick={(inviter) => {
-          selectedInviter = people.find((p) => p.id === inviter.id);
-          isInviterPopupOpen = true;
-        }}
-      >
-        {#snippet filterContent()}
-          <FilterBar />
-        {/snippet}
-      </InviterBarChart>
-      <ContactsByMonthTimeline
-        contacts={filteredContacts()}
-        {people}
-        onInviterClick={(inviter) => {
-          selectedInviter = inviter;
-          isInviterPopupOpen = true;
-        }}
-        onContactClick={(contact) => handleEditContact(contact)}
-      />
-    </div>
-
-    <!-- Charts Row 2 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-      <ConversionFunnel data={funnelData()} title="Conversion Funnel" />
-      <SalvationTimeline
-        contacts={filteredContacts()}
-        {people}
-        onInviterClick={(inviter) => {
-          selectedInviter = inviter;
-          isInviterPopupOpen = true;
-        }}
-        onContactClick={(contact) => handleEditContact(contact)}
-      />
-    </div>
-
-    <!-- Chart Row 3 -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-      <CategoryDonut data={categoryData()} title="Contact Categories" />
-
-      <!-- Top Inviters Leaderboard -->
-      <div class="card-base">
-        <div class="flex items-center justify-between mb-4">
-          <h4
-            class="text-sm font-medium text-muted-foreground flex items-center gap-2"
+    <!-- Hero Stats Bar - The ONE thing that matters -->
+    <div class="card-base p-6 mb-6">
+      <div class="flex flex-wrap items-center justify-between gap-6">
+        <!-- Primary Metric -->
+        <div class="flex items-center gap-4">
+          <div
+            class="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center"
           >
             <svg
-              class="w-4 h-4"
+              class="w-7 h-7 text-primary"
               fill="none"
-              stroke="currentColor"
               viewBox="0 0 24 24"
+              stroke="currentColor"
             >
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
                 stroke-width="2"
-                d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
+                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
               />
             </svg>
-            Top Inviters Leaderboard
-          </h4>
+          </div>
+          <div>
+            <p class="text-4xl font-bold text-foreground">
+              {filteredContacts().length}
+            </p>
+            <p class="text-sm text-muted-foreground">Total Contacts</p>
+          </div>
         </div>
 
-        {#if topInviters().length === 0}
-          <p class="text-sm text-muted-foreground/60 italic text-center py-4">
-            No inviter data yet.
-          </p>
-        {:else}
-          <div class="space-y-3">
-            {#each topInviters() as inviter, index}
+        <!-- Secondary Metrics -->
+        <div class="flex items-center gap-8">
+          <div class="text-center">
+            <p class="text-2xl font-semibold text-success">
+              {filteredContacts().filter((c) => c.salvation_decision).length}
+            </p>
+            <p class="text-xs text-muted-foreground">Salvations</p>
+          </div>
+          <div class="h-8 w-px bg-border"></div>
+          <div class="text-center">
+            <p class="text-2xl font-semibold text-info">
+              {filteredContacts().filter((c) => c.attended_church).length}
+            </p>
+            <p class="text-xs text-muted-foreground">Attended</p>
+          </div>
+          <div class="h-8 w-px bg-border"></div>
+          <div class="text-center">
+            <p class="text-2xl font-semibold text-foreground">
+              {kpis().membershipJoinRate}%
+            </p>
+            <p class="text-xs text-muted-foreground">Join Rate</p>
+          </div>
+        </div>
+
+        <!-- Top Inviters - Compact Inline -->
+        {#if topInviters().length > 0}
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-muted-foreground">Top:</span>
+            {#each topInviters().slice(0, 3) as inviter, index}
               <button
                 type="button"
-                class="w-full flex items-center gap-3 p-3 rounded-lg bg-secondary/20 hover:bg-secondary/30 transition-premium text-left"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium
+                       bg-secondary/50 hover:bg-secondary transition-colors"
                 onclick={() => {
                   selectedInviter = people.find((p) => p.id === inviter.id);
                   isInviterPopupOpen = true;
                 }}
               >
-                <!-- Rank Badge -->
-                <div
-                  class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0
+                <span
+                  class="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold
                   {index === 0
-                    ? 'bg-yellow-500/20 text-yellow-400'
+                    ? 'bg-yellow-500/30 text-yellow-500'
                     : index === 1
-                      ? 'bg-gray-400/20 text-gray-300'
-                      : index === 2
-                        ? 'bg-orange-600/20 text-orange-400'
-                        : 'bg-secondary text-muted-foreground'}"
+                      ? 'bg-gray-400/30 text-gray-400'
+                      : 'bg-orange-500/30 text-orange-500'}"
                 >
-                  #{index + 1}
-                </div>
-
-                <!-- Info -->
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-foreground truncate">
-                    {inviter.name}
-                  </p>
-                  <p class="text-xs text-muted-foreground">
-                    {inviter.count}
-                    {inviter.count === 1 ? "invite" : "invites"}
-                    <span class="text-success"
-                      >• {inviter.conversions} converted</span
-                    >
-                  </p>
-                </div>
-
-                <!-- Arrow -->
-                <svg
-                  class="w-4 h-4 text-muted-foreground"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M9 5l7 7-7 7"
-                  />
-                </svg>
+                  {index + 1}
+                </span>
+                {inviter.name.split(" ")[0]}
+                <span class="text-muted-foreground">({inviter.count})</span>
               </button>
             {/each}
           </div>
         {/if}
       </div>
     </div>
-  {:else}
-    <!-- LIST VIEW (Original Content) -->
-    <!-- KPI Cards Section -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      <KPICard
-        title="Total Contacts"
-        value={kpis().total}
-        icon="users"
-        trend={null}
-      />
-      <KPICard
-        title="Membership Join Rate"
-        value={`${kpis().membershipJoinRate}%`}
-        icon="trending-up"
-        variant="info"
-        trend={null}
-      />
-      <KPICard
-        title="Salvation Decisions"
-        value={kpis().converted}
-        icon="check-circle"
-        variant="success"
-        trend={null}
-      />
-      <KPICard
-        title="Follow-ups Needed"
-        value={kpis().needingFollowUp}
-        icon="clock"
-        variant={kpis().needingFollowUp > 0 ? "warning" : "default"}
-        trend={null}
-      />
-    </div>
 
-    <!-- Charts Section -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-      <ConversionFunnel data={funnelData()} title="Conversion Funnel" />
-      <CategoryDonut data={categoryData()} title="Contact Categories" />
-    </div>
-
-    <!-- Top Inviters Leaderboard -->
-    <div class="mb-6 card-base">
-      <div class="flex items-center justify-between mb-4">
-        <h4
-          class="text-sm font-medium text-muted-foreground flex items-center gap-2"
+    <!-- Collapsible Sections -->
+    <div class="space-y-3">
+      <!-- Monthly Trend Section -->
+      <details class="group card-base overflow-hidden" open>
+        <summary
+          class="flex items-center justify-between p-4 cursor-pointer select-none hover:bg-secondary/20 transition-colors"
         >
+          <div class="flex items-center gap-3">
+            <svg
+              class="w-5 h-5 text-muted-foreground"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5"
+              />
+            </svg>
+            <span class="font-medium text-foreground">Monthly Trend</span>
+          </div>
           <svg
-            class="w-4 h-4"
+            class="w-5 h-5 text-muted-foreground transition-transform group-open:rotate-180"
             fill="none"
-            stroke="currentColor"
             viewBox="0 0 24 24"
+            stroke="currentColor"
           >
             <path
               stroke-linecap="round"
               stroke-linejoin="round"
               stroke-width="2"
-              d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
+              d="M19 9l-7 7-7-7"
             />
           </svg>
-          Top Inviters
-        </h4>
-      </div>
-
-      {#if topInviters().length === 0}
-        <p class="text-sm text-muted-foreground/60 italic text-center py-4">
-          No inviter data yet.
-        </p>
-      {:else}
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          {#each topInviters() as inviter, index}
-            <div
-              class="flex items-center gap-3 p-3 rounded-lg bg-secondary/20 hover:bg-secondary/30 transition-premium"
-            >
-              <!-- Rank Badge -->
-              <div
-                class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0
-              {index === 0
-                  ? 'bg-yellow-500/20 text-yellow-400'
-                  : index === 1
-                    ? 'bg-gray-400/20 text-gray-300'
-                    : index === 2
-                      ? 'bg-orange-600/20 text-orange-400'
-                      : 'bg-secondary text-muted-foreground'}"
-              >
-                #{index + 1}
-              </div>
-
-              <!-- Info -->
-              <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-foreground truncate">
-                  {inviter.name}
-                </p>
-                <p class="text-xs text-muted-foreground">
-                  {inviter.count}
-                  {inviter.count === 1 ? "invite" : "invites"}
-                  <span class="text-success"
-                    >• {inviter.conversions} converted</span
-                  >
-                </p>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </div>
-
-    <!-- Recent Comments Log -->
-    <div class="card-base mb-6">
-      <h4
-        class="text-sm font-medium text-foreground mb-3 flex items-center gap-2"
-      >
-        <svg
-          class="w-4 h-4 text-muted-foreground"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"
+        </summary>
+        <div class="px-4 pb-4">
+          <MonthlyContactsBar
+            data={monthlyContactsData()}
+            title=""
+            onMonthClick={(item) => console.log("Month clicked:", item)}
           />
-        </svg>
-        Recent Follow-up Notes
-      </h4>
-      <div class="space-y-3 max-h-[280px] overflow-y-auto scrollbar-thin">
-        {#each recentComments() as comment}
-          <div
-            class="p-3 bg-secondary/20 rounded-lg border border-border/50 hover:border-primary/30 transition-colors"
-          >
-            <div class="flex items-center justify-between mb-1">
-              <span class="text-sm font-medium text-foreground"
-                >{comment.contact_name}</span
-              >
-              <span class="text-xs text-muted-foreground"
-                >{formatCommentDate(comment.created_at)}</span
-              >
-            </div>
-            <p class="text-sm text-muted-foreground line-clamp-2">
-              {comment.text}
-            </p>
+        </div>
+      </details>
+
+      <!-- Conversion Journey Section -->
+      <details class="group card-base overflow-hidden">
+        <summary
+          class="flex items-center justify-between p-4 cursor-pointer select-none hover:bg-secondary/20 transition-colors"
+        >
+          <div class="flex items-center gap-3">
+            <svg
+              class="w-5 h-5 text-muted-foreground"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
+              />
+            </svg>
+            <span class="font-medium text-foreground">Conversion Journey</span>
+            <span
+              class="text-xs text-muted-foreground bg-secondary/50 px-2 py-0.5 rounded-full"
+            >
+              {funnelData().joined} converted
+            </span>
           </div>
-        {:else}
-          <p class="text-sm text-muted-foreground text-center py-4 italic">
-            No recent follow-up notes
-          </p>
-        {/each}
-      </div>
+          <svg
+            class="w-5 h-5 text-muted-foreground transition-transform group-open:rotate-180"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
+        </summary>
+        <div class="px-4 pb-4">
+          <ConversionFunnel data={funnelData()} title="" />
+        </div>
+      </details>
+
+      <!-- Recent Contacts Timeline -->
+      <details class="group card-base overflow-hidden" open>
+        <summary
+          class="flex items-center justify-between p-4 cursor-pointer select-none hover:bg-secondary/20 transition-colors"
+        >
+          <div class="flex items-center gap-3">
+            <svg
+              class="w-5 h-5 text-muted-foreground"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span class="font-medium text-foreground">Recent Activity</span>
+            <span
+              class="text-xs text-muted-foreground bg-secondary/50 px-2 py-0.5 rounded-full"
+            >
+              {filteredContacts().length} contacts
+            </span>
+          </div>
+          <svg
+            class="w-5 h-5 text-muted-foreground transition-transform group-open:rotate-180"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
+        </summary>
+        <div class="p-0">
+          <div class="max-h-[400px] overflow-y-auto">
+            <ContactsByMonthTimeline
+              contacts={filteredContacts()}
+              {people}
+              onInviterClick={(inviter) => {
+                selectedInviter = inviter;
+                isInviterPopupOpen = true;
+              }}
+              onContactClick={(contact) => handleEditContact(contact)}
+            />
+          </div>
+        </div>
+      </details>
+    </div>
+  {:else}
+    <!-- LIST VIEW (Original Content) -->
+
+    <!-- Filtered KPIs -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <KPICard
+        title="Total (In Filter)"
+        value={filteredContacts().length}
+        icon="users"
+        trend={null}
+      />
+      <KPICard
+        title="Salvation Decisions"
+        value={filteredContacts().filter((c) => c.salvation_decision).length}
+        icon="heart"
+        variant="success"
+        trend={null}
+      />
+      <KPICard
+        title="Attended Church"
+        value={filteredContacts().filter((c) => c.attended_church).length}
+        icon="home"
+        variant="info"
+        trend={null}
+      />
     </div>
 
     <!-- Filters Row -->
-    <div class="mb-6 flex flex-wrap items-center gap-4">
-      <label for="response-filter" class="text-sm text-muted-foreground"
-        >Category:</label
-      >
-      <select
-        id="response-filter"
-        bind:value={responseFilter}
-        class="px-3 py-2 bg-input border border-border rounded-lg text-foreground text-sm
-             focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-      >
-        {#each responseOptions as option}
-          <option value={option.value}>{option.label}</option>
-        {/each}
-      </select>
+    <div class="mb-6 flex flex-wrap items-start gap-4">
+      <MultiSelectFilter
+        label="Category"
+        options={responseOptions}
+        bind:selected={responseFilter}
+        placeholder="Search categories..."
+      />
 
-      <label for="inviter-filter" class="text-sm text-muted-foreground ml-4"
-        >Invited By:</label
-      >
-      <select
-        id="inviter-filter"
-        bind:value={inviterFilter}
-        class="px-3 py-2 bg-input border border-border rounded-lg text-foreground text-sm
-             focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-      >
-        {#each inviterOptions() as option}
-          <option value={option.value}>{option.label}</option>
-        {/each}
-      </select>
+      <MultiSelectFilter
+        label="Invited By"
+        options={inviterOptions()}
+        bind:selected={inviterFilter}
+        placeholder="Search inviters..."
+      />
 
-      <label for="status-filter" class="text-sm text-muted-foreground ml-4"
-        >Status:</label
-      >
-      <select
-        id="status-filter"
-        bind:value={statusFilter}
-        class="px-3 py-2 bg-input border border-border rounded-lg text-foreground text-sm
-             focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-      >
-        {#each statusOptions as option}
-          <option value={option.value}>{option.label}</option>
-        {/each}
-      </select>
+      <MultiSelectFilter
+        label="Status"
+        options={statusOptions}
+        bind:selected={statusFilter}
+        placeholder="Search status..."
+      />
 
-      <span class="text-sm text-muted-foreground ml-auto">
-        {filteredContacts().length}
-        {filteredContacts().length === 1 ? "contact" : "contacts"}
-      </span>
+      <div class="flex-1 flex items-end justify-end">
+        <span class="text-sm text-muted-foreground pb-2">
+          {filteredContacts().length}
+          {filteredContacts().length === 1 ? "contact" : "contacts"}
+          <span class="mx-2 opacity-50">•</span>
+          <span class="text-success">
+            {filteredContacts().filter((c) => c.converted).length} conversions
+          </span>
+        </span>
+      </div>
     </div>
 
     <!-- Error State -->
@@ -1760,214 +1690,14 @@
           {loading}
           searchable
           selectable={false}
+          onrowclick={(row) => handleEditContact(row)}
           pageSize={15}
           searchPlaceholder="Search by name, phone, or email..."
           emptyMessage="No contacts found. Add your first evangelism contact to get started."
+          storageKey="evangelism-contacts"
         />
-
-        <!-- Quick Actions List -->
-        {#if !loading && filteredContacts().length > 0}
-          <div class="mt-4 card-base">
-            <h4 class="text-sm font-medium text-muted-foreground mb-3">
-              Quick Actions
-            </h4>
-            <div class="space-y-2 max-h-[300px] overflow-y-auto scrollbar-thin">
-              {#each filteredContacts().slice(0, 20) as contact}
-                <div
-                  class="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-secondary/30 transition-premium"
-                >
-                  <div class="flex items-center gap-3">
-                    <div
-                      class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-medium"
-                    >
-                      {contact.first_name?.[0]}{contact.last_name?.[0] || ""}
-                    </div>
-                    <button
-                      type="button"
-                      onclick={() => handleEditContact(contact)}
-                      class="text-left hover:text-primary transition-colors"
-                    >
-                      <span
-                        class="text-sm font-medium text-foreground hover:text-primary"
-                      >
-                        {contact.first_name}
-                        {contact.last_name || ""}
-                      </span>
-                      <span
-                        class="ml-2 text-xs px-2 py-0.5 rounded-full {contact.response ===
-                        'responsive'
-                          ? 'bg-success/10 text-success'
-                          : contact.response === 'non_responsive' ||
-                              contact.response === 'do_not_contact'
-                            ? 'bg-destructive/10 text-destructive'
-                            : 'bg-secondary text-muted-foreground'}"
-                      >
-                        {formatResponse(contact.response)}
-                      </span>
-                      {#if contact.converted}
-                        <span
-                          class="ml-1 text-xs px-2 py-0.5 rounded-full bg-success/10 text-success"
-                        >
-                          Converted
-                        </span>
-                      {/if}
-                    </button>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    {#if !contact.converted}
-                      <button
-                        type="button"
-                        onclick={() => handleConvertClick(contact)}
-                        class="p-1.5 text-success hover:bg-success/10 rounded transition-premium"
-                        aria-label="Mark as converted"
-                        title="Mark as Converted"
-                      >
-                        <svg
-                          class="w-4 h-4"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                      </button>
-                    {/if}
-                    <button
-                      type="button"
-                      onclick={() => handleEditContact(contact)}
-                      class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-premium"
-                      aria-label="Edit {contact.first_name}"
-                    >
-                      <svg
-                        class="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                        />
-                      </svg>
-                    </button>
-                    <button
-                      type="button"
-                      onclick={() => handleDeleteClick(contact)}
-                      class="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-premium"
-                      aria-label="Delete {contact.first_name}"
-                    >
-                      <svg
-                        class="w-4 h-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              {/each}
-              {#if filteredContacts().length > 20}
-                <p class="text-xs text-muted-foreground text-center py-2">
-                  Showing first 20 of {filteredContacts().length} contacts. Use search
-                  to find others.
-                </p>
-              {/if}
-            </div>
-          </div>
-        {/if}
       </div>
     {/if}
-
-    <!-- Recent Comments Log Section -->
-    <div class="mt-6 card-base">
-      <div class="flex items-center justify-between mb-4">
-        <h4
-          class="text-sm font-medium text-muted-foreground flex items-center gap-2"
-        >
-          <svg
-            class="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-            />
-          </svg>
-          Recent Follow-up Notes
-        </h4>
-        <span class="text-xs text-muted-foreground">
-          {recentComments().length}
-          {recentComments().length === 1 ? "note" : "notes"}
-        </span>
-      </div>
-
-      <div class="space-y-3 max-h-[320px] overflow-y-auto scrollbar-thin">
-        {#if recentComments().length === 0}
-          <p class="text-sm text-muted-foreground/60 italic text-center py-6">
-            No follow-up notes yet. Add notes when editing contacts.
-          </p>
-        {:else}
-          {#each recentComments() as comment}
-            <div
-              class="flex gap-3 p-3 rounded-lg bg-secondary/20 hover:bg-secondary/30 transition-premium"
-            >
-              <!-- Avatar/Initial -->
-              <div
-                class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-medium flex-shrink-0"
-              >
-                {comment.contact_name
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")
-                  .slice(0, 2)}
-              </div>
-
-              <!-- Content -->
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center justify-between gap-2 mb-1">
-                  <button
-                    type="button"
-                    onclick={() => {
-                      const contact = contacts.find(
-                        (c) => c.id === comment.contact_id,
-                      );
-                      if (contact) handleEditContact(contact);
-                    }}
-                    class="text-sm font-medium text-foreground hover:text-primary transition-colors truncate"
-                  >
-                    {comment.contact_name}
-                  </button>
-                  <span class="text-xs text-muted-foreground/70 flex-shrink-0">
-                    {formatCommentDate(comment.created_at)}
-                  </span>
-                </div>
-                <p class="text-sm text-muted-foreground leading-relaxed">
-                  {comment.text}
-                </p>
-              </div>
-            </div>
-          {/each}
-        {/if}
-      </div>
-    </div>
   {/if}
 </DashboardLayout>
 

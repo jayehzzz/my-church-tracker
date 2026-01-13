@@ -12,13 +12,26 @@ function getClient() {
 
 const notConfigured = () => ({ data: null, error: new Error('Convex not configured') });
 
+// Helper to map _id to id for consistent frontend usage
+function mapDoc(doc) {
+  if (!doc) return null;
+  return { ...doc, id: doc._id };
+}
+
+// Helper to remove null/undefined values - Convex expects undefined (absent) not null
+function cleanData(obj) {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([_, v]) => v !== null && v !== undefined && v !== '')
+  );
+}
+
 export async function getAll() {
   const client = getClient();
   if (!client) return notConfigured();
 
   try {
     const data = await client.query(api.services.getAll);
-    return { data, error: null };
+    return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
     return { data: null, error };
   }
@@ -30,7 +43,7 @@ export async function getById(id) {
 
   try {
     const data = await client.query(api.services.getById, { id });
-    return { data, error: null };
+    return { data: mapDoc(data), error: null };
   } catch (error) {
     return { data: null, error };
   }
@@ -41,8 +54,8 @@ export async function create(serviceData) {
   if (!client) return notConfigured();
 
   try {
-    const data = await client.mutation(api.services.create, serviceData);
-    return { data, error: null };
+    const data = await client.mutation(api.services.create, cleanData(serviceData));
+    return { data: mapDoc(data), error: null };
   } catch (error) {
     return { data: null, error };
   }
@@ -53,8 +66,8 @@ export async function update(id, serviceData) {
   if (!client) return notConfigured();
 
   try {
-    const data = await client.mutation(api.services.update, { id, ...serviceData });
-    return { data, error: null };
+    const data = await client.mutation(api.services.update, { id, ...cleanData(serviceData) });
+    return { data: mapDoc(data), error: null };
   } catch (error) {
     return { data: null, error };
   }
@@ -78,7 +91,7 @@ export async function getByDateRange(startDate, endDate) {
 
   try {
     const data = await client.query(api.services.getByDateRange, { startDate, endDate });
-    return { data, error: null };
+    return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
     return { data: null, error };
   }

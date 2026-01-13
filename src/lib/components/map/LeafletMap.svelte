@@ -356,6 +356,7 @@
             <button
                 onclick={zoomIn}
                 class="w-10 h-10 bg-background/95 backdrop-blur flex items-center justify-center text-foreground hover:bg-accent transition-colors border-b border-border/50"
+                aria-label="Zoom in"
             >
                 <svg
                     class="w-5 h-5"
@@ -373,6 +374,7 @@
             <button
                 onclick={zoomOut}
                 class="w-10 h-10 bg-background/95 backdrop-blur flex items-center justify-center text-foreground hover:bg-accent transition-colors"
+                aria-label="Zoom out"
             >
                 <svg
                     class="w-5 h-5"

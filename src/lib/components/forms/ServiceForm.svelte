@@ -47,21 +47,52 @@
     let searchQuery = $state("");
     let loadingPeople = $state(false);
 
+    // Smart filtering for attendance list
+    let attendeeFilter = $state("members"); // 'members' | 'guests' | 'all'
+    // Track who has attended before (for first-timer detection)
+    let priorAttendance = $state({}); // { [personId]: boolean }
+
+    // Quick Add First Timer state
+    let showQuickAdd = $state(false);
+    let quickAddData = $state({ first_name: "", last_name: "", phone: "" });
+    let quickAddSaving = $state(false);
+    let quickAddError = $state(null);
+
     // Photos state
     let photos = $state([]);
     let uploading = $state(false);
     let uploadError = $state(null);
 
-    // Filtered people for attendance list
-    const filteredPeople = $derived(
-        people.filter(
-            (p) =>
-                searchQuery === "" ||
-                `${p.first_name} ${p.last_name}`
-                    .toLowerCase()
-                    .includes(searchQuery.toLowerCase()),
-        ),
-    );
+    // Filtered people for attendance list with smart filtering
+    const filteredPeople = $derived(() => {
+        let result = people;
+
+        // Apply category filter
+        if (attendeeFilter === "members") {
+            // Members and Leaders only
+            result = result.filter(
+                (p) =>
+                    p.member_status === "member" ||
+                    p.member_status === "leader",
+            );
+        } else if (attendeeFilter === "guests") {
+            // Guests and evangelism contacts
+            result = result.filter(
+                (p) => p.member_status === "guest" || p.contact_date,
+            );
+        }
+        // 'all' shows everyone
+
+        // Apply search filter
+        if (searchQuery.trim()) {
+            const q = searchQuery.toLowerCase();
+            result = result.filter((p) =>
+                `${p.first_name} ${p.last_name}`.toLowerCase().includes(q),
+            );
+        }
+
+        return result;
+    });
 
     // Mode: 'create' or 'edit'
     const mode = $derived(service?.id ? "edit" : "create");
@@ -134,6 +165,21 @@
             const { data } = await peopleService.getAll();
             people = data || [];
 
+            // Load attendance history for first-timer detection
+            if (people.length > 0) {
+                try {
+                    const attendanceService =
+                        await import("$lib/services/attendanceService");
+                    const personIds = people.map((p) => p.id);
+                    const { data: history } =
+                        await attendanceService.getAttendanceHistory(personIds);
+                    priorAttendance = history || {};
+                } catch (e) {
+                    console.warn("Could not load attendance history", e);
+                    priorAttendance = {};
+                }
+            }
+
             if (mode === "edit" && service?.id) {
                 const attendanceService =
                     await import("$lib/services/attendanceService");
@@ -171,6 +217,63 @@
             console.error("Failed to load data", e);
         } finally {
             loadingPeople = false;
+        }
+    }
+
+    // Quick Add First Timer - creates new guest and auto-selects them
+    async function handleQuickAdd() {
+        if (!quickAddData.first_name.trim() || !quickAddData.last_name.trim()) {
+            quickAddError = "First and last name are required";
+            return;
+        }
+
+        quickAddSaving = true;
+        quickAddError = null;
+
+        try {
+            const peopleService = await import("$lib/services/peopleService");
+            const result = await peopleService.create({
+                first_name: quickAddData.first_name.trim(),
+                last_name: quickAddData.last_name.trim(),
+                phone: quickAddData.phone.trim() || undefined,
+                member_status: "guest",
+                first_visit_date:
+                    formData.service_date ||
+                    new Date().toISOString().split("T")[0],
+            });
+
+            if (result.error) {
+                throw result.error;
+            }
+
+            // Add to people list
+            const newPerson = result.data;
+            people = [...people, newPerson];
+
+            // Auto-select and mark as first timer
+            const newSet = new Set(selectedPersonIds);
+            newSet.add(newPerson.id);
+            selectedPersonIds = newSet;
+
+            attendanceMetadata = {
+                ...attendanceMetadata,
+                [newPerson.id]: {
+                    first_timer: true,
+                    gave_tithe: false,
+                    made_salvation_decision: false,
+                },
+            };
+
+            // Reset quick add form
+            quickAddData = { first_name: "", last_name: "", phone: "" };
+            showQuickAdd = false;
+
+            // Switch to "all" filter to see the new person
+            attendeeFilter = "all";
+        } catch (e) {
+            quickAddError = e.message || "Failed to add person";
+        } finally {
+            quickAddSaving = false;
         }
     }
 
@@ -340,7 +443,7 @@
 
             // Save attendance
             const serviceId = result.data.id;
-            if (serviceId) {
+            if (serviceId && selectedPersonIds.size > 0) {
                 const attendanceService =
                     await import("$lib/services/attendanceService");
                 // Prepare rich attendance data
@@ -387,23 +490,39 @@
         class="space-y-6"
     >
         <!-- Tab Navigation -->
-        <div class="flex border-b border-border mb-4">
+        <!-- Tab Navigation -->
+        <div
+            class="relative grid grid-cols-3 border-b border-border/50 mb-6 sticky top-0 bg-background z-20 pt-2 isolate"
+        >
+            <!-- Sliding Underline -->
+            <div
+                class="absolute bottom-0 h-0.5 bg-primary transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]"
+                style="
+                    width: calc(100% / 3);
+                    left: {activeTab === 'details'
+                    ? '0'
+                    : activeTab === 'attendance'
+                      ? '33.333%'
+                      : '66.666%'};
+                "
+            ></div>
+
             <button
                 type="button"
-                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab ===
+                class="px-4 py-3 text-sm font-medium transition-colors {activeTab ===
                 'details'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'}"
+                    ? 'text-primary'
+                    : 'text-muted-foreground hover:text-foreground'}"
                 onclick={() => (activeTab = "details")}
             >
                 Service Details
             </button>
             <button
                 type="button"
-                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab ===
+                class="px-4 py-3 text-sm font-medium transition-colors {activeTab ===
                 'attendance'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'}"
+                    ? 'text-primary'
+                    : 'text-muted-foreground hover:text-foreground'}"
                 onclick={() => (activeTab = "attendance")}
             >
                 Individual Attendance
@@ -415,10 +534,10 @@
             </button>
             <button
                 type="button"
-                class="px-4 py-2 text-sm font-medium border-b-2 transition-colors {activeTab ===
+                class="px-4 py-3 text-sm font-medium transition-colors {activeTab ===
                 'photos'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'}"
+                    ? 'text-primary'
+                    : 'text-muted-foreground hover:text-foreground'}"
                 onclick={() => (activeTab = "photos")}
             >
                 Photos
@@ -547,16 +666,155 @@
         {:else if activeTab === "attendance"}
             <!-- Attendance Selection -->
             <div class="space-y-4">
-                <Input
-                    label="Search People"
-                    type="text"
-                    bind:value={searchQuery}
-                    placeholder="Search by name..."
-                    disabled={saving}
-                />
+                <!-- Filter Tabs -->
+                <!-- Filter Tabs -->
+                <div
+                    class="relative grid grid-cols-3 gap-1 p-1 bg-secondary/30 rounded-lg isolate"
+                >
+                    <!-- Sliding Pill -->
+                    <div
+                        class="absolute top-1 bottom-1 rounded-md bg-primary shadow-sm transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]"
+                        style="
+                            width: calc((100% - 1rem) / 3);
+                            left: calc(0.25rem + {attendeeFilter === 'members'
+                            ? 0
+                            : attendeeFilter === 'guests'
+                              ? 1
+                              : 2} * ((100% - 1rem) / 3 + 0.25rem));
+                        "
+                    ></div>
+
+                    <button
+                        type="button"
+                        class="relative z-10 px-3 py-1.5 text-xs font-medium rounded-md transition-colors duration-200 {attendeeFilter ===
+                        'members'
+                            ? 'text-primary-foreground'
+                            : 'text-muted-foreground hover:text-foreground'}"
+                        onclick={() => (attendeeFilter = "members")}
+                    >
+                        Members
+                    </button>
+                    <button
+                        type="button"
+                        class="relative z-10 px-3 py-1.5 text-xs font-medium rounded-md transition-colors duration-200 {attendeeFilter ===
+                        'guests'
+                            ? 'text-primary-foreground'
+                            : 'text-muted-foreground hover:text-foreground'}"
+                        onclick={() => (attendeeFilter = "guests")}
+                    >
+                        Guests & Contacts
+                    </button>
+                    <button
+                        type="button"
+                        class="relative z-10 px-3 py-1.5 text-xs font-medium rounded-md transition-colors duration-200 {attendeeFilter ===
+                        'all'
+                            ? 'text-primary-foreground'
+                            : 'text-muted-foreground hover:text-foreground'}"
+                        onclick={() => (attendeeFilter = "all")}
+                    >
+                        All
+                    </button>
+                </div>
+
+                <!-- Search and Quick Add Row -->
+                <div class="flex gap-2">
+                    <div class="flex-1">
+                        <Input
+                            label=""
+                            type="text"
+                            bind:value={searchQuery}
+                            placeholder="Search by name..."
+                            disabled={saving}
+                        />
+                    </div>
+                    <button
+                        type="button"
+                        class="px-3 py-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
+                        onclick={() => (showQuickAdd = !showQuickAdd)}
+                    >
+                        <svg
+                            class="w-4 h-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M12 4v16m8-8H4"
+                            />
+                        </svg>
+                        Quick Add
+                    </button>
+                </div>
+
+                <!-- Quick Add First Timer Form -->
+                {#if showQuickAdd}
+                    <div
+                        class="p-3 bg-secondary/20 border border-border rounded-lg space-y-3"
+                    >
+                        <div
+                            class="flex items-center gap-2 text-sm font-medium text-foreground"
+                        >
+                            <span>✨</span> Add First Timer
+                        </div>
+
+                        {#if quickAddError}
+                            <div class="text-xs text-destructive">
+                                {quickAddError}
+                            </div>
+                        {/if}
+
+                        <div class="grid grid-cols-3 gap-2">
+                            <input
+                                type="text"
+                                bind:value={quickAddData.first_name}
+                                placeholder="First Name *"
+                                disabled={quickAddSaving}
+                                class="px-2 py-1.5 text-sm bg-input border border-border rounded-md focus:border-primary focus:outline-none"
+                            />
+                            <input
+                                type="text"
+                                bind:value={quickAddData.last_name}
+                                placeholder="Last Name *"
+                                disabled={quickAddSaving}
+                                class="px-2 py-1.5 text-sm bg-input border border-border rounded-md focus:border-primary focus:outline-none"
+                            />
+                            <input
+                                type="tel"
+                                bind:value={quickAddData.phone}
+                                placeholder="Phone (optional)"
+                                disabled={quickAddSaving}
+                                class="px-2 py-1.5 text-sm bg-input border border-border rounded-md focus:border-primary focus:outline-none"
+                            />
+                        </div>
+
+                        <div class="flex gap-2">
+                            <button
+                                type="button"
+                                onclick={handleQuickAdd}
+                                disabled={quickAddSaving}
+                                class="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-medium rounded-md hover:bg-primary/90 disabled:opacity-50"
+                            >
+                                {quickAddSaving ? "Adding..." : "Add & Select"}
+                            </button>
+                            <button
+                                type="button"
+                                onclick={() => {
+                                    showQuickAdd = false;
+                                    quickAddError = null;
+                                }}
+                                class="px-3 py-1.5 bg-secondary text-secondary-foreground text-xs font-medium rounded-md hover:bg-secondary/80"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                {/if}
 
                 <div
-                    class="h-[400px] overflow-y-auto border border-border rounded-lg bg-card text-card-foreground p-2 scrollbar-thin"
+                    class="h-[350px] overflow-y-auto border border-border rounded-lg bg-card text-card-foreground p-2 scrollbar-thin"
                 >
                     {#if loadingPeople}
                         <div
@@ -570,15 +828,24 @@
                         >
                             No people found in directory.
                         </div>
-                    {:else if filteredPeople.length === 0}
+                    {:else if filteredPeople().length === 0}
                         <div
-                            class="flex items-center justify-center h-full text-muted-foreground"
+                            class="flex flex-col items-center justify-center h-full text-muted-foreground gap-2"
                         >
-                            No matches found.
+                            <span
+                                >No matches found in "{attendeeFilter}" filter.</span
+                            >
+                            <button
+                                type="button"
+                                class="text-primary text-sm hover:underline"
+                                onclick={() => (attendeeFilter = "all")}
+                            >
+                                Show all people
+                            </button>
                         </div>
                     {:else}
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {#each filteredPeople as person}
+                            {#each filteredPeople() as person}
                                 <div
                                     class="flex flex-col p-2 rounded hover:bg-secondary/50 transition-colors text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-primary
                                            {selectedPersonIds.has(person.id)
@@ -629,19 +896,30 @@
                                                 {person.last_name}
                                             </div>
                                             <div
-                                                class="text-xs text-muted-foreground truncate"
+                                                class="text-xs text-muted-foreground truncate flex items-center gap-1"
                                             >
-                                                {person.member_status ||
-                                                    "Guest"}
+                                                <span
+                                                    >{person.member_status ||
+                                                        "Guest"}</span
+                                                >
+                                                {#if person.contact_date}
+                                                    <span class="text-amber-500"
+                                                        >• Contact</span
+                                                    >
+                                                {/if}
                                             </div>
                                         </div>
                                     </div>
 
                                     {#if selectedPersonIds.has(person.id)}
-                                        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                                        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
                                         <div
                                             class="mt-2 pl-8 flex flex-wrap gap-2"
                                             onclick={(e) => e.stopPropagation()}
+                                            onkeydown={(e) =>
+                                                e.stopPropagation()}
+                                            role="group"
+                                            aria-label="Attendance options for {person.first_name}"
                                         >
                                             <button
                                                 type="button"
@@ -677,22 +955,25 @@
                                                 <span>❤️</span> Saved
                                             </button>
 
-                                            <button
-                                                type="button"
-                                                class="px-2 py-1 text-xs rounded-full border transition-colors flex items-center gap-1
-                                                    {attendanceMetadata[
-                                                    person.id
-                                                ]?.first_timer
-                                                    ? 'bg-blue-500/20 border-blue-500 text-blue-600'
-                                                    : 'bg-background border-border text-muted-foreground hover:border-blue-500 hover:text-blue-600'}"
-                                                onclick={() =>
-                                                    toggleMetadata(
-                                                        person.id,
-                                                        "first_timer",
-                                                    )}
-                                            >
-                                                <span>✨</span> First Timer
-                                            </button>
+                                            <!-- Only show First Timer button if person has NOT attended before -->
+                                            {#if !priorAttendance[person.id]}
+                                                <button
+                                                    type="button"
+                                                    class="px-2 py-1 text-xs rounded-full border transition-colors flex items-center gap-1
+                                                        {attendanceMetadata[
+                                                        person.id
+                                                    ]?.first_timer
+                                                        ? 'bg-blue-500/20 border-blue-500 text-blue-600'
+                                                        : 'bg-background border-border text-muted-foreground hover:border-blue-500 hover:text-blue-600'}"
+                                                    onclick={() =>
+                                                        toggleMetadata(
+                                                            person.id,
+                                                            "first_timer",
+                                                        )}
+                                                >
+                                                    <span>✨</span> First Timer
+                                                </button>
+                                            {/if}
                                         </div>
                                     {/if}
                                 </div>
@@ -702,7 +983,7 @@
                 </div>
 
                 <div class="text-xs text-muted-foreground text-center">
-                    checking {selectedPersonIds.size} people as attended
+                    {selectedPersonIds.size} people selected as attended
                 </div>
             </div>
         {:else if activeTab === "photos"}

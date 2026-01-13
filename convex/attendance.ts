@@ -207,3 +207,20 @@ export const syncAttendance = mutation({
         };
     },
 });
+
+// Check which people have attended any prior service (for first-timer detection)
+export const getAttendanceHistory = query({
+    args: { personIds: v.array(v.id("people")) },
+    handler: async (ctx, args) => {
+        const results: Record<string, boolean> = {};
+        for (const personId of args.personIds) {
+            const record = await ctx.db
+                .query("attendance")
+                .withIndex("by_person", (q) => q.eq("person_id", personId))
+                .first();
+            results[personId] = !!record;
+        }
+        return results;
+    },
+});
+

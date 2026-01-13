@@ -14,6 +14,9 @@
   - Sticky header
   - Accessible with proper ARIA attributes
   - Uses Svelte 5 runes syntax
+  - Copy buttons for columns and rows
+  - Column visibility toggle with localStorage persistence
+  - Resizable columns
 -->
 
 <script>
@@ -26,6 +29,12 @@
    * @property {(value: any, row: Object) => string} [render] - Custom render function
    */
 
+  import { browser } from "$app/environment";
+  import {
+    getStorageValue,
+    setStorageValue,
+  } from "$lib/stores/useLocalStorage.js";
+
   let {
     columns = [],
     data = [],
@@ -37,6 +46,10 @@
     searchPlaceholder = "Search...",
     onselectionchange,
     onrowclick,
+    enableCopy = true,
+    enableColumnToggle = true,
+    enableResize = true,
+    storageKey = "dataTable",
     ...restProps
   } = $props();
 
@@ -46,6 +59,151 @@
   let sortDirection = $state("asc"); // 'asc' or 'desc'
   let currentPage = $state(1);
   let selectedRows = $state(new Set());
+
+  // Column visibility state - persisted to localStorage
+  let hiddenColumns = $state(new Set());
+  let isColumnMenuOpen = $state(false);
+  let columnMenuRef = $state(null);
+
+  // Column widths state - persisted to localStorage
+  let columnWidths = $state({});
+  let resizingColumn = $state(null);
+  let resizeStartX = $state(0);
+  let resizeStartWidth = $state(0);
+
+  // Copy toast state
+  let copyToast = $state({ show: false, message: "" });
+
+  // Filter visible columns
+  const visibleColumns = $derived(() => {
+    return columns.filter((col) => !hiddenColumns.has(col.key));
+  });
+
+  // Load persisted state on mount
+  $effect(() => {
+    if (browser && storageKey) {
+      const savedHidden = getStorageValue(`${storageKey}_hiddenColumns`, []);
+      hiddenColumns = new Set(savedHidden);
+      const savedWidths = getStorageValue(`${storageKey}_columnWidths`, {});
+      columnWidths = savedWidths;
+    }
+  });
+
+  // Handle click outside column menu
+  function handleClickOutside(event) {
+    if (columnMenuRef && !columnMenuRef.contains(event.target)) {
+      isColumnMenuOpen = false;
+    }
+  }
+
+  $effect(() => {
+    if (isColumnMenuOpen) {
+      document.addEventListener("click", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("click", handleClickOutside);
+    };
+  });
+
+  // Toggle column visibility
+  function toggleColumn(columnKey) {
+    const newHidden = new Set(hiddenColumns);
+    if (newHidden.has(columnKey)) {
+      newHidden.delete(columnKey);
+    } else {
+      newHidden.add(columnKey);
+    }
+    hiddenColumns = newHidden;
+    if (browser && storageKey) {
+      setStorageValue(`${storageKey}_hiddenColumns`, Array.from(newHidden));
+    }
+  }
+
+  // Show all columns
+  function showAllColumns() {
+    hiddenColumns = new Set();
+    if (browser && storageKey) {
+      setStorageValue(`${storageKey}_hiddenColumns`, []);
+    }
+  }
+
+  // Copy column values to clipboard
+  async function copyColumn(columnKey) {
+    const column = columns.find((c) => c.key === columnKey);
+    const values = data.map((row) => {
+      const value = row[columnKey];
+      if (column?.render) {
+        return column.render(value, row);
+      }
+      return value ?? "";
+    });
+    const text = values.join("\n");
+    await copyToClipboard(text, `Copied ${values.length} values`);
+  }
+
+  // Copy row data to clipboard
+  async function copyRow(row) {
+    const values = visibleColumns().map((col) => {
+      const value = row[col.key];
+      if (col.render) {
+        return col.render(value, row);
+      }
+      return value ?? "";
+    });
+    const text = values.join("\t");
+    await copyToClipboard(text, "Row copied");
+  }
+
+  // Generic copy to clipboard function
+  async function copyToClipboard(text, message) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copyToast = { show: true, message };
+      setTimeout(() => {
+        copyToast = { show: false, message: "" };
+      }, 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  }
+
+  // Column resize handlers
+  function startResize(event, columnKey) {
+    event.preventDefault();
+    event.stopPropagation();
+    resizingColumn = columnKey;
+    resizeStartX = event.clientX;
+    const currentWidth = columnWidths[columnKey] || 150;
+    resizeStartWidth = currentWidth;
+    document.addEventListener("mousemove", handleResize);
+    document.addEventListener("mouseup", stopResize);
+  }
+
+  function handleResize(event) {
+    if (!resizingColumn) return;
+    const diff = event.clientX - resizeStartX;
+    const newWidth = Math.max(60, resizeStartWidth + diff);
+    columnWidths = { ...columnWidths, [resizingColumn]: newWidth };
+  }
+
+  function stopResize() {
+    if (resizingColumn && browser && storageKey) {
+      setStorageValue(`${storageKey}_columnWidths`, columnWidths);
+    }
+    resizingColumn = null;
+    document.removeEventListener("mousemove", handleResize);
+    document.removeEventListener("mouseup", stopResize);
+  }
+
+  // Get column width style
+  function getColumnStyle(column) {
+    const width = columnWidths[column.key] || column.width;
+    if (width) {
+      const widthValue = typeof width === "number" ? `${width}px` : width;
+      return `width: ${widthValue}; min-width: ${widthValue};`;
+    }
+    return "";
+  }
 
   // Filter data based on search query
   const filteredData = $derived(() => {
@@ -251,9 +409,9 @@
 </script>
 
 <div class="data-table-container" {...restProps}>
-  <!-- Search bar -->
-  {#if searchable}
-    <div class="data-table-search">
+  <!-- Toolbar row with search and column toggle -->
+  <div class="data-table-toolbar">
+    {#if searchable}
       <div class="search-input-wrapper">
         <svg
           class="search-icon"
@@ -298,8 +456,67 @@
           </button>
         {/if}
       </div>
-    </div>
-  {/if}
+    {/if}
+
+    <!-- Column visibility toggle -->
+    {#if enableColumnToggle}
+      <div class="column-toggle-wrapper" bind:this={columnMenuRef}>
+        <button
+          type="button"
+          class="column-toggle-btn"
+          onclick={() => (isColumnMenuOpen = !isColumnMenuOpen)}
+          aria-expanded={isColumnMenuOpen}
+          aria-haspopup="menu"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+            />
+          </svg>
+          Columns
+          {#if hiddenColumns.size > 0}
+            <span class="hidden-count">{hiddenColumns.size}</span>
+          {/if}
+        </button>
+
+        {#if isColumnMenuOpen}
+          <div class="column-menu" role="menu">
+            <div class="column-menu-header">
+              <span>Show/Hide Columns</span>
+              <button
+                type="button"
+                class="show-all-btn"
+                onclick={showAllColumns}
+              >
+                Show All
+              </button>
+            </div>
+            <div class="column-menu-list">
+              {#each columns as column}
+                <label class="column-menu-item">
+                  <input
+                    type="checkbox"
+                    checked={!hiddenColumns.has(column.key)}
+                    onchange={() => toggleColumn(column.key)}
+                  />
+                  <span>{column.label}</span>
+                </label>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
+  </div>
 
   <!-- Table wrapper for horizontal scroll -->
   <div class="table-wrapper scrollbar-thin">
@@ -319,11 +536,12 @@
             </th>
           {/if}
 
-          {#each columns as column}
+          {#each visibleColumns() as column, colIndex}
             <th
               scope="col"
               class:sortable={column.sortable}
-              style={column.width ? `width: ${column.width}` : ""}
+              class:resizing={resizingColumn === column.key}
+              style={getColumnStyle(column)}
               onclick={() => handleSort(column)}
               onkeydown={(e) => e.key === "Enter" && handleSort(column)}
               tabindex={column.sortable ? 0 : undefined}
@@ -334,7 +552,7 @@
                 : undefined}
             >
               <div class="th-content">
-                <span>{column.label}</span>
+                <span class="th-label">{column.label}</span>
                 {#if column.sortable}
                   <span class="sort-indicator" aria-hidden="true">
                     {#if sortColumn === column.key}
@@ -384,9 +602,59 @@
                     {/if}
                   </span>
                 {/if}
+
+                <!-- Copy column button -->
+                {#if enableCopy}
+                  <button
+                    type="button"
+                    class="copy-btn header-copy-btn"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      copyColumn(column.key);
+                    }}
+                    title="Copy all values in this column"
+                    aria-label="Copy column {column.label}"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path
+                        d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"
+                      />
+                    </svg>
+                  </button>
+                {/if}
               </div>
+
+              <!-- Resize handle -->
+              {#if enableResize && colIndex < visibleColumns().length - 1}
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <div
+                  class="resize-handle"
+                  onmousedown={(e) => startResize(e, column.key)}
+                  onclick={(e) => e.stopPropagation()}
+                  onkeydown={(e) => e.stopPropagation()}
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-valuenow={columnWidths[column.key] || 0}
+                  tabindex="-1"
+                ></div>
+              {/if}
             </th>
           {/each}
+
+          <!-- Copy row header -->
+          {#if enableCopy}
+            <th class="action-cell" scope="col">
+              <span class="sr-only">Actions</span>
+            </th>
+          {/if}
         </tr>
       </thead>
 
@@ -395,7 +663,9 @@
           <!-- Loading state -->
           <tr>
             <td
-              colspan={columns.length + (selectable ? 1 : 0)}
+              colspan={visibleColumns().length +
+                (selectable ? 1 : 0) +
+                (enableCopy ? 1 : 0)}
               class="loading-cell"
             >
               <div class="loading-spinner">
@@ -426,7 +696,9 @@
           <!-- Empty state -->
           <tr>
             <td
-              colspan={columns.length + (selectable ? 1 : 0)}
+              colspan={visibleColumns().length +
+                (selectable ? 1 : 0) +
+                (enableCopy ? 1 : 0)}
               class="empty-cell"
             >
               <div class="empty-state">
@@ -462,23 +734,75 @@
                     type="checkbox"
                     checked={isSelected}
                     onchange={() => toggleRowSelection(rowId)}
+                    onclick={(e) => e.stopPropagation()}
                     aria-label="Select row"
                     class="row-checkbox"
                   />
                 </td>
               {/if}
 
-              {#each columns as column}
-                <td>
+              {#each visibleColumns() as column}
+                <td style={getColumnStyle(column)}>
                   {getCellValue(row, column)}
                 </td>
               {/each}
+
+              <!-- Copy row button -->
+              {#if enableCopy}
+                <td class="action-cell">
+                  <button
+                    type="button"
+                    class="copy-btn row-copy-btn"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      copyRow(row);
+                    }}
+                    title="Copy row data"
+                    aria-label="Copy this row"
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                      <path
+                        d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"
+                      />
+                    </svg>
+                  </button>
+                </td>
+              {/if}
             </tr>
           {/each}
         {/if}
       </tbody>
     </table>
   </div>
+
+  <!-- Copy toast notification -->
+  {#if copyToast.show}
+    <div class="copy-toast">
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M5 13l4 4L19 7"
+        />
+      </svg>
+      {copyToast.message}
+    </div>
+  {/if}
 
   <!-- Pagination -->
   {#if totalPages > 1 && !loading}
@@ -567,6 +891,15 @@
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
     overflow: hidden;
+  }
+
+  /* Toolbar */
+  .data-table-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid hsl(var(--border));
   }
 
   /* Search */
@@ -679,6 +1012,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    width: 100%;
   }
 
   .sort-indicator {
@@ -841,5 +1175,244 @@
     .pagination-controls {
       justify-content: center;
     }
+
+    .data-table-toolbar {
+      flex-wrap: wrap;
+    }
+  }
+
+  /* Column Toggle */
+  .column-toggle-wrapper {
+    position: relative;
+    margin-left: auto;
+  }
+
+  .column-toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: hsl(var(--muted-foreground));
+    background: hsl(var(--secondary));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: all 150ms ease;
+  }
+
+  .column-toggle-btn:hover {
+    background: hsl(var(--secondary) / 0.8);
+    color: hsl(var(--foreground));
+  }
+
+  .hidden-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: hsl(var(--primary-foreground));
+    background: hsl(var(--primary));
+    border-radius: 9999px;
+  }
+
+  .column-menu {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    right: 0;
+    z-index: 50;
+    min-width: 200px;
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+    animation: menuIn 0.15s ease-out;
+  }
+
+  @keyframes menuIn {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .column-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem;
+    border-bottom: 1px solid hsl(var(--border));
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: hsl(var(--muted-foreground));
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .show-all-btn {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: hsl(var(--primary));
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: normal;
+  }
+
+  .show-all-btn:hover {
+    text-decoration: underline;
+  }
+
+  .column-menu-list {
+    max-height: 250px;
+    overflow-y: auto;
+    padding: 0.25rem;
+  }
+
+  .column-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    transition: background 150ms ease;
+  }
+
+  .column-menu-item:hover {
+    background: hsl(var(--secondary));
+  }
+
+  .column-menu-item input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    accent-color: hsl(var(--primary));
+    cursor: pointer;
+  }
+
+  .column-menu-item span {
+    font-size: 0.875rem;
+    color: hsl(var(--foreground));
+  }
+
+  /* Copy Buttons */
+  .copy-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem;
+    color: hsl(var(--muted-foreground));
+    background: transparent;
+    border: none;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: all 150ms ease;
+  }
+
+  .copy-btn:hover {
+    color: hsl(var(--primary));
+    background: hsl(var(--secondary));
+  }
+
+  .header-copy-btn {
+    margin-left: auto;
+  }
+
+  .th-content:hover .header-copy-btn,
+  .th-content:focus-within .header-copy-btn {
+    opacity: 1;
+  }
+
+  .row-copy-btn {
+    opacity: 0.3;
+  }
+
+  tr:hover .row-copy-btn {
+    opacity: 1;
+  }
+
+  .action-cell {
+    width: 3rem;
+    text-align: center;
+    padding: 0.5rem !important;
+  }
+
+  .th-label {
+    flex-shrink: 0;
+  }
+
+  /* Resize Handle */
+  .resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 4px;
+    height: 100%;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 150ms ease;
+  }
+
+  .resize-handle:hover,
+  th.resizing .resize-handle {
+    background: hsl(var(--primary));
+  }
+
+  .data-table th {
+    position: relative;
+  }
+
+  /* Copy Toast */
+  .copy-toast {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+    animation: toastIn 0.2s ease-out;
+    z-index: 100;
+  }
+
+  @keyframes toastIn {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(0.5rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
   }
 </style>

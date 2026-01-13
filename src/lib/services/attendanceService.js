@@ -108,7 +108,7 @@ export async function bulkCreate(records) {
   }
 }
 
-export async function syncAttendance(serviceId, personIds) {
+export async function syncAttendance(serviceId, attendanceData) {
   const client = getClient();
   if (!client) return { error: new Error('Convex not configured') };
 
@@ -117,5 +117,17 @@ export async function syncAttendance(serviceId, personIds) {
     return result;
   } catch (error) {
     return { error };
+  }
+}
+
+export async function getAttendanceHistory(personIds) {
+  const client = getClient();
+  if (!client) return notConfigured();
+
+  try {
+    const data = await client.query(api.attendance.getAttendanceHistory, { personIds });
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
   }
 }

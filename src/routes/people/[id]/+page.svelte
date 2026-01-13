@@ -7,6 +7,7 @@
     import * as attendanceService from "$lib/services/attendanceService";
     import * as evangelismService from "$lib/services/evangelismService";
     import * as visitationsService from "$lib/services/visitationsService";
+    import EngagementRadar from "$lib/components/charts/EngagementRadar.svelte";
 
     let { data } = $props();
 
@@ -17,6 +18,12 @@
     let loading = $state(true);
     let error = $state(null);
     let usingMockData = $state(false);
+
+    // Status update state
+    let updatingStatus = $state(false);
+    let statusUpdateError = $state(null);
+    let showStatusDropdown = $state(false);
+    let showActivityDropdown = $state(false);
 
     // Mock people data for development/testing when Convex is not configured
     const mockPeople = {
@@ -132,6 +139,7 @@
                     service_type: "sunday_service",
                     sermon_topic: "Walking in Faith",
                 },
+                gave_tithe: true,
             },
             {
                 id: "a2",
@@ -140,6 +148,7 @@
                     service_type: "sunday_service",
                     sermon_topic: "The Power of Prayer",
                 },
+                gave_tithe: true,
             },
             {
                 id: "a3",
@@ -156,6 +165,7 @@
                     service_type: "sunday_service",
                     sermon_topic: "Faith Over Fear",
                 },
+                gave_tithe: true,
             },
             {
                 id: "a5",
@@ -164,6 +174,7 @@
                     service_type: "sunday_service",
                     sermon_topic: "Thanksgiving Praise",
                 },
+                gave_tithe: true,
             },
             {
                 id: "a6",
@@ -171,6 +182,97 @@
                     service_date: "2025-11-17",
                     service_type: "farley_prayer",
                     sermon_topic: "Night Vigil",
+                },
+            },
+            // Cell group meetings - Bacenta
+            {
+                id: "a7",
+                services: {
+                    service_date: "2025-12-12",
+                    service_type: "bacenta",
+                    sermon_topic: "Zone 1 Fellowship",
+                },
+            },
+            {
+                id: "a8",
+                services: {
+                    service_date: "2025-12-05",
+                    service_type: "bacenta",
+                    sermon_topic: "Zone 1 Bible Study",
+                },
+            },
+            {
+                id: "a9",
+                services: {
+                    service_date: "2025-11-28",
+                    service_type: "bacenta",
+                    sermon_topic: "Zone 1 Outreach Prep",
+                },
+            },
+            {
+                id: "a10",
+                services: {
+                    service_date: "2025-11-21",
+                    service_type: "bacenta",
+                    sermon_topic: "Zone 1 Prayer Meeting",
+                },
+            },
+            {
+                id: "a11",
+                services: {
+                    service_date: "2025-11-14",
+                    service_type: "bacenta",
+                    sermon_topic: "Zone 1 Fellowship",
+                },
+            },
+            // Cell group meetings - Basonta
+            {
+                id: "a12",
+                services: {
+                    service_date: "2025-12-10",
+                    service_type: "basonta",
+                    sermon_topic: "Small Group Discipleship",
+                },
+            },
+            {
+                id: "a13",
+                services: {
+                    service_date: "2025-12-03",
+                    service_type: "basonta",
+                    sermon_topic: "Leadership Training",
+                },
+            },
+            {
+                id: "a14",
+                services: {
+                    service_date: "2025-11-26",
+                    service_type: "basonta",
+                    sermon_topic: "Evangelism Workshop",
+                },
+            },
+            // More prayer meetings
+            {
+                id: "a15",
+                services: {
+                    service_date: "2025-12-06",
+                    service_type: "all_night_prayer",
+                    sermon_topic: "First Friday Vigil",
+                },
+            },
+            {
+                id: "a16",
+                services: {
+                    service_date: "2025-11-29",
+                    service_type: "flow_prayer",
+                    sermon_topic: "Midweek Prayer",
+                },
+            },
+            {
+                id: "a17",
+                services: {
+                    service_date: "2025-11-22",
+                    service_type: "flow_prayer",
+                    sermon_topic: "Midweek Prayer",
                 },
             },
         ],
@@ -274,6 +376,30 @@
                 response: "events_only",
                 status: "guest",
             },
+            {
+                id: "e4",
+                first_name: "David",
+                last_name: "Wilson",
+                contact_date: "2025-10-20",
+                response: "responsive",
+                status: "member",
+            },
+            {
+                id: "e5",
+                first_name: "Grace",
+                last_name: "Mensah",
+                contact_date: "2025-09-10",
+                response: "responsive",
+                status: "member",
+            },
+            {
+                id: "e6",
+                first_name: "Emmanuel",
+                last_name: "Asante",
+                contact_date: "2025-12-01",
+                response: "responsive",
+                status: "visitor",
+            },
         ],
         "2": [
             {
@@ -289,6 +415,48 @@
 
     // Mock visitation data
     const mockVisitationData = {
+        "1": [
+            {
+                id: "v3",
+                visit_date: "2025-12-22",
+                visited_by_name: "John Doe",
+                person_visited_name: "Michael Johnson",
+                outcome: "welcomed_encouraged",
+                notes: "Follow-up visit after first church attendance.",
+            },
+            {
+                id: "v4",
+                visit_date: "2025-12-15",
+                visited_by_name: "John Doe",
+                person_visited_name: "David Wilson",
+                outcome: "prayer_request_received",
+                notes: "Prayed for family situation.",
+            },
+            {
+                id: "v5",
+                visit_date: "2025-12-08",
+                visited_by_name: "John Doe",
+                person_visited_name: "Grace Mensah",
+                outcome: "welcomed_encouraged",
+                notes: "Discussed baptism preparation.",
+            },
+            {
+                id: "v6",
+                visit_date: "2025-11-30",
+                visited_by_name: "John Doe",
+                person_visited_name: "Emmanuel Asante",
+                outcome: "invited_to_service",
+                notes: "Invited to upcoming special service.",
+            },
+            {
+                id: "v7",
+                visit_date: "2025-11-20",
+                visited_by_name: "John Doe",
+                person_visited_name: "Sarah Connor",
+                outcome: "concerns_shared",
+                notes: "Shared work-related concerns.",
+            },
+        ],
         "3": [
             {
                 id: "v1",
@@ -353,6 +521,66 @@
         const prayers = prayerMeetingsCount();
         const base = attendance * 2 + prayers * 3;
         return Math.min(100, Math.round(base * 2)); // Cap at 100
+    });
+
+    // Engagement radar data - computed from attendance, outreach, and visitations
+    let engagementData = $derived(() => {
+        // Service attendance: % based on total attendance (cap at 100%)
+        const serviceAttendance = Math.min(100, totalAttendance * 8);
+
+        // Prayer meetings: based on prayer meeting count
+        const prayerMeetings = Math.min(100, prayerMeetingsCount() * 15);
+
+        // Cell groups: based on bacenta/basonta meeting attendance
+        const cellGroupTypes = ["bacenta", "basonta", "sat"];
+        const cellGroupCount = attendanceHistory.filter((a) =>
+            cellGroupTypes.includes(a.services?.service_type),
+        ).length;
+        const cellGroups = Math.min(100, cellGroupCount * 12);
+
+        // Evangelism impact: based on people invited
+        const evangelismImpact = Math.min(100, outreachContacts.length * 20);
+
+        // Giving consistency: based on is_tither flag + tithe records in attendance
+        const titheRecords = attendanceHistory.filter(
+            (a) => a.gave_tithe,
+        ).length;
+        const givingConsistency = person?.is_tither
+            ? Math.min(
+                  100,
+                  50 + (titheRecords / Math.max(1, totalAttendance)) * 50,
+              )
+            : Math.min(
+                  100,
+                  (titheRecords / Math.max(1, totalAttendance)) * 100,
+              );
+
+        // Visitation activity: based on visits received or made
+        const visitationActivity = Math.min(100, visitations.length * 15);
+
+        return {
+            serviceAttendance: Math.round(serviceAttendance),
+            prayerMeetings: Math.round(prayerMeetings),
+            cellGroups: Math.round(cellGroups),
+            evangelismImpact: Math.round(evangelismImpact),
+            givingConsistency: Math.round(givingConsistency),
+            visitationActivity: Math.round(visitationActivity),
+        };
+    });
+
+    // Cell group detail for hover breakdown
+    let cellGroupDetail = $derived(() => {
+        const bacentaCount = attendanceHistory.filter(
+            (a) => a.services?.service_type === "bacenta",
+        ).length;
+        const basontaCount = attendanceHistory.filter(
+            (a) => a.services?.service_type === "basonta",
+        ).length;
+
+        return {
+            bacenta: Math.min(100, bacentaCount * 15),
+            basonta: Math.min(100, basontaCount * 15),
+        };
     });
 
     $effect(() => {
@@ -564,6 +792,123 @@
         };
         return map[status?.toLowerCase()] || "secondary";
     }
+
+    // Status options for dropdown
+    const statusOptions = [
+        { value: "guest", label: "Guest" },
+        { value: "member", label: "Member" },
+        { value: "leader", label: "Leader" },
+        { value: "archived", label: "Archived" },
+    ];
+
+    // Update member status
+    async function updateMemberStatus(newStatus) {
+        if (!person || updatingStatus) return;
+        if (person.member_status === newStatus) {
+            showStatusDropdown = false;
+            return;
+        }
+
+        updatingStatus = true;
+        statusUpdateError = null;
+
+        try {
+            const updateData = { member_status: newStatus };
+
+            // If promoting to member, set membership_date
+            if (newStatus === "member" && !person.membership_date) {
+                updateData.membership_date = new Date()
+                    .toISOString()
+                    .split("T")[0];
+            }
+
+            const result = await peopleService.update(person.id, updateData);
+
+            if (result.error) {
+                throw result.error;
+            }
+
+            // Update local state
+            person = { ...person, ...updateData };
+            showStatusDropdown = false;
+        } catch (e) {
+            console.error("Failed to update status:", e);
+            statusUpdateError = e.message || "Failed to update status";
+        } finally {
+            updatingStatus = false;
+        }
+    }
+
+    // Quick promote to member shortcut
+    function handlePromoteToMember() {
+        updateMemberStatus("member");
+    }
+
+    // Promote member to leader
+    function handlePromoteToLeader() {
+        updateMemberStatus("leader");
+    }
+
+    // Reactivate archived person
+    function handleReactivate() {
+        updateMemberStatus("member");
+    }
+
+    // Activity status options
+    const activityOptions = [
+        { value: "regular", label: "Regular", color: "text-success" },
+        { value: "irregular", label: "Irregular", color: "text-warning" },
+        { value: "dormant", label: "Dormant", color: "text-destructive" },
+    ];
+
+    // Update activity status
+    async function updateActivityStatus(newStatus) {
+        if (!person || updatingStatus) return;
+        if (person.activity_status === newStatus) {
+            showActivityDropdown = false;
+            return;
+        }
+
+        updatingStatus = true;
+        statusUpdateError = null;
+
+        try {
+            const updateData = { activity_status: newStatus };
+            const result = await peopleService.update(person.id, updateData);
+
+            if (result.error) {
+                throw result.error;
+            }
+
+            // Update local state
+            person = { ...person, ...updateData };
+            showActivityDropdown = false;
+        } catch (e) {
+            console.error("Failed to update activity status:", e);
+            statusUpdateError = e.message || "Failed to update status";
+        } finally {
+            updatingStatus = false;
+        }
+    }
+
+    // Get activity status color class
+    function getActivityStatusColor(status) {
+        const map = {
+            regular: "text-success",
+            irregular: "text-warning",
+            dormant: "text-destructive",
+        };
+        return map[status] || "text-muted-foreground";
+    }
+
+    // Is this person a member (for leader promotion)
+    let isMember = $derived(person?.member_status === "member");
+
+    // Is this person archived
+    let isArchived = $derived(person?.member_status === "archived");
+
+    // Is this person dormant
+    let isDormant = $derived(person?.activity_status === "dormant");
 </script>
 
 <div class="space-y-6 animate-in fade-in duration-500">
@@ -639,7 +984,7 @@
 
         <!-- Profile Header Card -->
         <div
-            class="bg-card border border-border rounded-xl p-6 shadow-sm overflow-hidden relative"
+            class="bg-card border border-border rounded-xl p-6 shadow-sm overflow-visible relative"
         >
             <div
                 class="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"
@@ -670,15 +1015,329 @@
                             {person.first_name}
                             {person.last_name}
                         </h1>
-                        <Badge variant={getStatusVariant(person.member_status)}>
-                            {person.member_status || "Guest"}
-                        </Badge>
+                        <!-- Status badge with dropdown -->
+                        <div class="relative">
+                            <button
+                                type="button"
+                                onclick={() =>
+                                    (showStatusDropdown = !showStatusDropdown)}
+                                class="flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity"
+                                disabled={updatingStatus}
+                            >
+                                <Badge
+                                    variant={getStatusVariant(
+                                        person.member_status,
+                                    )}
+                                >
+                                    {#if updatingStatus}
+                                        <svg
+                                            class="animate-spin h-3 w-3 mr-1"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <circle
+                                                class="opacity-25"
+                                                cx="12"
+                                                cy="12"
+                                                r="10"
+                                                stroke="currentColor"
+                                                stroke-width="4"
+                                            ></circle>
+                                            <path
+                                                class="opacity-75"
+                                                fill="currentColor"
+                                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                            ></path>
+                                        </svg>
+                                    {/if}
+                                    {person.member_status || "Guest"}
+                                </Badge>
+                                <svg
+                                    class="w-3 h-3 text-muted-foreground"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                >
+                                    <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M19 9l-7 7-7-7"
+                                    />
+                                </svg>
+                            </button>
+
+                            {#if showStatusDropdown}
+                                <div
+                                    class="absolute top-full left-0 mt-1 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[140px]"
+                                    onclick={(e) => e.stopPropagation()}
+                                    onkeydown={(e) =>
+                                        e.key === "Escape" &&
+                                        (showStatusDropdown = false)}
+                                    role="menu"
+                                    aria-label="Member status options"
+                                    tabindex="-1"
+                                >
+                                    {#each statusOptions as option}
+                                        <button
+                                            type="button"
+                                            class="w-full px-3 py-2 text-left text-sm hover:bg-secondary/50 transition-colors flex items-center gap-2
+                                                   {person.member_status ===
+                                            option.value
+                                                ? 'bg-primary/10 text-primary'
+                                                : 'text-foreground'}"
+                                            onclick={() =>
+                                                updateMemberStatus(
+                                                    option.value,
+                                                )}
+                                            disabled={updatingStatus}
+                                        >
+                                            {#if person.member_status === option.value}
+                                                <svg
+                                                    class="w-4 h-4"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                >
+                                                    <path
+                                                        stroke-linecap="round"
+                                                        stroke-linejoin="round"
+                                                        stroke-width="2"
+                                                        d="M5 13l4 4L19 7"
+                                                    />
+                                                </svg>
+                                            {:else}
+                                                <span class="w-4"></span>
+                                            {/if}
+                                            {option.label}
+                                        </button>
+                                    {/each}
+                                </div>
+                            {/if}
+                        </div>
                         {#if person.role && person.role !== "no_role"}
                             <Badge variant="outline">
                                 {formatRole(person.role)}
                             </Badge>
                         {/if}
                     </div>
+
+                    <!-- Quick action buttons based on status -->
+                    {#if !updatingStatus}
+                        <div class="mt-2 flex flex-wrap gap-2">
+                            <!-- Guest → Member -->
+                            {#if isGuest}
+                                <Button
+                                    size="sm"
+                                    onclick={handlePromoteToMember}
+                                    class="bg-success hover:bg-success/90 text-white"
+                                >
+                                    <svg
+                                        class="w-4 h-4 mr-1"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                                        />
+                                    </svg>
+                                    Promote to Member
+                                </Button>
+                            {/if}
+
+                            <!-- Member → Leader -->
+                            {#if isMember}
+                                <Button
+                                    size="sm"
+                                    onclick={handlePromoteToLeader}
+                                    class="bg-primary hover:bg-primary/90 text-white"
+                                >
+                                    <svg
+                                        class="w-4 h-4 mr-1"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
+                                        />
+                                    </svg>
+                                    Promote to Leader
+                                </Button>
+                            {/if}
+
+                            <!-- Archived → Reactivate -->
+                            {#if isArchived}
+                                <Button
+                                    size="sm"
+                                    onclick={handleReactivate}
+                                    class="bg-info hover:bg-info/90 text-white"
+                                >
+                                    <svg
+                                        class="w-4 h-4 mr-1"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                                        />
+                                    </svg>
+                                    Reactivate as Member
+                                </Button>
+                            {/if}
+                        </div>
+                    {/if}
+
+                    <!-- Activity Status indicator with dropdown -->
+                    <div class="mt-3 flex items-center gap-3">
+                        <span class="text-sm text-muted-foreground"
+                            >Activity:</span
+                        >
+                        <div class="relative">
+                            <button
+                                type="button"
+                                onclick={() =>
+                                    (showActivityDropdown =
+                                        !showActivityDropdown)}
+                                class="flex items-center gap-1 text-sm font-medium cursor-pointer hover:opacity-80 transition-opacity {getActivityStatusColor(
+                                    person.activity_status,
+                                )}"
+                                disabled={updatingStatus}
+                            >
+                                {#if person.activity_status === "dormant"}
+                                    <svg
+                                        class="w-4 h-4"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
+                                        />
+                                    </svg>
+                                {:else if person.activity_status === "irregular"}
+                                    <svg
+                                        class="w-4 h-4"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                        />
+                                    </svg>
+                                {:else}
+                                    <svg
+                                        class="w-4 h-4"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                                        />
+                                    </svg>
+                                {/if}
+                                {formatActivityStatus(person.activity_status)}
+                                <svg
+                                    class="w-3 h-3 ml-1"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                >
+                                    <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M19 9l-7 7-7-7"
+                                    />
+                                </svg>
+                            </button>
+
+                            {#if showActivityDropdown}
+                                <div
+                                    class="absolute top-full left-0 mt-1 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[140px]"
+                                    onclick={(e) => e.stopPropagation()}
+                                    onkeydown={(e) =>
+                                        e.key === "Escape" &&
+                                        (showActivityDropdown = false)}
+                                    role="menu"
+                                    aria-label="Activity status options"
+                                    tabindex="-1"
+                                >
+                                    {#each activityOptions as option}
+                                        <button
+                                            type="button"
+                                            class="w-full px-3 py-2 text-left text-sm hover:bg-secondary/50 transition-colors flex items-center gap-2 {option.color}
+                                                   {person.activity_status ===
+                                            option.value
+                                                ? 'bg-primary/10'
+                                                : ''}"
+                                            onclick={() =>
+                                                updateActivityStatus(
+                                                    option.value,
+                                                )}
+                                            disabled={updatingStatus}
+                                        >
+                                            {#if person.activity_status === option.value}
+                                                <svg
+                                                    class="w-4 h-4"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                >
+                                                    <path
+                                                        stroke-linecap="round"
+                                                        stroke-linejoin="round"
+                                                        stroke-width="2"
+                                                        d="M5 13l4 4L19 7"
+                                                    />
+                                                </svg>
+                                            {:else}
+                                                <span class="w-4"></span>
+                                            {/if}
+                                            {option.label}
+                                        </button>
+                                    {/each}
+                                </div>
+                            {/if}
+                        </div>
+
+                        <!-- Dormant Warning Badge -->
+                        {#if isDormant}
+                            <span
+                                class="text-xs bg-destructive/20 text-destructive px-2 py-1 rounded-full"
+                            >
+                                ⚠ Needs Re-engagement
+                            </span>
+                        {/if}
+                    </div>
+
+                    {#if statusUpdateError}
+                        <div class="mt-2 text-sm text-destructive">
+                            {statusUpdateError}
+                        </div>
+                    {/if}
 
                     <div
                         class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 text-sm text-muted-foreground mt-2"
@@ -811,6 +1470,43 @@
                     </div>
                 </div>
             </Card>
+        </div>
+
+        <!-- Engagement Radar Chart -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="md:col-span-1">
+                <EngagementRadar
+                    data={engagementData()}
+                    cellGroupDetail={cellGroupDetail()}
+                    size={220}
+                />
+            </div>
+            <div class="md:col-span-2 flex items-center">
+                <Card>
+                    <div class="p-4">
+                        <h4
+                            class="text-sm font-medium text-muted-foreground mb-2"
+                        >
+                            Engagement Overview
+                        </h4>
+                        <p class="text-sm text-foreground/80">
+                            This radar shows {person.first_name}'s engagement
+                            across 6 key dimensions. Hover over any axis for
+                            details.
+                            {#if engagementData().cellGroups < 30}
+                                <span class="text-warning"
+                                    >Cell group participation could use
+                                    attention.</span
+                                >
+                            {:else if engagementData().evangelismImpact > 60}
+                                <span class="text-success"
+                                    >Strong evangelism contributor!</span
+                                >
+                            {/if}
+                        </p>
+                    </div>
+                </Card>
+            </div>
         </div>
 
         <!-- Profile Details Grid -->

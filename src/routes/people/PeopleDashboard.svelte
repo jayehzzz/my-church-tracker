@@ -347,6 +347,7 @@
             <button
                 class="text-muted-foreground hover:text-foreground p-1"
                 onclick={() => (isRoutePanelOpen = false)}
+                aria-label="Close route panel"
             >
                 <svg
                     class="w-4 h-4"
@@ -403,6 +404,7 @@
                             <button
                                 class="text-muted-foreground hover:text-destructive p-1"
                                 onclick={() => togglePersonSelection(person)}
+                                aria-label="Remove {person.first_name} {person.last_name} from route"
                             >
                                 <svg
                                     class="w-3.5 h-3.5"

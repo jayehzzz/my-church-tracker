@@ -329,7 +329,7 @@
     };
   });
 
-  // Attendance trend data for chart
+  // Attendance trend data for chart - includes id and topic for drill-down
   const trendData = $derived(() => {
     const filtered = filteredServices();
     return filtered
@@ -340,8 +340,19 @@
         total: s.total_attendance || 0,
         guests: s.guests_count || 0,
         members: (s.total_attendance || 0) - (s.guests_count || 0),
+        id: s.id,
+        topic: s.sermon_topic,
       }));
   });
+
+  // Handle chart point click - find service and open modal
+  function handleChartPointClick(point) {
+    if (!point.id) return;
+    const service = filteredServices().find((s) => s.id === point.id);
+    if (service) {
+      handleServiceClick(service);
+    }
+  }
 
   // Dashboard insights - sorted services by attendance
   const sortedByAttendance = $derived(() => {
@@ -624,14 +635,25 @@
 
   <!-- View Toggle Tabs -->
   <div
-    class="mb-6 flex items-center gap-1 p-1 bg-secondary/30 rounded-lg w-fit animate-in delay-2"
+    class="mb-6 relative grid grid-cols-2 gap-1 p-1 bg-secondary/30 rounded-lg w-fit animate-in delay-2 isolate"
   >
+    <!-- Sliding Pill Background -->
+    <div
+      class="absolute top-1 bottom-1 rounded-md bg-primary shadow-sm transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]"
+      style="
+            width: calc((100% - 0.75rem) / 2);
+            left: calc(0.25rem + {activeView === 'dashboard'
+        ? 1
+        : 0} * ((100% - 0.75rem) / 2 + 0.25rem));
+        "
+    ></div>
+
     <button
       type="button"
-      class="px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 {activeView ===
+      class="relative z-10 px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 {activeView ===
       'list'
-        ? 'bg-primary text-primary-foreground shadow-sm'
-        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'}"
+        ? 'text-primary-foreground'
+        : 'text-muted-foreground hover:text-foreground'}"
       onclick={() => (activeView = "list")}
     >
       <svg
@@ -651,10 +673,10 @@
     </button>
     <button
       type="button"
-      class="px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 {activeView ===
+      class="relative z-10 px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 {activeView ===
       'dashboard'
-        ? 'bg-primary text-primary-foreground shadow-sm'
-        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'}"
+        ? 'text-primary-foreground'
+        : 'text-muted-foreground hover:text-foreground'}"
       onclick={() => (activeView = "dashboard")}
     >
       <svg
@@ -1091,7 +1113,11 @@
         <!-- Insights / Highlights Cards -->
         <div class="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {#if highestService()}
-            <div class="card-interactive p-4 border-l-4 border-l-success">
+            <button
+              type="button"
+              class="card-interactive p-4 border-l-4 border-l-success text-left w-full cursor-pointer hover:bg-success/5 transition-colors"
+              onclick={() => handleServiceClick(highestService())}
+            >
               <div class="flex items-center gap-2 mb-2">
                 <svg
                   class="w-5 h-5 text-success"
@@ -1117,11 +1143,18 @@
                 {formatShortDate(highestService().service_date)} - {highestService()
                   .sermon_topic || "Service"}
               </div>
-            </div>
+              <div class="text-[10px] text-muted-foreground/60 mt-1">
+                Click to view details
+              </div>
+            </button>
           {/if}
 
           {#if lowestService() && sortedByAttendance().length > 1}
-            <div class="card-interactive p-4 border-l-4 border-l-warning">
+            <button
+              type="button"
+              class="card-interactive p-4 border-l-4 border-l-warning text-left w-full cursor-pointer hover:bg-warning/5 transition-colors"
+              onclick={() => handleServiceClick(lowestService())}
+            >
               <div class="flex items-center gap-2 mb-2">
                 <svg
                   class="w-5 h-5 text-warning"
@@ -1147,7 +1180,10 @@
                 {formatShortDate(lowestService().service_date)} - {lowestService()
                   .sermon_topic || "Service"}
               </div>
-            </div>
+              <div class="text-[10px] text-muted-foreground/60 mt-1">
+                Click to view details
+              </div>
+            </button>
           {/if}
 
           <div class="card-interactive p-4 border-l-4 border-l-primary">
@@ -1216,7 +1252,11 @@
                 label="Copy"
               />
             </div>
-            <AttendanceTrend data={trendData()} title="Attendance Trend" />
+            <AttendanceTrend
+              data={trendData()}
+              title="Attendance Trend"
+              onPointClick={handleChartPointClick}
+            />
           </div>
 
           <!-- Guest vs Member Donut Chart -->
@@ -1338,7 +1378,10 @@
             <div class="space-y-3">
               {#each topAttendees() as { person, count }, i}
                 {#if person}
-                  <div class="flex items-center gap-3">
+                  <a
+                    href="/people/{person.id}"
+                    class="flex items-center gap-3 p-2 -mx-2 rounded-lg hover:bg-secondary/50 transition-colors group"
+                  >
                     <div
                       class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold
                       {i === 0
@@ -1357,7 +1400,9 @@
                       {person.first_name[0]}{person.last_name[0]}
                     </div>
                     <div class="flex-1">
-                      <div class="text-sm font-medium text-foreground">
+                      <div
+                        class="text-sm font-medium text-foreground group-hover:text-primary group-hover:underline transition-colors"
+                      >
                         {person.first_name}
                         {person.last_name}
                       </div>
@@ -1368,7 +1413,7 @@
                     <div class="text-sm font-bold text-primary">
                       {count} services
                     </div>
-                  </div>
+                  </a>
                 {/if}
               {/each}
               {#if topAttendees().length === 0}

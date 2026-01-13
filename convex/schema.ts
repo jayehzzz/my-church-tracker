@@ -118,7 +118,7 @@ export default defineSchema({
 
     // Visitations - Home visit records
     visitations: defineTable({
-        person_id: v.id("people"), // Who was visited
+        person_id: v.optional(v.id("people")), // Who was visited (optional for name-only entries)
         person_visited_name: v.optional(v.string()), // Caching name
         visited_by_id: v.optional(v.id("people")), // Who did the visiting (Linked now)
         visited_by_name: v.optional(v.string()),

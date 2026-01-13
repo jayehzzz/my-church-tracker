@@ -21,11 +21,7 @@
   import FilterBar from "$lib/components/filters/FilterBar.svelte";
   import { DataTable, Modal, Button, Badge } from "$lib/components/ui";
   import PersonForm from "$lib/components/forms/PersonForm.svelte";
-  import KPICard from "$lib/components/dashboard/KPICard.svelte";
 
-  // Import chart components
-  import GrowthTimeline from "$lib/components/charts/GrowthTimeline.svelte";
-  import RoleDistribution from "$lib/components/charts/RoleDistribution.svelte";
   import ProfileQuickViewCard from "$lib/components/people/ProfileQuickViewCard.svelte";
   import PeopleDashboard from "./PeopleDashboard.svelte";
   import { mockPeopleWithLocation } from "$lib/data/mockPeopleWithLocation";
@@ -200,79 +196,6 @@
     return filtered;
   });
 
-  // Calculate KPIs for People Directory
-  const kpis = $derived(() => {
-    const total = people.length;
-    const today = new Date();
-    const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-    // Count new members (joined in last 30 days - using created_at or membership_date)
-    const newMembers = people.filter((p) => {
-      if (!p.membership_date && !p.created_at) return false;
-      const joinDate = new Date(p.membership_date || p.created_at);
-      return (
-        joinDate >= thirtyDaysAgo &&
-        (p.member_status === "member" || p.member_status === "leader")
-      );
-    }).length;
-
-    // Active leaders
-    const leaders = people.filter((p) => p.member_status === "leader").length;
-
-    // Inactive/dormant - archived or no recent activity
-    const inactive = people.filter(
-      (p) => p.member_status === "archived",
-    ).length;
-
-    return { total, newMembers, leaders, inactive };
-  });
-
-  // Growth timeline data - people added per month (last 12 months)
-  const growthData = $derived(() => {
-    const months = [];
-    const today = new Date();
-
-    for (let i = 11; i >= 0; i--) {
-      const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      const monthKey = date.toLocaleDateString("en-US", {
-        month: "short",
-        year: "2-digit",
-      });
-      const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
-      const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-
-      const addedThisMonth = people.filter((p) => {
-        const joinDate = new Date(p.membership_date || p.created_at);
-        return joinDate >= monthStart && joinDate <= monthEnd;
-      });
-
-      const guests = addedThisMonth.filter(
-        (p) => p.member_status === "visitor" || p.member_status === "guest",
-      ).length;
-      const members = addedThisMonth.filter(
-        (p) => p.member_status === "member" || p.member_status === "leader",
-      ).length;
-
-      months.push({ month: monthKey, guests, members });
-    }
-
-    return months;
-  });
-
-  // Role distribution data
-  const roleData = $derived(() => {
-    const roleCounts = {};
-
-    people.forEach((p) => {
-      const role = p.role || "no_role";
-      roleCounts[role] = (roleCounts[role] || 0) + 1;
-    });
-
-    return Object.entries(roleCounts)
-      .map(([role, count]) => ({ role, count }))
-      .sort((a, b) => b.count - a.count);
-  });
-
   // Load people on mount
   onMount(async () => {
     await loadPeople();
@@ -366,11 +289,12 @@
     if (selectedPerson) {
       // Update existing person in list
       people = people.map((p) => (p.id === savedPerson.id ? savedPerson : p));
+      selectedPerson = null;
     } else {
-      // Add new person to list
+      // Add new person to list and redirect
       people = [...people, savedPerson];
+      goto(`/people/${savedPerson.id}`);
     }
-    selectedPerson = null;
   }
 
   // Handle status filter change
@@ -443,14 +367,25 @@
 
   <!-- View Toggle Tabs -->
   <div
-    class="mb-6 flex items-center gap-1 p-1 bg-secondary/30 rounded-lg w-fit animate-in delay-2"
+    class="mb-6 relative grid grid-cols-2 gap-1 p-1 bg-secondary/30 rounded-lg w-fit animate-in delay-2 isolate"
   >
+    <!-- Sliding Pill Background -->
+    <div
+      class="absolute top-1 bottom-1 rounded-md bg-primary shadow-sm transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]"
+      style="
+            width: calc((100% - 0.75rem) / 2);
+            left: calc(0.25rem + {activeView === 'map'
+        ? 1
+        : 0} * ((100% - 0.75rem) / 2 + 0.25rem));
+        "
+    ></div>
+
     <button
       type="button"
-      class="px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 {activeView ===
+      class="relative z-10 px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 {activeView ===
       'list'
-        ? 'bg-primary text-primary-foreground shadow-sm'
-        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'}"
+        ? 'text-primary-foreground'
+        : 'text-muted-foreground hover:text-foreground'}"
       onclick={() => (activeView = "list")}
     >
       <svg
@@ -470,10 +405,10 @@
     </button>
     <button
       type="button"
-      class="px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 {activeView ===
+      class="relative z-10 px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 {activeView ===
       'map'
-        ? 'bg-primary text-primary-foreground shadow-sm'
-        : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'}"
+        ? 'text-primary-foreground'
+        : 'text-muted-foreground hover:text-foreground'}"
       onclick={() => (activeView = "map")}
     >
       <svg
@@ -491,46 +426,6 @@
       </svg>
       Map Dashboard
     </button>
-  </div>
-
-  <!-- KPI Cards Section -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    <KPICard
-      title="Total People"
-      value={kpis().total}
-      icon="users"
-      trend={null}
-    />
-    <KPICard
-      title="New (Last 30 Days)"
-      value={kpis().newMembers}
-      icon="user-plus"
-      variant="success"
-      trend={null}
-    />
-    <KPICard
-      title="Active Leaders"
-      value={kpis().leaders}
-      icon="star"
-      variant="info"
-      trend={null}
-    />
-    <KPICard
-      title="Inactive/Archived"
-      value={kpis().inactive}
-      icon="user-x"
-      variant={kpis().inactive > 0 ? "warning" : "default"}
-      trend={null}
-    />
-  </div>
-
-  <!-- Charts Section -->
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-    <GrowthTimeline
-      data={growthData()}
-      title="People Growth (Last 12 Months)"
-    />
-    <RoleDistribution data={roleData()} title="People by Role" />
   </div>
 
   <!-- Filters Row -->

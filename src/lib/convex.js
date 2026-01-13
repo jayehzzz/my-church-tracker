@@ -11,7 +11,7 @@
  */
 
 const convexUrl = typeof import.meta !== 'undefined'
-    ? import.meta.env?.VITE_CONVEX_URL
+    ? (import.meta.env?.VITE_CONVEX_URL_PROD || import.meta.env?.VITE_CONVEX_URL)
     : undefined;
 
 // Handle missing environment variables gracefully
