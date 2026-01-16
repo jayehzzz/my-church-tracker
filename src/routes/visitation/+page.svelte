@@ -20,6 +20,7 @@
   import { DataTable, Modal, Button } from "$lib/components/ui";
   import KPICard from "$lib/components/dashboard/KPICard.svelte";
   import VisitationForm from "$lib/components/forms/VisitationForm.svelte";
+  import VisitationDetailModal from "$lib/components/visitation/VisitationDetailModal.svelte";
 
   // Import filter store for reactive date range
   import { dateRange } from "$lib/stores/filterStore";
@@ -38,6 +39,7 @@
   // Modal state
   let isFormOpen = $state(false);
   let isDeleteModalOpen = $state(false);
+  let isDetailModalOpen = $state(false);
   let selectedVisitation = $state(null);
   let deleting = $state(false);
 
@@ -564,10 +566,28 @@
         pageSize={15}
         searchPlaceholder="Search by name or notes..."
         emptyMessage="No visitations found. Log your first visit to get started."
+        onRowClick={(row) => {
+          selectedVisitation = row;
+          isDetailModalOpen = true;
+        }}
       />
     </div>
   {/if}
 </DashboardLayout>
+
+<!-- Visitation Detail Modal -->
+<VisitationDetailModal
+  bind:isOpen={isDetailModalOpen}
+  visitation={selectedVisitation}
+  onEdit={(v) => {
+    selectedVisitation = v;
+    isFormOpen = true;
+  }}
+  onDelete={(v) => {
+    selectedVisitation = v;
+    isDeleteModalOpen = true;
+  }}
+/>
 
 <!-- Visitation Form Modal -->
 <VisitationForm

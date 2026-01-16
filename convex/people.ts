@@ -5,7 +5,7 @@ import { v } from "convex/values";
 export const getAll = query({
     args: {},
     handler: async (ctx) => {
-        const people = await ctx.db.query("people").order("asc").collect();
+        const people = await ctx.db.query("people").collect();
         return people.sort((a, b) => a.last_name.localeCompare(b.last_name));
     },
 });

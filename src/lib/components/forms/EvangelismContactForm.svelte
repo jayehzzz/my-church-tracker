@@ -11,7 +11,13 @@
 -->
 
 <script>
-    import { Modal, Button, Input, Select } from "$lib/components/ui";
+    import {
+        Modal,
+        Button,
+        Input,
+        Select,
+        SearchableSelect,
+    } from "$lib/components/ui";
     import { browser } from "$app/environment";
     import { onMount } from "svelte";
 
@@ -41,8 +47,7 @@
         conversion_date: "",
         notes: "",
         invited_by_id: "",
-        attended_church: false, // Has attended a church service
-        salvation_decision: false, // Made a salvation decision
+        salvation_decision: false, // Made a salvation decision during evangelism
     });
 
     let saving = $state(false);
@@ -134,7 +139,6 @@
                     conversion_date: contact.conversion_date || "",
                     notes: contact.notes || "",
                     invited_by_id: contact.invited_by_id || "",
-                    attended_church: contact.attended_church || false,
                     salvation_decision: contact.salvation_decision || false,
                 };
             } else {
@@ -154,7 +158,6 @@
                     conversion_date: "",
                     notes: "",
                     invited_by_id: "",
-                    attended_church: false,
                     salvation_decision: false,
                 };
             }
@@ -330,7 +333,7 @@
         />
 
         <!-- Contact Details Section -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input
                 label="Contact Date"
                 type="date"
@@ -339,13 +342,7 @@
                 required
                 disabled={saving}
             />
-            <Select
-                label="Contact Method"
-                bind:value={formData.contact_method}
-                options={contactMethodOptions}
-                disabled={saving}
-            />
-            <Select
+            <SearchableSelect
                 label="Response Category"
                 bind:value={formData.response}
                 options={responseOptions}
@@ -353,12 +350,21 @@
             />
         </div>
 
+        <!-- Contact Method -->
+        <SearchableSelect
+            label="Contact Method"
+            bind:value={formData.contact_method}
+            options={contactMethodOptions}
+            disabled={saving}
+        />
+
         <!-- Invited By Section -->
-        <Select
+        <SearchableSelect
             label="Invited By"
             bind:value={formData.invited_by_id}
             options={peopleOptions()}
             disabled={saving || loadingPeople}
+            placeholder="Search for inviter..."
         />
 
         <!-- Spiritual Progress Section -->
@@ -366,30 +372,17 @@
             <h4 class="text-sm font-medium text-foreground mb-3">
                 Spiritual Progress
             </h4>
-            <div class="flex flex-wrap gap-6">
-                <label class="flex items-center gap-2 cursor-pointer">
-                    <input
-                        type="checkbox"
-                        bind:checked={formData.attended_church}
-                        disabled={saving}
-                        class="w-4 h-4 rounded border-border bg-input text-primary focus:ring-primary"
-                    />
-                    <span class="text-sm text-foreground"
-                        >Attended Church Service</span
-                    >
-                </label>
-                <label class="flex items-center gap-2 cursor-pointer">
-                    <input
-                        type="checkbox"
-                        bind:checked={formData.salvation_decision}
-                        disabled={saving}
-                        class="w-4 h-4 rounded border-border bg-input text-success focus:ring-success"
-                    />
-                    <span class="text-sm text-foreground"
-                        >Made Salvation Decision</span
-                    >
-                </label>
-            </div>
+            <label class="flex items-center gap-2 cursor-pointer">
+                <input
+                    type="checkbox"
+                    bind:checked={formData.salvation_decision}
+                    disabled={saving}
+                    class="w-4 h-4 rounded border-border bg-input text-success focus:ring-success"
+                />
+                <span class="text-sm text-foreground">
+                    Made Salvation Decision (during evangelism)
+                </span>
+            </label>
         </div>
 
         <!-- Follow-up Section -->

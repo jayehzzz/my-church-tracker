@@ -9,10 +9,10 @@
 
 | Principle | Current Status | Gap Count |
 |-----------|----------------|-----------|
-| Click = Action | ⚠️ Partial | 8 gaps |
-| Edit Anywhere | ⚠️ Partial | 5 gaps |
+| Click = Action | ⚠️ Partial | 6 gaps |
+| Edit Anywhere | ✅ Good | 2 gaps remaining |
 | Smooth Transitions | ✅ Good | 2 minor gaps |
-| Linked Entities | ⚠️ Needs Work | 7 gaps |
+| Linked Entities | ✅ Complete | All addressed |
 | Depth Over Breadth | ⚠️ Partial | 4 gaps |
 | Progressive Disclosure | ⚠️ Partial | 3 gaps |
 | Instant Reactivity | ⚠️ Needs Work | 5 gaps |
@@ -43,8 +43,8 @@
 |----------|-------|---------------|---------------|----------|
 | **Profile Page** | No inline status edit | Must use dropdown only | Status badge should be clickable dropdown ✅ (implemented) | — |
 | **Service Detail Modal** | No attendance edit | Read-only attendee list | Add "Edit Attendance" button | Medium |
-| **Evangelism Detail Modal** | Missing | No detail modal exists | Create modal with edit capability | High |
-| **Visitation Detail Modal** | Missing | No detail modal exists | Create modal with edit capability | High |
+| **Evangelism Detail Modal** | Missing | No detail modal exists | Create modal with edit capability ✅ (implemented) | — |
+| **Visitation Detail Modal** | Missing | No detail modal exists | Create modal with edit capability ✅ (implemented) | — |
 | **Table Rows** | No quick edit | Must open modal for all edits | Consider inline edit for simple fields | Low |
 
 ---
@@ -64,13 +64,13 @@
 
 | Location | Field | Current State | Expected Behavior | Priority |
 |----------|-------|---------------|-------------------|----------|
-| **Profile Page** | "Invited by: [Name]" | ⚠️ Static text | Clickable → navigates to inviter's profile | **High** |
-| **Profile Attendance** | Service name/date | Static text | Clickable → opens service detail modal | **High** |
-| **Profile Outreach** | Contact names | Static text | Clickable → navigates to contact's profile | **High** |
-| **Profile Visitations** | "Visited by" name | Static text | Clickable → navigates to visitor's profile | **High** |
-| **Services Table** | Individual attendees | Clickable avatars | ✅ Opens modal, but names in modal should also link | Medium |
-| **Evangelism Table** | "Invited by" column | Avatar only | Name should also be clickable link | Medium |
-| **Service Modal Attendees** | Attendee names | Static list | Each name should link to their profile | **High** |
+| **Profile Page** | "Invited by: [Name]" | ⚠️ Static text | Clickable → navigates to inviter's profile ✅ (implemented) | — |
+| **Profile Attendance** | Service name/date | Static text | Clickable → opens service detail modal ✅ (implemented) | — |
+| **Profile Outreach** | Contact names | Static text | Clickable → navigates to contact's profile ✅ (implemented) | — |
+| **Profile Visitations** | "Visited by" name | Static text | Clickable → navigates to visitor's profile ✅ (implemented) | — |
+| **Services Table** | Individual attendees | Clickable avatars | ✅ Opens modal, names in modal link to profiles | — |
+| **Evangelism Table** | "Invited by" column | Avatar only | Detail modal shows clickable inviter ✅ | — |
+| **Service Modal Attendees** | Attendee names | Static list | Each name links to profile ✅ (implemented) | — |
 
 ---
 

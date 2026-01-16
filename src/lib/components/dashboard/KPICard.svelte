@@ -17,9 +17,21 @@
    * @param {number} value - The metric value to display
    * @param {number} [trend=0] - Trend percentage (positive = up, negative = down)
    * @param {string} [format='number'] - Format type ('number', 'percentage', 'currency')
+   * @param {string} [description=''] - Optional description/subtitle (e.g., period label)
+   * @param {string} [href=''] - Optional navigation target when clicked
    */
-  let { title = '', value = 0, trend = 0, format = 'number' } = $props();
-  
+  let {
+    title = "",
+    value = 0,
+    trend = 0,
+    format = "number",
+    description = "",
+    href = "",
+  } = $props();
+
+  // Derived: is this card clickable?
+  const isClickable = $derived(!!href);
+
   /**
    * Format the value based on type
    * @param {number} val - The value to format
@@ -27,91 +39,194 @@
    * @returns {string} Formatted value string
    */
   function formatValue(val, fmt) {
-    if (fmt === 'percentage') {
+    if (fmt === "percentage") {
       return `${val}%`;
-    } else if (fmt === 'currency') {
-      return new Intl.NumberFormat('en-GB', {
-        style: 'currency',
-        currency: 'GBP',
+    } else if (fmt === "currency") {
+      return new Intl.NumberFormat("en-GB", {
+        style: "currency",
+        currency: "GBP",
         minimumFractionDigits: 0,
-        maximumFractionDigits: 0
+        maximumFractionDigits: 0,
       }).format(val);
     }
-    return new Intl.NumberFormat('en-GB').format(val);
+    return new Intl.NumberFormat("en-GB").format(val);
   }
-  
+
   // Determine trend direction and styling using $derived rune
-  const trendDirection = $derived(trend > 0 ? 'up' : trend < 0 ? 'down' : 'neutral');
+  const trendDirection = $derived(
+    trend > 0 ? "up" : trend < 0 ? "down" : "neutral",
+  );
   const trendColor = $derived(
-    trendDirection === 'up' ? 'text-success' :
-    trendDirection === 'down' ? 'text-destructive' :
-    'text-muted-foreground'
+    trendDirection === "up"
+      ? "text-success"
+      : trendDirection === "down"
+        ? "text-destructive"
+        : "text-muted-foreground",
   );
   const trendBgColor = $derived(
-    trendDirection === 'up' ? 'bg-success/10' :
-    trendDirection === 'down' ? 'bg-destructive/10' :
-    'bg-muted/10'
+    trendDirection === "up"
+      ? "bg-success/10"
+      : trendDirection === "down"
+        ? "bg-destructive/10"
+        : "bg-muted/10",
   );
-  
+
   // Generate ARIA label for accessibility using $derived rune
-  const ariaLabel = $derived((() => {
-    let label = `${title}: ${formatValue(value, format)}`;
-    if (trend !== 0) {
-      const direction = trend > 0 ? 'increased' : 'decreased';
-      label += `, ${direction} by ${Math.abs(trend)} percent`;
-    }
-    return label;
-  })());
+  const ariaLabel = $derived(
+    (() => {
+      let label = `${title}: ${formatValue(value, format)}`;
+      if (trend !== 0) {
+        const direction = trend > 0 ? "increased" : "decreased";
+        label += `, ${direction} by ${Math.abs(trend)} percent`;
+      }
+      return label;
+    })(),
+  );
 </script>
 
 <!--
   Main card container
   Uses card-interactive class for base styling and hover effects from app.css
   Custom kpi-card class adds gradient background
+  When href is provided, renders as a clickable anchor
 -->
-<div 
-  class="kpi-card card-interactive relative flex flex-col justify-between min-h-[140px]"
-  role="article"
-  aria-label={ariaLabel}
->
-  <!-- Label at top -->
-  <span class="text-label">
-    {title}
-  </span>
-  
-  <!-- Large value in the middle/center area -->
-  <span class="text-metric text-foreground">
-    {formatValue(value, format)}
-  </span>
-  
-  <!-- Trend badge positioned at bottom-right -->
-  {#if trend !== 0}
-    <div class="absolute bottom-5 right-5">
-      <span 
-        class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium {trendColor} {trendBgColor}"
-        aria-hidden="true"
-      >
-        {#if trendDirection === 'up'}
-          <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" />
-          </svg>
-        {:else if trendDirection === 'down'}
-          <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-          </svg>
-        {/if}
-        {Math.abs(trend)}%
+{#if isClickable}
+  <a
+    {href}
+    class="kpi-card card-interactive relative flex flex-col justify-between min-h-[140px] cursor-pointer group no-underline hover:ring-2 hover:ring-primary/30 transition-all duration-200"
+    role="article"
+    aria-label={ariaLabel}
+  >
+    <!-- Label at top -->
+    <div class="flex flex-col gap-0.5">
+      <span class="text-label">
+        {title}
       </span>
+      {#if description}
+        <span class="text-xs text-muted-foreground/70">
+          {description}
+        </span>
+      {/if}
     </div>
-  {/if}
-</div>
+
+    <!-- Large value in the middle/center area -->
+    <span class="text-metric text-foreground">
+      {formatValue(value, format)}
+    </span>
+
+    <!-- Trend badge positioned at bottom-right -->
+    {#if trend !== 0}
+      <div class="absolute bottom-5 right-5">
+        <span
+          class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium {trendColor} {trendBgColor}"
+          aria-hidden="true"
+        >
+          {#if trendDirection === "up"}
+            <svg
+              class="w-3 h-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M5 15l7-7 7 7"
+              />
+            </svg>
+          {:else if trendDirection === "down"}
+            <svg
+              class="w-3 h-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          {/if}
+          {Math.abs(trend)}%
+        </span>
+      </div>
+    {/if}
+  </a>
+{:else}
+  <div
+    class="kpi-card card-interactive relative flex flex-col justify-between min-h-[140px]"
+    role="article"
+    aria-label={ariaLabel}
+  >
+    <!-- Label at top -->
+    <div class="flex flex-col gap-0.5">
+      <span class="text-label">
+        {title}
+      </span>
+      {#if description}
+        <span class="text-xs text-muted-foreground/70">
+          {description}
+        </span>
+      {/if}
+    </div>
+
+    <!-- Large value in the middle/center area -->
+    <span class="text-metric text-foreground">
+      {formatValue(value, format)}
+    </span>
+
+    <!-- Trend badge positioned at bottom-right -->
+    {#if trend !== 0}
+      <div class="absolute bottom-5 right-5">
+        <span
+          class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium {trendColor} {trendBgColor}"
+          aria-hidden="true"
+        >
+          {#if trendDirection === "up"}
+            <svg
+              class="w-3 h-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M5 15l7-7 7 7"
+              />
+            </svg>
+          {:else if trendDirection === "down"}
+            <svg
+              class="w-3 h-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              stroke-width="2.5"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          {/if}
+          {Math.abs(trend)}%
+        </span>
+      </div>
+    {/if}
+  </div>
+{/if}
 
 <style>
   .kpi-card {
     /* Subtle gradient background from top-left to bottom-right */
     background: linear-gradient(135deg, hsl(0 0% 9%) 0%, hsl(0 0% 10%) 100%);
   }
-  
+
   .text-metric {
     font-size: 2.625rem; /* 42px */
     font-weight: 600;

@@ -34,13 +34,16 @@ export default defineSchema({
         membership_date: v.optional(v.string()), // When they became a "Member"
         is_baptised: v.optional(v.boolean()),
         is_tither: v.optional(v.boolean()),
+        salvation_decision: v.optional(v.boolean()), // Made salvation decision during evangelism outreach
 
         // System
         created_at: v.string(),
         updated_at: v.string(),
     }).index("by_member_status", ["member_status"])
         .index("by_last_name", ["last_name"])
-        .index("by_contact_date", ["contact_date"]),
+        .index("by_contact_date", ["contact_date"])
+        .index("by_invited_by", ["invited_by_id"]),
+
 
     // Services - Church services
     services: defineTable({

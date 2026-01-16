@@ -411,7 +411,7 @@ These functions work with the `people` table but focus on evangelism/outreach co
 
 **Returns**: Array of contacts needing attention
 
-**Use case**: Building a follow-up task list
+**Use case**: Building a follow-up task list. Returns responsive contacts who either haven't visited yet, or whose last visit was 30+ days ago.
 
 ---
 

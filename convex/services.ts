@@ -87,14 +87,17 @@ export const remove = mutation({
 export const getByDateRange = query({
     args: { startDate: v.string(), endDate: v.string() },
     handler: async (ctx, args) => {
-        const allServices = await ctx.db.query("services").collect();
-        return allServices
-            .filter(
-                (s) => s.service_date >= args.startDate && s.service_date <= args.endDate
+        // Use index for efficient date range filtering
+        const services = await ctx.db
+            .query("services")
+            .withIndex("by_service_date", (q) =>
+                q.gte("service_date", args.startDate).lte("service_date", args.endDate)
             )
-            .sort(
-                (a, b) =>
-                    new Date(b.service_date).getTime() - new Date(a.service_date).getTime()
-            );
+            .collect();
+        return services.sort(
+            (a, b) =>
+                new Date(b.service_date).getTime() - new Date(a.service_date).getTime()
+        );
     },
 });
+

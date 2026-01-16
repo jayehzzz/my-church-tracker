@@ -200,13 +200,30 @@ export const syncAttendance = mutation({
             ...upsertPromises
         ]);
 
+        // Recalculate and update service aggregates
+        const updatedAttendance = await ctx.db
+            .query("attendance")
+            .withIndex("by_service", (q) => q.eq("service_id", args.serviceId))
+            .collect();
+
+        const aggregates = {
+            total_attendance: updatedAttendance.length,
+            tithers_count: updatedAttendance.filter(a => a.gave_tithe).length,
+            salvation_decisions: updatedAttendance.filter(a => a.made_salvation_decision).length,
+            guests_count: updatedAttendance.filter(a => a.first_timer).length,
+        };
+
+        await ctx.db.patch(args.serviceId, aggregates);
+
         return {
             success: true,
             upserted: args.attendanceData.length,
-            removed: toRemove.length
+            removed: toRemove.length,
+            aggregates,
         };
     },
 });
+
 
 // Check which people have attended any prior service (for first-timer detection)
 export const getAttendanceHistory = query({

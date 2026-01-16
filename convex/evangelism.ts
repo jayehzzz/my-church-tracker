@@ -102,6 +102,7 @@ export const create = mutation({
             contact_category: args.response,
             contact_date: args.contact_date,
             invited_by_id: args.invited_by_id,
+            salvation_decision: args.salvation_decision,
 
             // New unified fields for attendance/spiritual tracking
             membership_date: args.conversion_date,
@@ -155,6 +156,7 @@ export const update = mutation({
         delete updates.contact_method;
         delete updates.follow_up_date;
         delete updates.notes;
+        delete updates.attended_church; // Attendance tracked via attendance table, not on person record
 
         await ctx.db.patch(id, updates);
         return await ctx.db.get(id);
@@ -209,9 +211,40 @@ export const getByResponse = query({
 export const getRequiringFollowUp = query({
     args: {},
     handler: async (ctx) => {
-        return []; // TODO: Implement follow-up logic in unified model
+        // Get all guests with responsive status who need follow-up:
+        // 1. Responsive contacts who haven't visited yet
+        // 2. Responsive contacts whose last visit was 30+ days ago
+        const guests = await ctx.db
+            .query("people")
+            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
+            .collect();
+
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
+
+        const needsFollowUp = guests.filter(g => {
+            // Only consider responsive contacts
+            if (g.contact_category !== "responsive") return false;
+
+            // If they've never visited, they need follow-up
+            if (!g.first_visit_date) return true;
+
+            // If their first visit was 30+ days ago and they're still a guest
+            // (not converted to member), they need follow-up
+            if (g.first_visit_date < thirtyDaysAgoStr) return true;
+
+            return false;
+        });
+
+        return await Promise.all(needsFollowUp.map(async (c) => {
+            let inviter = null;
+            if (c.invited_by_id) inviter = await ctx.db.get(c.invited_by_id);
+            return mapToContact(c, inviter);
+        }));
     },
 });
+
 
 export const getConverted = query({
     args: {},

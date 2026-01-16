@@ -22,6 +22,7 @@
   import { DataTable, Modal, Button, Badge } from "$lib/components/ui";
   import KPICard from "$lib/components/dashboard/KPICard.svelte";
   import EvangelismContactForm from "$lib/components/forms/EvangelismContactForm.svelte";
+  import EvangelismDetailModal from "$lib/components/evangelism/EvangelismDetailModal.svelte";
 
   // Import filter store for reactive date range
   import { dateRange } from "$lib/stores/filterStore";
@@ -69,6 +70,7 @@
   let isFormOpen = $state(false);
   let isDeleteModalOpen = $state(false);
   let isConvertModalOpen = $state(false);
+  let isDetailModalOpen = $state(false);
   let selectedContact = $state(null);
   let deleting = $state(false);
   let converting = $state(false);
@@ -1125,6 +1127,12 @@
     isFormOpen = true;
   }
 
+  // Open detail modal (for row click)
+  function handleViewContact(contact) {
+    selectedContact = contact;
+    isDetailModalOpen = true;
+  }
+
   // Open delete confirmation modal
   function handleDeleteClick(contact) {
     selectedContact = contact;
@@ -1690,7 +1698,7 @@
           {loading}
           searchable
           selectable={false}
-          onrowclick={(row) => handleEditContact(row)}
+          onrowclick={(row) => handleViewContact(row)}
           pageSize={15}
           searchPlaceholder="Search by name, phone, or email..."
           emptyMessage="No contacts found. Add your first evangelism contact to get started."
@@ -1856,3 +1864,21 @@
     </Button>
   {/snippet}
 </Modal>
+
+<!-- Evangelism Detail Modal -->
+<EvangelismDetailModal
+  bind:isOpen={isDetailModalOpen}
+  contact={selectedContact}
+  onEdit={(c) => {
+    selectedContact = c;
+    isFormOpen = true;
+  }}
+  onDelete={(c) => {
+    selectedContact = c;
+    isDeleteModalOpen = true;
+  }}
+  onConvert={(c) => {
+    selectedContact = c;
+    isConvertModalOpen = true;
+  }}
+/>

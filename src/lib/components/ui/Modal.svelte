@@ -15,7 +15,7 @@
 
 <script>
   import { fade, scale } from "svelte/transition";
-  import { onDestroy } from "svelte";
+  import { onMount, onDestroy } from "svelte";
 
   /**
    * @typedef {'sm' | 'md' | 'lg' | 'xl'} ModalSize
@@ -37,6 +37,9 @@
   // Reference to modal element for focus trap
   let modalElement = $state(null);
   let previousActiveElement = $state(null);
+
+  // Portal container reference
+  let portalTarget = $state(null);
 
   // Size class mappings
   const sizeClassMap = {
@@ -89,6 +92,33 @@
     }
   }
 
+  // Create portal target on mount
+  onMount(() => {
+    portalTarget = document.createElement("div");
+    portalTarget.id = "modal-portal";
+    document.body.appendChild(portalTarget);
+  });
+
+  // Portal action - moves the element to document.body
+  function portal(node) {
+    // Move node to the portal target
+    if (portalTarget) {
+      portalTarget.appendChild(node);
+    } else {
+      // Fallback: move directly to body
+      document.body.appendChild(node);
+    }
+
+    return {
+      destroy() {
+        // Remove node from portal when destroyed
+        if (node.parentNode) {
+          node.parentNode.removeChild(node);
+        }
+      },
+    };
+  }
+
   // Watch for isOpen changes using $effect
   $effect(() => {
     if (typeof window === "undefined") return;
@@ -127,6 +157,10 @@
   onDestroy(() => {
     if (typeof window !== "undefined") {
       document.body.style.overflow = "";
+      // Remove portal target
+      if (portalTarget && portalTarget.parentNode) {
+        portalTarget.parentNode.removeChild(portalTarget);
+      }
     }
   });
 </script>
@@ -137,6 +171,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
+    use:portal
     class="modal-backdrop"
     role="dialog"
     aria-modal="true"
@@ -154,7 +189,7 @@
       {#if title || closable}
         <div class="modal-header">
           {#if title}
-            <h2 id="modal-title" class="text-lg font-semibold text-foreground">
+            <h2 id="modal-title" class="text-xl font-semibold text-foreground">
               {title}
             </h2>
           {:else}
@@ -222,11 +257,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    background: linear-gradient(
-      135deg,
-      hsl(var(--card)) 0%,
-      hsl(0 0% 10%) 100%
-    );
+    background-color: hsl(var(--card));
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);

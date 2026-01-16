@@ -10,7 +10,13 @@
 -->
 
 <script>
-  import { Modal, Button, Input, Select } from "$lib/components/ui";
+  import {
+    Modal,
+    Button,
+    Input,
+    Select,
+    SearchableSelect,
+  } from "$lib/components/ui";
   import * as peopleService from "$lib/services/peopleService";
 
   let {
@@ -193,113 +199,137 @@
       </div>
     {/if}
 
-    <!-- Name Section -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Input
-        label="First Name"
-        bind:value={formData.first_name}
-        error={errors.first_name}
-        required
-        disabled={saving}
-      />
-      <Input
-        label="Last Name"
-        bind:value={formData.last_name}
-        error={errors.last_name}
-        required
-        disabled={saving}
-      />
-    </div>
-
-    <!-- Contact Section -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Input
-        label="Email"
-        type="email"
-        bind:value={formData.email}
-        error={errors.email}
-        disabled={saving}
-      />
-      <Input
-        label="Phone"
-        type="tel"
-        bind:value={formData.phone}
-        disabled={saving}
-      />
-    </div>
-
-    <!-- Address Section -->
+    <!-- Personal Information Section -->
     <div class="space-y-4">
-      <Input label="Address" bind:value={formData.address} disabled={saving} />
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="col-span-2">
-          <Input label="City" bind:value={formData.city} disabled={saving} />
-        </div>
-        <Input label="State" bind:value={formData.state} disabled={saving} />
+      <h3 class="text-lg font-medium text-foreground">Personal Information</h3>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input
-          label="Zip Code"
-          bind:value={formData.zip_code}
+          label="First Name"
+          bind:value={formData.first_name}
+          error={errors.first_name}
+          required
+          disabled={saving}
+        />
+        <Input
+          label="Last Name"
+          bind:value={formData.last_name}
+          error={errors.last_name}
+          required
+          disabled={saving}
+        />
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Input
+          label="Date of Birth"
+          type="date"
+          bind:value={formData.date_of_birth}
+          disabled={saving}
+        />
+        <SearchableSelect
+          label="Gender"
+          bind:value={formData.gender}
+          options={genderOptions}
+          disabled={saving}
+        />
+        <SearchableSelect
+          label="Marital Status"
+          bind:value={formData.marital_status}
+          options={maritalStatusOptions}
           disabled={saving}
         />
       </div>
     </div>
 
-    <!-- Personal Info Section -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <Input
-        label="Date of Birth"
-        type="date"
-        bind:value={formData.date_of_birth}
-        disabled={saving}
-      />
-      <Select
-        label="Gender"
-        bind:value={formData.gender}
-        options={genderOptions}
-        disabled={saving}
-      />
-      <Select
-        label="Marital Status"
-        bind:value={formData.marital_status}
-        options={maritalStatusOptions}
-        disabled={saving}
-      />
+    <hr class="border-border" />
+
+    <!-- Contact Details Section -->
+    <div class="space-y-4">
+      <h3 class="text-lg font-medium text-foreground">Contact Details</h3>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Input
+          label="Email"
+          type="email"
+          bind:value={formData.email}
+          error={errors.email}
+          disabled={saving}
+        />
+        <Input
+          label="Phone"
+          type="tel"
+          bind:value={formData.phone}
+          disabled={saving}
+        />
+      </div>
+
+      <div class="space-y-4">
+        <Input
+          label="Address"
+          bind:value={formData.address}
+          disabled={saving}
+        />
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div class="col-span-2">
+            <Input label="City" bind:value={formData.city} disabled={saving} />
+          </div>
+          <Input label="State" bind:value={formData.state} disabled={saving} />
+          <Input
+            label="Zip Code"
+            bind:value={formData.zip_code}
+            disabled={saving}
+          />
+        </div>
+      </div>
     </div>
+
+    <hr class="border-border" />
 
     <!-- Church Status Section -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Select
-        label="Member Status"
-        bind:value={formData.member_status}
-        options={statusOptions}
-        disabled={saving}
-      />
-      <Input
-        label="Membership Date"
-        type="date"
-        bind:value={formData.membership_date}
-        disabled={saving}
-      />
+    <div class="space-y-4">
+      <h3 class="text-lg font-medium text-foreground">Church Status</h3>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <SearchableSelect
+          label="Member Status"
+          bind:value={formData.member_status}
+          options={statusOptions}
+          disabled={saving}
+        />
+        <Input
+          label="Membership Date"
+          type="date"
+          bind:value={formData.membership_date}
+          disabled={saving}
+        />
+      </div>
     </div>
 
+    <hr class="border-border" />
+
     <!-- Notes Section -->
-    <div>
-      <label
-        for="notes"
-        class="block text-sm font-medium text-muted-foreground mb-2"
-      >
-        Notes
-      </label>
-      <textarea
-        id="notes"
-        bind:value={formData.notes}
-        rows="3"
-        disabled={saving}
-        class="w-full px-3 py-2 bg-input border border-border rounded-lg text-foreground
-               placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary
-               focus:ring-1 focus:ring-primary transition-premium resize-none"
-        placeholder="Add any notes about this person..."
-      ></textarea>
+    <div class="space-y-4">
+      <h3 class="text-lg font-medium text-foreground">Notes</h3>
+
+      <div>
+        <label
+          for="notes"
+          class="block text-sm font-medium text-muted-foreground mb-2"
+        >
+          Additional Information
+        </label>
+        <textarea
+          id="notes"
+          bind:value={formData.notes}
+          rows="3"
+          disabled={saving}
+          class="w-full px-3 py-2 bg-input border border-border rounded-lg text-foreground
+                 placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary
+                 focus:ring-1 focus:ring-primary transition-premium resize-none"
+          placeholder="Add any notes about this person..."
+        ></textarea>
+      </div>
     </div>
   </form>
 

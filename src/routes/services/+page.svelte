@@ -929,11 +929,16 @@
                     {/if}
                     {#if columnVisibility.type}
                       <td class="px-4 py-3">
-                        <span
-                          class="text-xs px-2 py-1 rounded-full bg-secondary text-muted-foreground"
+                        <button
+                          type="button"
+                          class="text-xs px-2 py-1 rounded-full bg-secondary text-muted-foreground hover:bg-primary/20 hover:text-primary transition-colors cursor-pointer"
+                          onclick={(e) => {
+                            e.stopPropagation();
+                            serviceTypeFilter = service.service_type;
+                          }}
                         >
                           {formatServiceType(service.service_type)}
-                        </span>
+                        </button>
                       </td>
                     {/if}
                     {#if columnVisibility.topic}
@@ -1345,7 +1350,11 @@
                 {@const pct = Math.round(
                   (count / filteredServices().length) * 100,
                 )}
-                <div>
+                <button
+                  type="button"
+                  class="w-full text-left hover:bg-secondary/30 p-1 -m-1 rounded transition-colors cursor-pointer"
+                  onclick={() => (serviceTypeFilter = type)}
+                >
                   <div class="flex justify-between text-sm mb-1">
                     <span class="text-foreground"
                       >{formatServiceType(type)}</span
@@ -1364,7 +1373,7 @@
                         100}%"
                     ></div>
                   </div>
-                </div>
+                </button>
               {/each}
             </div>
           </div>
@@ -1710,18 +1719,21 @@
           </h4>
           <div class="flex flex-wrap gap-2">
             {#each getServiceIndividuals(selectedService) as person}
-              <div
-                class="flex items-center gap-2 px-3 py-1.5 bg-secondary/30 rounded-full"
+              <a
+                href="/people/{person.id}"
+                class="flex items-center gap-2 px-3 py-1.5 bg-secondary/30 rounded-full hover:bg-secondary/50 transition-colors group"
+                onclick={(e) => e.stopPropagation()}
               >
                 <div
                   class="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary"
                 >
                   {person.first_name[0]}{person.last_name[0]}
                 </div>
-                <span class="text-sm text-foreground"
+                <span
+                  class="text-sm text-foreground group-hover:text-primary group-hover:underline"
                   >{person.first_name} {person.last_name}</span
                 >
-              </div>
+              </a>
             {/each}
           </div>
         </div>
@@ -1825,8 +1837,9 @@
         {#if Array.isArray(selectedService.individuals) && selectedService.individuals.length > 0}
           <div class="space-y-2 max-h-[300px] overflow-y-auto">
             {#each getServiceIndividuals(selectedService) as person}
-              <div
-                class="flex items-center justify-between p-3 bg-secondary/20 rounded-lg"
+              <a
+                href="/people/{person.id}"
+                class="flex items-center justify-between p-3 bg-secondary/20 rounded-lg hover:bg-secondary/40 transition-colors group"
               >
                 <div class="flex items-center gap-3">
                   <div
@@ -1835,7 +1848,9 @@
                     {person.first_name[0]}{person.last_name[0]}
                   </div>
                   <div>
-                    <div class="font-medium text-foreground">
+                    <div
+                      class="font-medium text-foreground group-hover:text-primary group-hover:underline"
+                    >
                       {person.first_name}
                       {person.last_name}
                     </div>
@@ -1844,7 +1859,7 @@
                     </div>
                   </div>
                 </div>
-              </div>
+              </a>
             {/each}
           </div>
         {:else}

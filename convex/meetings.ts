@@ -1,5 +1,19 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { Id } from "./_generated/dataModel";
+
+// Helper function to safely get leader by ID
+// The leader_id is stored as a string, so we need to convert it
+async function getLeaderById(ctx: any, leaderId: string | undefined) {
+    if (!leaderId) return null;
+    try {
+        // Try to use the leader_id directly as an ID
+        return await ctx.db.get(leaderId as Id<"people">);
+    } catch {
+        // If it fails, return null (invalid ID format)
+        return null;
+    }
+}
 
 // Get all meetings with leader data
 export const getAll = query({
@@ -8,11 +22,7 @@ export const getAll = query({
         const meetings = await ctx.db.query("meetings").collect();
         const results = await Promise.all(
             meetings.map(async (meeting) => {
-                let leader = null;
-                if (meeting.leader_id) {
-                    const people = await ctx.db.query("people").collect();
-                    leader = people.find(p => p._id.toString().includes(meeting.leader_id!)) || null;
-                }
+                const leader = await getLeaderById(ctx, meeting.leader_id);
                 return { ...meeting, leader };
             })
         );
@@ -28,11 +38,7 @@ export const getById = query({
     handler: async (ctx, args) => {
         const meeting = await ctx.db.get(args.id);
         if (!meeting) return null;
-        let leader = null;
-        if (meeting.leader_id) {
-            const people = await ctx.db.query("people").collect();
-            leader = people.find(p => p._id.toString().includes(meeting.leader_id!)) || null;
-        }
+        const leader = await getLeaderById(ctx, meeting.leader_id);
         return { ...meeting, leader };
     },
 });
@@ -105,11 +111,7 @@ export const getByType = query({
             .collect();
         const results = await Promise.all(
             meetings.map(async (meeting) => {
-                let leader = null;
-                if (meeting.leader_id) {
-                    const people = await ctx.db.query("people").collect();
-                    leader = people.find(p => p._id.toString().includes(meeting.leader_id!)) || null;
-                }
+                const leader = await getLeaderById(ctx, meeting.leader_id);
                 return { ...meeting, leader };
             })
         );
@@ -123,17 +125,16 @@ export const getByType = query({
 export const getByDateRange = query({
     args: { startDate: v.string(), endDate: v.string() },
     handler: async (ctx, args) => {
-        const meetings = await ctx.db.query("meetings").collect();
-        const filtered = meetings.filter(
-            (m) => m.meeting_date >= args.startDate && m.meeting_date <= args.endDate
-        );
+        // Use index for date range filtering
+        const meetings = await ctx.db
+            .query("meetings")
+            .withIndex("by_meeting_date", (q) =>
+                q.gte("meeting_date", args.startDate).lte("meeting_date", args.endDate)
+            )
+            .collect();
         const results = await Promise.all(
-            filtered.map(async (meeting) => {
-                let leader = null;
-                if (meeting.leader_id) {
-                    const people = await ctx.db.query("people").collect();
-                    leader = people.find(p => p._id.toString().includes(meeting.leader_id!)) || null;
-                }
+            meetings.map(async (meeting) => {
+                const leader = await getLeaderById(ctx, meeting.leader_id);
                 return { ...meeting, leader };
             })
         );

@@ -127,12 +127,15 @@ export const getRequiringFollowUp = query({
 export const getByDateRange = query({
     args: { startDate: v.string(), endDate: v.string() },
     handler: async (ctx, args) => {
-        const visitations = await ctx.db.query("visitations").collect();
-        const filtered = visitations.filter(
-            (v) => v.visit_date >= args.startDate && v.visit_date <= args.endDate
-        );
+        // Use index for efficient date range filtering
+        const visitations = await ctx.db
+            .query("visitations")
+            .withIndex("by_visit_date", (q) =>
+                q.gte("visit_date", args.startDate).lte("visit_date", args.endDate)
+            )
+            .collect();
         const results = await Promise.all(
-            filtered.map(async (visitation) => {
+            visitations.map(async (visitation) => {
                 const person = visitation.person_id ? await ctx.db.get(visitation.person_id) : null;
                 return { ...visitation, people: person };
             })
@@ -142,3 +145,4 @@ export const getByDateRange = query({
         );
     },
 });
+

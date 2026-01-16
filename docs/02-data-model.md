@@ -101,6 +101,7 @@ The application uses **Convex** as its backend database. The schema is defined i
 - `by_member_status` - Quickly find all people with a specific status
 - `by_last_name` - Alphabetical lookups
 - `by_contact_date` - Find contacts by when they were reached
+- `by_invited_by` - Find all people invited by a specific person
 
 ### Status Flow
 

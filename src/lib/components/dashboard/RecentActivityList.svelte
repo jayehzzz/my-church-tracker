@@ -185,8 +185,9 @@
   {:else}
     <div class="space-y-2" role="list" aria-label="Recent activity list">
       {#each displayedActivities as activity (activity.id)}
-        <div
-          class="activity-entry flex items-center gap-4 p-4 rounded-xl border-l-[3px] transition-premium hover:bg-[#1e1e1e]"
+        <a
+          href={activity.personId ? `/people/${activity.personId}` : "#"}
+          class="activity-entry flex items-center gap-4 p-4 rounded-xl border-l-[3px] transition-premium hover:bg-[#1e1e1e] no-underline cursor-pointer"
           style="border-left-color: {getActivityColor(activity.type)}"
           role="listitem"
         >
@@ -199,7 +200,9 @@
 
           <!-- Content -->
           <div class="flex-1 min-w-0">
-            <p class="text-base font-semibold text-foreground truncate">
+            <p
+              class="text-base font-semibold text-foreground truncate group-hover:text-primary transition-colors"
+            >
               {activity.person}
             </p>
             <p class="text-sm text-muted-foreground truncate">
@@ -214,7 +217,7 @@
           >
             {formatRelativeTime(activity.timestamp)}
           </time>
-        </div>
+        </a>
       {/each}
     </div>
   {/if}

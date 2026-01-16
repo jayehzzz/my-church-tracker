@@ -10,5 +10,7 @@ export { default as CopyDropdown } from './CopyDropdown.svelte';
 export { default as ColumnFilterDropdown } from './ColumnFilterDropdown.svelte';
 export { default as FullscreenWrapper } from './FullscreenWrapper.svelte';
 export { default as InfoRow } from './InfoRow.svelte';
+export { default as SearchableSelect } from './SearchableSelect.svelte';
+export { default as Motion } from './Motion.svelte';
 
 
