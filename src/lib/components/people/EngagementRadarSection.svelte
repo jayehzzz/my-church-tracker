@@ -18,14 +18,23 @@
                 <p class="text-sm text-foreground/80">
                     This radar shows {person.first_name}'s engagement across 6
                     key dimensions. Hover over any axis for details.
-                    {#if engagementData.cellGroups < 30}
-                        <span class="text-warning">
-                            Cell group participation could use attention.
-                        </span>
-                    {:else if engagementData.evangelismImpact > 60}
-                        <span class="text-success">
-                            Strong evangelism contributor!
-                        </span>
+                    {#if Array.isArray(engagementData)}
+                        {@const smallGroupScore =
+                            engagementData.find(
+                                (d) => d.subject === "Small Group",
+                            )?.A ?? 0}
+                        {@const outreachScore =
+                            engagementData.find((d) => d.subject === "Outreach")
+                                ?.A ?? 0}
+                        {#if smallGroupScore < 30}
+                            <span class="text-warning">
+                                Cell group participation could use attention.
+                            </span>
+                        {:else if outreachScore > 60}
+                            <span class="text-success">
+                                Strong evangelism contributor!
+                            </span>
+                        {/if}
                     {/if}
                 </p>
             </div>

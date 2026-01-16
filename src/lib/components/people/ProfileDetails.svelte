@@ -283,7 +283,7 @@
                     >
                         <span class="text-muted-foreground">First Visit</span>
                         <span class="font-medium text-foreground"
-                            >{formatDate(person.first_visit_date)}</span
+                            >{formatShortDate(person.first_visit_date)}</span
                         >
                     </div>
                     <div

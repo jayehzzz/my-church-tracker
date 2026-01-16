@@ -1,5 +1,5 @@
 <script>
-    import { onMount, tick } from "svelte";
+    import { onMount } from "svelte";
     import { goto } from "$app/navigation";
     import { Card, Button, Badge, Motion } from "$lib/components/ui";
     import * as peopleService from "$lib/services/peopleService";
@@ -225,10 +225,6 @@
             error = e.message || "Failed to load profile";
         } finally {
             loading = false;
-            console.log("[Profile] Loading complete, loading =", loading);
-            // Force Svelte to update the DOM after async state change
-            await tick();
-            console.log("[Profile] tick() complete, UI should now update");
         }
     });
 
@@ -300,106 +296,103 @@
 </script>
 
 <div class="space-y-6 pb-10">
-    <!-- Use {#key} to force re-render when loading changes -->
-    {#key loading}
-        {#if loading}
-            <div class="flex items-center justify-center h-64">
-                <div
-                    class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"
-                ></div>
-            </div>
-        {:else if error}
+    {#if loading}
+        <div class="flex items-center justify-center h-64">
             <div
-                class="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20"
+                class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"
+            ></div>
+        </div>
+    {:else if error}
+        <div
+            class="p-4 bg-destructive/10 text-destructive rounded-lg border border-destructive/20"
+        >
+            <h3 class="font-semibold">Error Loading Profile</h3>
+            <p>{error}</p>
+            <Button
+                variant="outline"
+                class="mt-4"
+                onclick={() => location.reload()}>Retry</Button
             >
-                <h3 class="font-semibold">Error Loading Profile</h3>
-                <p>{error}</p>
-                <Button
-                    variant="outline"
-                    class="mt-4"
-                    onclick={() => location.reload()}>Retry</Button
+        </div>
+    {:else if person}
+        {#if usingMockData}
+            <div
+                class="bg-blue-500/10 text-blue-400 px-4 py-2 rounded-lg text-sm border border-blue-500/20 mb-4 flex items-center justify-between"
+            >
+                <span
+                    >Currently viewing mock data. Some features may be
+                    simulated.</span
                 >
-            </div>
-        {:else if person}
-            {#if usingMockData}
-                <div
-                    class="bg-blue-500/10 text-blue-400 px-4 py-2 rounded-lg text-sm border border-blue-500/20 mb-4 flex items-center justify-between"
-                >
-                    <span
-                        >Currently viewing mock data. Some features may be
-                        simulated.</span
-                    >
-                </div>
-            {/if}
-
-            <Motion delay={0}>
-                <ProfileHeader
-                    {person}
-                    onUpdateStatus={updateMemberStatus}
-                    onUpdateActivity={updateActivityStatus}
-                    onEdit={() => (showEditModal = true)}
-                    {updatingStatus}
-                    {statusUpdateError}
-                />
-            </Motion>
-
-            <PersonForm
-                bind:isOpen={showEditModal}
-                {person}
-                onsave={handleEditSave}
-            />
-
-            <Motion delay={100}>
-                <PeopleStatsGrid
-                    {totalAttendance}
-                    {lastAttended}
-                    prayerMeetingsCount={prayerMeetingsCount()}
-                    activityScore={activityScore()}
-                />
-            </Motion>
-
-            <!-- Main Content Grid -->
-            <Motion delay={200}>
-                <EngagementRadarSection
-                    engagementData={engagementData()}
-                    cellGroupDetail={cellGroupDetail()}
-                    {person}
-                />
-            </Motion>
-
-            <Motion delay={300}>
-                <ProfileDetails
-                    {person}
-                    {currentAge}
-                    {isGuest}
-                    {outreachContacts}
-                    {visitations}
-                />
-            </Motion>
-
-            <Motion delay={400}>
-                <AttendanceHistory
-                    {attendanceHistory}
-                    onRecordClick={(record) => {
-                        selectedAttendanceRecord = record;
-                        showServiceDetailModal = true;
-                    }}
-                />
-            </Motion>
-
-            <ServiceDetailModal
-                bind:isOpen={showServiceDetailModal}
-                attendanceRecord={selectedAttendanceRecord}
-            />
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Motion delay={500}>
-                    <OutreachHistory {outreachContacts} />
-                </Motion>
-                <Motion delay={600}>
-                    <VisitationHistory {visitations} />
-                </Motion>
             </div>
         {/if}
-    {/key}
+
+        <Motion delay={0}>
+            <ProfileHeader
+                {person}
+                onUpdateStatus={updateMemberStatus}
+                onUpdateActivity={updateActivityStatus}
+                onEdit={() => (showEditModal = true)}
+                {updatingStatus}
+                {statusUpdateError}
+            />
+        </Motion>
+
+        <PersonForm
+            bind:isOpen={showEditModal}
+            {person}
+            onsave={handleEditSave}
+        />
+
+        <Motion delay={100}>
+            <PeopleStatsGrid
+                {totalAttendance}
+                {lastAttended}
+                prayerMeetingsCount={prayerMeetingsCount()}
+                activityScore={activityScore()}
+            />
+        </Motion>
+
+        <!-- Main Content Grid -->
+        <Motion delay={200}>
+            <EngagementRadarSection
+                engagementData={engagementData()}
+                cellGroupDetail={cellGroupDetail()}
+                {person}
+            />
+        </Motion>
+
+        <Motion delay={300}>
+            <ProfileDetails
+                {person}
+                {currentAge}
+                {isGuest}
+                {outreachContacts}
+                {visitations}
+            />
+        </Motion>
+
+        <Motion delay={400}>
+            <AttendanceHistory
+                {attendanceHistory}
+                onRecordClick={(record) => {
+                    selectedAttendanceRecord = record;
+                    showServiceDetailModal = true;
+                }}
+            />
+        </Motion>
+
+        <ServiceDetailModal
+            bind:isOpen={showServiceDetailModal}
+            attendanceRecord={selectedAttendanceRecord}
+        />
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Motion delay={500}>
+                <OutreachHistory {outreachContacts} />
+            </Motion>
+            <Motion delay={600}>
+                <VisitationHistory {visitations} />
+            </Motion>
+        </div>
+    {/if}
 </div>
