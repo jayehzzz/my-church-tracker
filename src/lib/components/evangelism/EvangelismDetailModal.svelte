@@ -4,7 +4,8 @@
   
   Features:
   - View mode with formatted details
-  - Edit mode toggle
+  - Copy-to-clipboard on hover for contact details
+  - Inline edit dropdowns matching MultiSelectFilter styling
   - Linked person names (clickable)
   - Status badges
   - Smooth animations
@@ -12,6 +13,7 @@
 
 <script>
     import { Modal, Button, Badge } from "$lib/components/ui";
+    import InlineSelectDropdown from "$lib/components/ui/InlineSelectDropdown.svelte";
     import { goto } from "$app/navigation";
 
     let {
@@ -20,7 +22,35 @@
         onEdit = null,
         onDelete = null,
         onConvert = null,
+        onQuickUpdate = null,
     } = $props();
+
+    // Track which field is being edited inline
+    let editingField = $state(null);
+    let copiedField = $state(null);
+    let isUpdating = $state(false);
+
+    // Response options for the dropdown
+    const responseOptions = [
+        { value: "responsive", label: "Responsive" },
+        { value: "non_responsive", label: "Non-Responsive" },
+        { value: "has_church", label: "Has Church" },
+        { value: "events_only", label: "Events Only" },
+        { value: "big_events_only", label: "Big Events Only" },
+        { value: "bacenta_mainly", label: "Bacenta Mainly" },
+        { value: "do_not_contact", label: "Do Not Contact" },
+    ];
+
+    // Boolean options for Yes/No fields
+    const booleanOptions = [
+        { value: true, label: "Yes" },
+        { value: false, label: "No" },
+    ];
+
+    // Derived state for dropdown visibility
+    let responseDropdownOpen = $derived(editingField === "response");
+    let attendedDropdownOpen = $derived(editingField === "attended_church");
+    let salvationDropdownOpen = $derived(editingField === "salvation_decision");
 
     function formatDate(dateStr) {
         if (!dateStr) return "—";
@@ -78,6 +108,7 @@
 
     function handleClose() {
         isOpen = false;
+        editingField = null;
     }
 
     function handleEdit() {
@@ -99,6 +130,48 @@
             goto(`/people/${personId}`);
         }
     }
+
+    async function copyToClipboard(text, fieldName) {
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+            copiedField = fieldName;
+            setTimeout(() => {
+                copiedField = null;
+            }, 2000);
+        } catch (err) {
+            console.error("Failed to copy:", err);
+        }
+    }
+
+    async function handleQuickUpdate(field, value) {
+        if (!onQuickUpdate || !contact) return;
+
+        isUpdating = true;
+        editingField = null;
+        try {
+            await onQuickUpdate(contact.id, { [field]: value });
+            // Update local contact state
+            contact = { ...contact, [field]: value };
+        } catch (err) {
+            console.error("Failed to update:", err);
+        } finally {
+            isUpdating = false;
+        }
+    }
+
+    function toggleEditField(field, event) {
+        event?.stopPropagation();
+        if (editingField === field) {
+            editingField = null;
+        } else {
+            editingField = field;
+        }
+    }
+
+    function closeDropdowns() {
+        editingField = null;
+    }
 </script>
 
 <Modal bind:isOpen title="Contact Details" size="md">
@@ -118,39 +191,201 @@
                     {contact.first_name || ""}
                     {contact.last_name || ""}
                 </h3>
-                <div class="flex items-center justify-center gap-2 mt-2">
-                    <Badge variant={getResponseVariant(contact.response)}>
-                        {formatResponse(contact.response)}
-                    </Badge>
+
+                <!-- Editable Response Badge -->
+                <div
+                    class="flex items-center justify-center gap-2 mt-2 relative"
+                >
+                    <div class="inline-flex items-center group relative">
+                        <Badge variant={getResponseVariant(contact.response)}>
+                            {formatResponse(contact.response)}
+                        </Badge>
+                        {#if onQuickUpdate}
+                            <button
+                                type="button"
+                                class="ml-1 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
+                                onclick={(e) => toggleEditField("response", e)}
+                                title="Change category"
+                            >
+                                <svg
+                                    class="w-3.5 h-3.5 text-muted-foreground"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                >
+                                    <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M19 9l-7 7-7-7"
+                                    />
+                                </svg>
+                            </button>
+                        {/if}
+
+                        <!-- Response Dropdown -->
+                        {#if editingField === "response"}
+                            <InlineSelectDropdown
+                                options={responseOptions}
+                                value={contact.response}
+                                placeholder="Search..."
+                                showSearch={true}
+                                disabled={isUpdating}
+                                onSelect={(val) =>
+                                    handleQuickUpdate("response", val)}
+                                bind:isOpen={responseDropdownOpen}
+                            />
+                        {/if}
+                    </div>
                     {#if contact.converted}
                         <Badge variant="success">Converted</Badge>
                     {/if}
                 </div>
             </div>
 
-            <!-- Contact Info -->
+            <!-- Contact Info with Copy to Clipboard -->
             <div class="grid grid-cols-2 gap-4 text-sm">
                 {#if contact.phone}
-                    <div>
+                    <div class="group relative">
                         <span class="text-muted-foreground">Phone</span>
-                        <p class="font-medium text-foreground">
-                            {contact.phone}
-                        </p>
+                        <div class="flex items-center gap-2">
+                            <p class="font-medium text-foreground">
+                                {contact.phone}
+                            </p>
+                            <button
+                                type="button"
+                                class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
+                                onclick={() =>
+                                    copyToClipboard(contact.phone, "phone")}
+                                title="Copy phone"
+                            >
+                                {#if copiedField === "phone"}
+                                    <svg
+                                        class="w-4 h-4 text-success"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M5 13l4 4L19 7"
+                                        />
+                                    </svg>
+                                {:else}
+                                    <svg
+                                        class="w-4 h-4 text-muted-foreground"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                                        />
+                                    </svg>
+                                {/if}
+                            </button>
+                        </div>
                     </div>
                 {/if}
                 {#if contact.email}
-                    <div>
+                    <div class="group relative">
                         <span class="text-muted-foreground">Email</span>
-                        <p class="font-medium text-foreground">
-                            {contact.email}
-                        </p>
+                        <div class="flex items-center gap-2">
+                            <p class="font-medium text-foreground">
+                                {contact.email}
+                            </p>
+                            <button
+                                type="button"
+                                class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
+                                onclick={() =>
+                                    copyToClipboard(contact.email, "email")}
+                                title="Copy email"
+                            >
+                                {#if copiedField === "email"}
+                                    <svg
+                                        class="w-4 h-4 text-success"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M5 13l4 4L19 7"
+                                        />
+                                    </svg>
+                                {:else}
+                                    <svg
+                                        class="w-4 h-4 text-muted-foreground"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                                        />
+                                    </svg>
+                                {/if}
+                            </button>
+                        </div>
                     </div>
                 {/if}
-                <div>
+                <div class="group relative">
                     <span class="text-muted-foreground">Contact Date</span>
-                    <p class="font-medium text-foreground">
-                        {formatShortDate(contact.contact_date)}
-                    </p>
+                    <div class="flex items-center gap-2">
+                        <p class="font-medium text-foreground">
+                            {formatShortDate(contact.contact_date)}
+                        </p>
+                        <button
+                            type="button"
+                            class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
+                            onclick={() =>
+                                copyToClipboard(
+                                    formatShortDate(contact.contact_date),
+                                    "contact_date",
+                                )}
+                            title="Copy date"
+                        >
+                            {#if copiedField === "contact_date"}
+                                <svg
+                                    class="w-4 h-4 text-success"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                >
+                                    <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M5 13l4 4L19 7"
+                                    />
+                                </svg>
+                            {:else}
+                                <svg
+                                    class="w-4 h-4 text-muted-foreground"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                >
+                                    <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                                    />
+                                </svg>
+                            {/if}
+                        </button>
+                    </div>
                 </div>
                 <div>
                     <span class="text-muted-foreground">Days Since Contact</span
@@ -173,7 +408,7 @@
                             onclick={() =>
                                 navigateToPerson(contact.invited_by_id)}
                         >
-                            {contact.invited_by_name || "View Inviter Profile"}
+                            {contact.invited_by_name || "Unknown"}
                             <svg
                                 class="w-3 h-3 inline ml-1"
                                 fill="none"
@@ -196,11 +431,39 @@
                 </div>
             {/if}
 
-            <!-- Spiritual Journey -->
+            <!-- Spiritual Journey with Inline Edit -->
             <div class="grid grid-cols-2 gap-4">
-                <div class="p-3 bg-secondary/20 rounded-lg text-center">
-                    <div class="text-xs text-muted-foreground mb-1">
-                        Attended Church
+                <!-- Attended Church -->
+                <div
+                    class="p-3 bg-secondary/20 rounded-lg text-center relative group"
+                >
+                    <div
+                        class="flex items-center justify-center gap-1 text-xs text-muted-foreground mb-1"
+                    >
+                        <span>Attended Church</span>
+                        {#if onQuickUpdate}
+                            <button
+                                type="button"
+                                class="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
+                                onclick={(e) =>
+                                    toggleEditField("attended_church", e)}
+                                title="Change status"
+                            >
+                                <svg
+                                    class="w-3.5 h-3.5 text-muted-foreground"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                >
+                                    <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M19 9l-7 7-7-7"
+                                    />
+                                </svg>
+                            </button>
+                        {/if}
                     </div>
                     <Badge
                         variant={contact.attended_church
@@ -209,10 +472,53 @@
                     >
                         {contact.attended_church ? "Yes" : "No"}
                     </Badge>
+
+                    <!-- Attended Church Dropdown -->
+                    {#if editingField === "attended_church"}
+                        <InlineSelectDropdown
+                            options={booleanOptions}
+                            value={contact.attended_church}
+                            showSearch={false}
+                            placement="top"
+                            disabled={isUpdating}
+                            onSelect={(val) =>
+                                handleQuickUpdate("attended_church", val)}
+                            bind:isOpen={attendedDropdownOpen}
+                        />
+                    {/if}
                 </div>
-                <div class="p-3 bg-secondary/20 rounded-lg text-center">
-                    <div class="text-xs text-muted-foreground mb-1">
-                        Salvation Decision
+
+                <!-- Salvation Decision -->
+                <div
+                    class="p-3 bg-secondary/20 rounded-lg text-center relative group"
+                >
+                    <div
+                        class="flex items-center justify-center gap-1 text-xs text-muted-foreground mb-1"
+                    >
+                        <span>Salvation Decision</span>
+                        {#if onQuickUpdate}
+                            <button
+                                type="button"
+                                class="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
+                                onclick={(e) =>
+                                    toggleEditField("salvation_decision", e)}
+                                title="Change status"
+                            >
+                                <svg
+                                    class="w-3.5 h-3.5 text-muted-foreground"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                >
+                                    <path
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M19 9l-7 7-7-7"
+                                    />
+                                </svg>
+                            </button>
+                        {/if}
                     </div>
                     <Badge
                         variant={contact.salvation_decision
@@ -221,6 +527,20 @@
                     >
                         {contact.salvation_decision ? "Yes" : "No"}
                     </Badge>
+
+                    <!-- Salvation Decision Dropdown -->
+                    {#if editingField === "salvation_decision"}
+                        <InlineSelectDropdown
+                            options={booleanOptions}
+                            value={contact.salvation_decision}
+                            showSearch={false}
+                            placement="top"
+                            disabled={isUpdating}
+                            onSelect={(val) =>
+                                handleQuickUpdate("salvation_decision", val)}
+                            bind:isOpen={salvationDropdownOpen}
+                        />
+                    {/if}
                 </div>
             </div>
 

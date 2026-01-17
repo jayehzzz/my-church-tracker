@@ -55,6 +55,11 @@ interface PersonData {
     lat: number;
     lng: number;
     birthday?: string;
+    // New demographic fields
+    gender?: "male" | "female";
+    marital_status?: "single" | "married" | "beloved";
+    employment_status?: "employed" | "unemployed" | "student" | "retired" | "other";
+    basontas?: string[];  // ["worship", "ushering", "media", "childrens", "choir", "dancing_stars"]
     testScenario?: string; // For documentation
     // Engagement profile for radar chart variety (0-1 probability scale)
     engagementProfile?: {
@@ -87,6 +92,10 @@ const NAMED_PEOPLE: PersonData[] = [
         lat: CHURCH_LAT + 0.01,
         lng: CHURCH_LNG - 0.005,
         birthday: "1975-08-12",
+        gender: "male",
+        marital_status: "married",
+        employment_status: "employed",
+        basontas: ["worship", "choir"],
         testScenario: "Senior pastor figure, prolific visitor, high attendance",
         engagementProfile: { serviceAttendance: 0.98, prayerMeetings: 0.95, cellGroups: 0.90, tithing: 0.95 }
     },
@@ -106,6 +115,10 @@ const NAMED_PEOPLE: PersonData[] = [
         lat: CHURCH_LAT + 0.015,
         lng: CHURCH_LNG + 0.008,
         birthday: "1982-03-25",
+        gender: "female",
+        marital_status: "married",
+        employment_status: "employed",
+        basontas: ["dancing_stars", "childrens"],
         testScenario: "Active female leader, leads women's ministry",
         engagementProfile: { serviceAttendance: 0.95, prayerMeetings: 0.70, cellGroups: 0.95, tithing: 0.85 }
     },
@@ -125,6 +138,10 @@ const NAMED_PEOPLE: PersonData[] = [
         lat: CHURCH_LAT - 0.008,
         lng: CHURCH_LNG + 0.012,
         birthday: "1988-11-30",
+        gender: "male",
+        marital_status: "single",
+        employment_status: "employed",
+        basontas: ["media", "ushering"],
         testScenario: "Prayer meeting leader, high prayer hours",
         engagementProfile: { serviceAttendance: 0.90, prayerMeetings: 0.98, cellGroups: 0.75, tithing: 0.90 }
     },
@@ -146,6 +163,10 @@ const NAMED_PEOPLE: PersonData[] = [
         lat: CHURCH_LAT + 0.02,
         lng: CHURCH_LNG - 0.015,
         birthday: "1990-07-08",
+        gender: "female",
+        marital_status: "single",
+        employment_status: "employed",
+        basontas: ["worship", "dancing_stars"],
         testScenario: "Regular tither, fully trained, active worker",
         engagementProfile: { serviceAttendance: 0.88, prayerMeetings: 0.45, cellGroups: 0.70, tithing: 0.92 }
     },
@@ -165,6 +186,9 @@ const NAMED_PEOPLE: PersonData[] = [
         lat: CHURCH_LAT + 0.005,
         lng: CHURCH_LNG + 0.018,
         birthday: "1995-04-22",
+        gender: "male",
+        marital_status: "single",
+        employment_status: "student",
         testScenario: "NEW MEMBER - joined 30 days ago, not yet baptised",
         engagementProfile: { serviceAttendance: 0.75, prayerMeetings: 0.20, cellGroups: 0.30, tithing: 0.10 }
     },
@@ -1322,6 +1346,11 @@ export const seed = mutation({
                 membership_date: person.membership_date,
                 lat: person.lat,
                 lng: person.lng,
+                // New demographic fields
+                gender: person.gender,
+                marital_status: person.marital_status,
+                employment_status: person.employment_status,
+                basontas: person.basontas,
                 created_at: now.toISOString(),
                 updated_at: now.toISOString(),
             };

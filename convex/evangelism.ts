@@ -17,10 +17,12 @@ const mapToContact = (person: any, inviter: any = null) => {
         status: person.member_status,
         converted: person.member_status === "member",
 
-        // Enrichment
+        // Inviter info
+        invited_by_name: inviter ? `${inviter.first_name || ''} ${inviter.last_name || ''}`.trim() : null,
         contacted_by_person: inviter,
     };
 };
+
 
 export const getAll = query({
     args: {},
@@ -157,6 +159,7 @@ export const update = mutation({
         delete updates.follow_up_date;
         delete updates.notes;
         delete updates.attended_church; // Attendance tracked via attendance table, not on person record
+        // Note: salvation_decision IS in schema, so don't delete it
 
         await ctx.db.patch(id, updates);
         return await ctx.db.get(id);

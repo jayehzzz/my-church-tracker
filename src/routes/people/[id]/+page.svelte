@@ -12,9 +12,7 @@
     import PeopleStatsGrid from "$lib/components/people/PeopleStatsGrid.svelte";
     import EngagementRadarSection from "$lib/components/people/EngagementRadarSection.svelte";
     import ProfileDetails from "$lib/components/people/ProfileDetails.svelte";
-    import AttendanceHistory from "$lib/components/people/AttendanceHistory.svelte";
-    import OutreachHistory from "$lib/components/people/OutreachHistory.svelte";
-    import VisitationHistory from "$lib/components/people/VisitationHistory.svelte";
+    import ProfileHistoryTabs from "$lib/components/people/ProfileHistoryTabs.svelte";
     import PersonForm from "$lib/components/forms/PersonForm.svelte";
     import ServiceDetailModal from "$lib/components/people/ServiceDetailModal.svelte";
 
@@ -35,12 +33,16 @@
     let statusUpdateError = $state(null);
 
     // Derived stats
-    let totalAttendance = $derived(
-        person?.attendance_stats?.total_services || 0,
-    );
-    let lastAttended = $derived(
-        person?.attendance_stats?.last_attended || null,
-    );
+    let totalAttendance = $derived(attendanceHistory?.length || 0);
+
+    let lastAttended = $derived.by(() => {
+        if (!attendanceHistory || attendanceHistory.length === 0) return null;
+        // Assuming records are sorted desc by default, but safe to sort/max
+        const dates = attendanceHistory.map((r) =>
+            new Date(r.created_at).getTime(),
+        );
+        return new Date(Math.max(...dates));
+    });
 
     // Check if we're using mock data (for UI indication)
     let usingMockData = $derived(person?._id?.startsWith("mock-"));
@@ -372,8 +374,10 @@
         </Motion>
 
         <Motion delay={400}>
-            <AttendanceHistory
+            <ProfileHistoryTabs
                 {attendanceHistory}
+                {outreachContacts}
+                {visitations}
                 onRecordClick={(record) => {
                     selectedAttendanceRecord = record;
                     showServiceDetailModal = true;
@@ -385,14 +389,5 @@
             bind:isOpen={showServiceDetailModal}
             attendanceRecord={selectedAttendanceRecord}
         />
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Motion delay={500}>
-                <OutreachHistory {outreachContacts} />
-            </Motion>
-            <Motion delay={600}>
-                <VisitationHistory {visitations} />
-            </Motion>
-        </div>
     {/if}
 </div>

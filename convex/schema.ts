@@ -13,6 +13,12 @@ export default defineSchema({
         address: v.optional(v.string()),
         birthday: v.optional(v.string()), // Added from specs YYYY-MM-DD
 
+        // Demographics
+        gender: v.optional(v.string()), // "male" | "female"
+        marital_status: v.optional(v.string()), // "single" | "married" | "beloved"
+        employment_status: v.optional(v.string()), // "employed" | "unemployed" | "student" | "retired" | "other"
+        basontas: v.optional(v.array(v.string())), // Ministry groups: ["worship", "ushering", "media", "childrens", "choir", "dancing_stars"]
+
         // Geolocation
         lat: v.optional(v.float64()),
         lng: v.optional(v.float64()),

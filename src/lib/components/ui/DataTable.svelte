@@ -50,15 +50,32 @@
     enableColumnToggle = true,
     enableResize = true,
     storageKey = "dataTable",
+    searchDebounceMs = 300,
     ...restProps
   } = $props();
 
   // State
   let searchQuery = $state("");
+  let debouncedSearchQuery = $state("");
+  let searchDebounceTimer = $state(null);
   let sortColumn = $state(null);
   let sortDirection = $state("asc"); // 'asc' or 'desc'
   let currentPage = $state(1);
   let selectedRows = $state(new Set());
+
+  // Debounce search query to prevent UI flash during rapid typing
+  $effect(() => {
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+    if (searchQuery === debouncedSearchQuery) return;
+
+    searchDebounceTimer = setTimeout(() => {
+      debouncedSearchQuery = searchQuery;
+    }, searchDebounceMs);
+
+    return () => {
+      if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+    };
+  });
 
   // Column visibility state - persisted to localStorage
   let hiddenColumns = $state(new Set());
@@ -205,11 +222,11 @@
     return "";
   }
 
-  // Filter data based on search query
+  // Filter data based on debounced search query (prevents "No data" flash)
   const filteredData = $derived(() => {
-    if (!searchQuery.trim()) return data;
+    if (!debouncedSearchQuery.trim()) return data;
 
-    const query = searchQuery.toLowerCase();
+    const query = debouncedSearchQuery.toLowerCase();
     return data.filter((row) => {
       return columns.some((col) => {
         const value = row[col.key];
@@ -324,10 +341,10 @@
     return selectedCount > 0 && selectedCount < paginated.length;
   });
 
-  // Reset to first page when search changes
+  // Reset to first page when debounced search changes
   $effect(() => {
-    // Access searchQuery to track it
-    searchQuery;
+    // Access debouncedSearchQuery to track it
+    debouncedSearchQuery;
     currentPage = 1;
   });
 

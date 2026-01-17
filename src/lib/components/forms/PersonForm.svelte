@@ -39,6 +39,8 @@
     date_of_birth: "",
     gender: "",
     marital_status: "",
+    employment_status: "",
+    basontas: [],
     member_status: "visitor",
     membership_date: "",
     notes: "",
@@ -66,7 +68,6 @@
     { value: "", label: "Select..." },
     { value: "male", label: "Male" },
     { value: "female", label: "Female" },
-    { value: "prefer_not_to_say", label: "Prefer not to say" },
   ];
 
   // Marital status options
@@ -75,6 +76,26 @@
     { value: "single", label: "Single" },
     { value: "married", label: "Married" },
     { value: "beloved", label: "Beloved" },
+  ];
+
+  // Employment status options
+  const employmentStatusOptions = [
+    { value: "", label: "Select..." },
+    { value: "employed", label: "Employed" },
+    { value: "unemployed", label: "Unemployed" },
+    { value: "student", label: "Student" },
+    { value: "retired", label: "Retired" },
+    { value: "other", label: "Other" },
+  ];
+
+  // Basontas (ministry groups) options
+  const basontasOptions = [
+    { value: "worship", label: "Worship Team" },
+    { value: "ushering", label: "Ushering" },
+    { value: "media", label: "Media/Tech" },
+    { value: "childrens", label: "Children's Ministry" },
+    { value: "choir", label: "Choir" },
+    { value: "dancing_stars", label: "Dancing Stars" },
   ];
 
   // Initialize/reset form when person changes or modal opens
@@ -90,9 +111,11 @@
           city: person.city || "",
           state: person.state || "",
           zip_code: person.zip_code || "",
-          date_of_birth: person.date_of_birth || "",
+          date_of_birth: person.date_of_birth || person.birthday || "",
           gender: person.gender || "",
           marital_status: person.marital_status || "",
+          employment_status: person.employment_status || "",
+          basontas: person.basontas || [],
           member_status: person.member_status || "visitor",
           membership_date: person.membership_date || "",
           notes: person.notes || "",
@@ -110,6 +133,8 @@
           date_of_birth: "",
           gender: "",
           marital_status: "",
+          employment_status: "",
+          basontas: [],
           member_status: "visitor",
           membership_date: "",
           notes: "",
@@ -220,13 +245,22 @@
         />
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input
           label="Date of Birth"
           type="date"
           bind:value={formData.date_of_birth}
           disabled={saving}
         />
+        <SearchableSelect
+          label="Employment Status"
+          bind:value={formData.employment_status}
+          options={employmentStatusOptions}
+          disabled={saving}
+        />
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <SearchableSelect
           label="Gender"
           bind:value={formData.gender}
@@ -303,6 +337,42 @@
           bind:value={formData.membership_date}
           disabled={saving}
         />
+      </div>
+
+      <!-- Basontas (Ministry Groups) -->
+      <div class="space-y-2">
+        <label class="block text-sm font-medium text-muted-foreground">
+          Basontas (Ministry Groups)
+        </label>
+        <div class="flex flex-wrap gap-2">
+          {#each basontasOptions as option}
+            <button
+              type="button"
+              onclick={() => {
+                if (formData.basontas.includes(option.value)) {
+                  formData.basontas = formData.basontas.filter(
+                    (b) => b !== option.value,
+                  );
+                } else {
+                  formData.basontas = [...formData.basontas, option.value];
+                }
+              }}
+              disabled={saving}
+              class="px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200
+                     {formData.basontas.includes(option.value)
+                ? 'bg-primary text-primary-foreground shadow-md'
+                : 'bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground border border-border/50'}
+                     disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {option.label}
+            </button>
+          {/each}
+        </div>
+        {#if formData.basontas.length > 0}
+          <p class="text-xs text-muted-foreground">
+            {formData.basontas.length} selected
+          </p>
+        {/if}
       </div>
     </div>
 

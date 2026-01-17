@@ -14,7 +14,22 @@ export const getAll = query({
 export const getById = query({
     args: { id: v.id("people") },
     handler: async (ctx, args) => {
-        return await ctx.db.get(args.id);
+        const person = await ctx.db.get(args.id);
+        if (!person) return null;
+
+        // Resolve invited_by name if ID exists
+        let invited_by = null;
+        if (person.invited_by_id) {
+            const inviter = await ctx.db.get(person.invited_by_id);
+            if (inviter) {
+                invited_by = `${inviter.first_name} ${inviter.last_name}`;
+            }
+        }
+
+        return {
+            ...person,
+            invited_by,
+        };
     },
 });
 

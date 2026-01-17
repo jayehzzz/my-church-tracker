@@ -17,7 +17,6 @@
         const map = {
             male: "Male",
             female: "Female",
-            prefer_not_to_say: "Prefer not to say",
         };
         return map[gender] || gender || "—";
     }
@@ -34,11 +33,24 @@
     function formatEmploymentStatus(status) {
         const map = {
             employed: "Employed",
-            self_employed: "Self-Employed",
+            unemployed: "Unemployed",
             student: "Student",
+            retired: "Retired",
             other: "Other",
         };
         return map[status] || status || "—";
+    }
+
+    function formatBasonta(basonta) {
+        const map = {
+            worship: "Worship Team",
+            ushering: "Ushering",
+            media: "Media/Tech",
+            childrens: "Children's Ministry",
+            choir: "Choir",
+            dancing_stars: "Dancing Stars",
+        };
+        return map[basonta] || basonta || "—";
     }
 
     function formatRole(role) {
@@ -134,7 +146,7 @@
                 <div>
                     <span class="text-xs text-muted-foreground">Birthday</span>
                     <p class="text-sm font-medium text-foreground">
-                        {formatShortDate(person.date_of_birth)}
+                        {formatShortDate(person.birthday)}
                     </p>
                 </div>
                 <div>
@@ -212,30 +224,28 @@
                 >
                     <span class="text-muted-foreground">Baptized</span>
                     <Badge
-                        variant={person.is_baptized ? "success" : "secondary"}
+                        variant={person.is_baptised ? "success" : "secondary"}
                     >
-                        {person.is_baptized ? "Yes" : "No"}
+                        {person.is_baptised ? "Yes" : "No"}
                     </Badge>
                 </div>
                 <div
                     class="flex justify-between items-center py-2 border-b border-border/50"
                 >
                     <span class="text-muted-foreground">Tithing</span>
-                    <Badge
-                        variant={person.is_tithing ? "success" : "secondary"}
-                    >
-                        {person.is_tithing ? "Active" : "Inactive"}
+                    <Badge variant={person.is_tither ? "success" : "secondary"}>
+                        {person.is_tither ? "Active" : "Inactive"}
                     </Badge>
                 </div>
-                {#if person.ministries && person.ministries.length > 0}
+                {#if person.basontas && person.basontas.length > 0}
                     <div class="py-2 border-b border-border/50">
                         <span class="block text-muted-foreground mb-2"
-                            >Ministries</span
+                            >Basontas</span
                         >
                         <div class="flex flex-wrap gap-2">
-                            {#each person.ministries as ministry}
+                            {#each person.basontas as basonta}
                                 <Badge variant="outline" class="bg-secondary/50"
-                                    >{ministry}</Badge
+                                    >{formatBasonta(basonta)}</Badge
                                 >
                             {/each}
                         </div>

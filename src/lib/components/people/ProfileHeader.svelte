@@ -82,6 +82,30 @@
     );
     const isMember = $derived(person?.member_status === "member");
     const isArchived = $derived(person?.member_status === "archived");
+
+    // Copy toast state
+    let copyFeedback = $state(null);
+    let copyTimeout = $state(null);
+
+    async function copyToClipboard(text, label) {
+        if (
+            !text ||
+            text === "No email" ||
+            text === "No phone" ||
+            text === "No address"
+        )
+            return;
+        try {
+            await navigator.clipboard.writeText(text);
+            copyFeedback = `${label} copied!`;
+            if (copyTimeout) clearTimeout(copyTimeout);
+            copyTimeout = setTimeout(() => {
+                copyFeedback = null;
+            }, 2000);
+        } catch (err) {
+            console.error("Failed to copy:", err);
+        }
+    }
 </script>
 
 <!-- Toolbar -->
@@ -329,12 +353,17 @@
                 </div>
             {/if}
 
-            <!-- Contact Grid with Icons -->
+            <!-- Contact Grid with Interactive Copy -->
             <div
                 class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-3 pt-2"
             >
-                <div
-                    class="flex items-center gap-3 text-sm text-muted-foreground hover:text-foreground transition-colors group/item"
+                <!-- Email - Click to Copy -->
+                <button
+                    type="button"
+                    onclick={() => copyToClipboard(person.email, "Email")}
+                    class="flex items-center gap-3 text-sm text-muted-foreground hover:text-foreground transition-colors group/item cursor-pointer text-left"
+                    title={person.email ? "Click to copy email" : undefined}
+                    disabled={!person.email}
                 >
                     <div
                         class="w-8 h-8 rounded-full bg-secondary/50 flex items-center justify-center group-hover/item:bg-primary/10 group-hover/item:text-primary transition-colors"
@@ -353,11 +382,38 @@
                             />
                         </svg>
                     </div>
-                    {person.email || "No email"}
-                </div>
+                    <span class="truncate">{person.email || "No email"}</span>
+                    {#if person.email}
+                        <svg
+                            class="w-3.5 h-3.5 opacity-0 group-hover/item:opacity-50 transition-opacity ml-auto flex-shrink-0"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <rect
+                                x="9"
+                                y="9"
+                                width="13"
+                                height="13"
+                                rx="2"
+                                ry="2"
+                                stroke-width="2"
+                            />
+                            <path
+                                d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"
+                                stroke-width="2"
+                            />
+                        </svg>
+                    {/if}
+                </button>
 
-                <div
-                    class="flex items-center gap-3 text-sm text-muted-foreground hover:text-foreground transition-colors group/item"
+                <!-- Phone - Click to Copy or Call -->
+                <button
+                    type="button"
+                    onclick={() => copyToClipboard(person.phone, "Phone")}
+                    class="flex items-center gap-3 text-sm text-muted-foreground hover:text-foreground transition-colors group/item cursor-pointer text-left"
+                    title={person.phone ? "Click to copy phone" : undefined}
+                    disabled={!person.phone}
                 >
                     <div
                         class="w-8 h-8 rounded-full bg-secondary/50 flex items-center justify-center group-hover/item:bg-primary/10 group-hover/item:text-primary transition-colors"
@@ -376,11 +432,44 @@
                             />
                         </svg>
                     </div>
-                    {person.phone || "No phone"}
-                </div>
+                    <span class="truncate">{person.phone || "No phone"}</span>
+                    {#if person.phone}
+                        <svg
+                            class="w-3.5 h-3.5 opacity-0 group-hover/item:opacity-50 transition-opacity ml-auto flex-shrink-0"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <rect
+                                x="9"
+                                y="9"
+                                width="13"
+                                height="13"
+                                rx="2"
+                                ry="2"
+                                stroke-width="2"
+                            />
+                            <path
+                                d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"
+                                stroke-width="2"
+                            />
+                        </svg>
+                    {/if}
+                </button>
 
-                <div
-                    class="flex items-center gap-3 text-sm text-muted-foreground hover:text-foreground transition-colors group/item"
+                <!-- Address - Click to Copy -->
+                <button
+                    type="button"
+                    onclick={() =>
+                        copyToClipboard(
+                            person.address || person.city,
+                            "Address",
+                        )}
+                    class="flex items-center gap-3 text-sm text-muted-foreground hover:text-foreground transition-colors group/item cursor-pointer text-left"
+                    title={person.address || person.city
+                        ? "Click to copy address"
+                        : undefined}
+                    disabled={!person.address && !person.city}
                 >
                     <div
                         class="w-8 h-8 rounded-full bg-secondary/50 flex items-center justify-center group-hover/item:bg-primary/10 group-hover/item:text-primary transition-colors"
@@ -405,9 +494,42 @@
                             />
                         </svg>
                     </div>
-                    {person.address || person.city || "No address"}
-                </div>
+                    <span class="truncate"
+                        >{person.address || person.city || "No address"}</span
+                    >
+                    {#if person.address || person.city}
+                        <svg
+                            class="w-3.5 h-3.5 opacity-0 group-hover/item:opacity-50 transition-opacity ml-auto flex-shrink-0"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <rect
+                                x="9"
+                                y="9"
+                                width="13"
+                                height="13"
+                                rx="2"
+                                ry="2"
+                                stroke-width="2"
+                            />
+                            <path
+                                d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"
+                                stroke-width="2"
+                            />
+                        </svg>
+                    {/if}
+                </button>
             </div>
+
+            <!-- Copy Feedback Toast -->
+            {#if copyFeedback}
+                <div
+                    class="absolute top-4 right-4 bg-success text-success-foreground px-3 py-1.5 rounded-lg text-sm font-medium shadow-lg animate-in fade-in slide-in-from-top-2 duration-200 z-50"
+                >
+                    ✓ {copyFeedback}
+                </div>
+            {/if}
 
             <!-- Activity Chips (Compact) -->
             <div class="flex flex-wrap gap-2 pt-1">

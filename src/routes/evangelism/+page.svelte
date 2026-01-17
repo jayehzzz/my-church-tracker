@@ -773,10 +773,13 @@
       sortable: true,
       render: (value, row) => {
         if (!value) return "—";
-        const inviter = people.find((p) => p.id === value);
+        // Use the pre-resolved name from Convex if available
+        if (row.invited_by_name) return row.invited_by_name;
+        // Fallback: lookup in people array (check both id and _id)
+        const inviter = people.find((p) => p.id === value || p._id === value);
         return inviter
           ? `${inviter.first_name} ${inviter.last_name || ""}`.trim()
-          : "—";
+          : "Unknown";
       },
     },
     {
@@ -886,7 +889,7 @@
 
     const options = [];
     inviters.forEach((id) => {
-      const person = people.find((p) => p.id === id);
+      const person = people.find((p) => p.id === id || p._id === id);
       if (person) {
         options.push({
           value: id,
@@ -1016,7 +1019,9 @@
 
     // Convert to array and add person details
     const leaderboard = Object.values(inviterCounts).map((inviter) => {
-      const person = people.find((p) => p.id === inviter.id);
+      const person = people.find(
+        (p) => p.id === inviter.id || p._id === inviter.id,
+      );
       return {
         ...inviter,
         name: person
@@ -1880,5 +1885,29 @@
   onConvert={(c) => {
     selectedContact = c;
     isConvertModalOpen = true;
+  }}
+  onQuickUpdate={async (id, updates) => {
+    try {
+      const evangelismService = await import("$lib/services/evangelismService");
+      const result = await evangelismService.update(id, updates);
+      if (result.error) throw result.error;
+      // Update local state
+      contacts = contacts.map((c) => (c.id === id ? { ...c, ...updates } : c));
+      // Update selected contact for the modal
+      if (selectedContact?.id === id) {
+        selectedContact = { ...selectedContact, ...updates };
+      }
+    } catch (e) {
+      console.error("Quick update failed:", e);
+      // If using mock data, just update locally anyway
+      if (usingMockData) {
+        contacts = contacts.map((c) =>
+          c.id === id ? { ...c, ...updates } : c,
+        );
+        if (selectedContact?.id === id) {
+          selectedContact = { ...selectedContact, ...updates };
+        }
+      }
+    }
   }}
 />

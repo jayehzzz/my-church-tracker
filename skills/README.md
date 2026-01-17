@@ -11,6 +11,7 @@ This directory contains structured guidance files that help maintain consistency
 | [create_svelte_component](./create_svelte_component/SKILL.md) | Svelte 5 component templates with Motion | Building new UI components |
 | [data_table_customization](./data_table_customization/SKILL.md) | DataTable columns, filtering, sorting | Displaying tabular data |
 | [design_system_tokens](./design_system_tokens/SKILL.md) | Colors, typography, spacing, animations | Styling any component |
+| [dropdown_patterns](./dropdown_patterns/SKILL.md) | MultiSelect/InlineSelect dropdown styling | Adding filter or inline edit dropdowns |
 | [edit_modal_patterns](./edit_modal_patterns/SKILL.md) | View/Edit modal workflows | Implementing "Edit Anywhere" |
 | [form_component](./form_component/SKILL.md) | Forms with validation and loading states | Creating input forms |
 | [kpi_card_patterns](./kpi_card_patterns/SKILL.md) | Interactive metric cards with trends | Building dashboard KPIs |
