@@ -40,11 +40,21 @@ export const create = mutation({
         last_name: v.string(),
         email: v.optional(v.string()),
         phone: v.optional(v.string()),
-        address: v.optional(v.string()),
 
-        // Identity & Demographics
+        // Address
+        address: v.optional(v.string()),
+        city: v.optional(v.string()),
+        state: v.optional(v.string()),
+        zip_code: v.optional(v.string()),
+
+        // Demographics
         preferred_name: v.optional(v.string()),
         birthday: v.optional(v.string()),
+        date_of_birth: v.optional(v.string()), // Alias
+        gender: v.optional(v.string()),
+        marital_status: v.optional(v.string()),
+        employment_status: v.optional(v.string()),
+        basontas: v.optional(v.array(v.string())),
 
         // Status & Role
         member_status: v.string(),
@@ -69,12 +79,20 @@ export const create = mutation({
         avatar_url: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
+        const { date_of_birth, ...rest } = args;
         const now = new Date().toISOString();
-        const id = await ctx.db.insert("people", {
-            ...args,
+
+        const peopleData: any = {
+            ...rest,
             created_at: now,
             updated_at: now,
-        });
+        };
+
+        if (date_of_birth) {
+            peopleData.birthday = date_of_birth;
+        }
+
+        const id = await ctx.db.insert("people", peopleData);
         return await ctx.db.get(id);
     },
 });
@@ -84,35 +102,59 @@ export const update = mutation({
     args: {
         id: v.id("people"),
 
+        // Identity
         first_name: v.optional(v.string()),
         last_name: v.optional(v.string()),
         email: v.optional(v.string()),
         phone: v.optional(v.string()),
-        address: v.optional(v.string()),
 
+        // Address
+        address: v.optional(v.string()),
+        city: v.optional(v.string()),
+        state: v.optional(v.string()),
+        zip_code: v.optional(v.string()),
+
+        // Demographics
         preferred_name: v.optional(v.string()),
         birthday: v.optional(v.string()),
+        date_of_birth: v.optional(v.string()), // Alias for birthday
+        gender: v.optional(v.string()),
+        marital_status: v.optional(v.string()),
+        employment_status: v.optional(v.string()),
+        basontas: v.optional(v.array(v.string())), // Ministry groups
 
+        // Status & Role
         member_status: v.optional(v.string()),
         role: v.optional(v.string()),
         activity_status: v.optional(v.string()),
         leader_id: v.optional(v.string()),
 
+        // Evangelism / Contact Info
         contact_category: v.optional(v.string()),
         contact_date: v.optional(v.string()),
         invited_by_id: v.optional(v.id("people")),
 
+        // Spiritual Milestones
         first_visit_date: v.optional(v.string()),
         membership_date: v.optional(v.string()),
         is_baptised: v.optional(v.boolean()),
         is_tither: v.optional(v.boolean()),
 
+        // System
         lat: v.optional(v.float64()),
         lng: v.optional(v.float64()),
         avatar_url: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const { id, ...updates } = args;
+        const { id, date_of_birth, ...rest } = args;
+
+        const updates: any = { ...rest };
+
+        // Map date_of_birth to birthday if provided
+        if (date_of_birth) {
+            updates.birthday = date_of_birth;
+        }
+
         await ctx.db.patch(id, {
             ...updates,
             updated_at: new Date().toISOString(),

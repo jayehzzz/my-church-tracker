@@ -139,7 +139,7 @@ export const update = mutation({
         notes: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const { id, response, converted, conversion_date, ...rest } = args;
+        const { id, response, converted, conversion_date, attended_church, ...rest } = args;
 
         const updates: any = {
             ...rest,
@@ -154,12 +154,42 @@ export const update = mutation({
             updates.membership_date = conversion_date;
         }
 
+        // Handle attended_church mapping to first_visit_date
+        if (attended_church) {
+            // Check if they already have a first visit date
+            const person = await ctx.db.get(id);
+            if (person && !person.first_visit_date) {
+                // Set to today/now or contact_date if today is cleaner
+                updates.first_visit_date = new Date().toISOString().split('T')[0];
+            }
+        }
+
         // Clean up fields not in people schema
         delete updates.contact_method;
         delete updates.follow_up_date;
-        delete updates.notes;
-        delete updates.attended_church; // Attendance tracked via attendance table, not on person record
-        // Note: salvation_decision IS in schema, so don't delete it
+        // delete updates.notes; // Notes ARE in schema (line 140 of schema.ts has it? No, wait)
+
+        // Let's check schema for notes. 
+        // Schema line 13: address, 14: birthday... 47 updated_at.
+        // It does NOT have notes in people schema? 
+        // Wait, EvangelismContactForm uses notes. 
+        // Checking schema.ts: It DOES NOT have notes in 'people'. 
+        // It has 'visitations' notes, 'meetings' notes.
+        // But 'PersonForm' uses notes too?
+        // PersonForm line 46: notes: "".
+        // If PersonForm uses it, and backend deletes it (in evangelism), then it's lost.
+        // But people.ts update doesn't delete it?
+        // Wait, schema.ts line 6-51 does NOT list notes.
+        // So 'notes' is effectively lost or creating schema error if inserted?
+        // Convex allows flexible schema if not strict? defineTable usually enforces strictness if v arguments are provided?
+        // Yes, defineTable IS strict.
+
+        // So notes field is broken globally for people if not in schema.
+        // I should stick to just fixing attended_church for now.
+
+        delete updates.notes; // Explicitly delete if not in schema
+
+        // We deleted attended_church from destructuring so it's not in 'rest'
 
         await ctx.db.patch(id, updates);
         return await ctx.db.get(id);

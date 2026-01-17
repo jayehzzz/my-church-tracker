@@ -923,8 +923,9 @@
     const filtered = filteredContacts();
     return {
       contacts: filtered.length,
-      attended: filtered.filter((c) => c.attended_service || c.converted)
-        .length,
+      attended: filtered.filter(
+        (c) => c.first_visit_date || c.attended_church || c.converted,
+      ).length,
       saved: filtered.filter((c) => c.salvation_decision || c.converted).length,
       joined: filtered.filter((c) => c.converted).length,
     };
@@ -1613,7 +1614,9 @@
       />
       <KPICard
         title="Attended Church"
-        value={filteredContacts().filter((c) => c.attended_church).length}
+        value={filteredContacts().filter(
+          (c) => c.first_visit_date || c.attended_church,
+        ).length}
         icon="home"
         variant="info"
         trend={null}
