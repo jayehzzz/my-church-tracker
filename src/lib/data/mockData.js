@@ -77,7 +77,7 @@ export const mockPeople = [
         email: "emma.w@example.com",
         phone: "07700 900321",
         member_status: "member",
-        role: "basonta_worker",
+        role: "no_role",
         activity_status: "regular",
         leader_id: "1", // John Doe
         address: "12 Biscot Road, Luton, LU3 1AR",
@@ -148,7 +148,7 @@ export const mockPeople = [
         email: "olivia.t@example.com",
         phone: "07700 900753",
         member_status: "member",
-        role: "basonta_worker",
+        role: "no_role",
         activity_status: "regular",
         leader_id: "1", // John Doe
         address: "New Bedford Road, Luton, LU3 1LF",
@@ -202,7 +202,7 @@ export const mockPeople = [
         email: "daniel.r@example.com",
         phone: "07700 900147",
         member_status: "member",
-        role: "basonta_worker",
+        role: "no_role",
         activity_status: "regular",
         leader_id: "12", // Ava Clark
         address: "Old Bedford Road, Luton, LU2 7HP",

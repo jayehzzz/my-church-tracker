@@ -31,6 +31,7 @@
     children,
     footer,
     onclose,
+    zIndex = 50,
     ...restProps
   } = $props();
 
@@ -178,6 +179,7 @@
     aria-labelledby={title ? "modal-title" : undefined}
     onclick={handleBackdropClick}
     transition:fade={{ duration: 200 }}
+    style="z-index: {zIndex};"
     {...restProps}
   >
     <div
@@ -242,7 +244,6 @@
   .modal-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 50;
     display: flex;
     align-items: center;
     justify-content: center;

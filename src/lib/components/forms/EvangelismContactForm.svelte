@@ -401,7 +401,9 @@
                         disabled={saving}
                         class="w-4 h-4 rounded border-border bg-input text-primary focus:ring-primary"
                     />
-                    <span class="text-sm text-foreground">Converted</span>
+                    <span class="text-sm text-foreground"
+                        >Promote to Member</span
+                    >
                 </label>
                 {#if formData.converted}
                     <div class="flex-1">

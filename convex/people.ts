@@ -66,6 +66,7 @@ export const create = mutation({
         contact_category: v.optional(v.string()),
         contact_date: v.optional(v.string()),
         invited_by_id: v.optional(v.id("people")),
+        entry_point: v.optional(v.string()), // How they found the church
 
         // Spiritual Milestones
         first_visit_date: v.optional(v.string()),
@@ -133,6 +134,7 @@ export const update = mutation({
         contact_category: v.optional(v.string()),
         contact_date: v.optional(v.string()),
         invited_by_id: v.optional(v.id("people")),
+        entry_point: v.optional(v.string()), // How they found the church
 
         // Spiritual Milestones
         first_visit_date: v.optional(v.string()),

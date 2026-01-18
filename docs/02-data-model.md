@@ -68,7 +68,7 @@ The application uses **Convex** as its backend database. The schema is defined i
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `member_status` | string | ✅ | Current status: `"guest"`, `"member"`, `"leader"`, or `"archived"` |
-| `role` | string | ❌ | Leadership role: `"basonta_leader"`, `"bacenta_leader"`, `"basonta_worker"`, or `"no_role"` |
+| `role` | string | ❌ | Leadership role (Leaders only): `"basonta_leader"`, `"bacenta_leader"`, or `"no_role"` |
 | `activity_status` | string | ❌ | Engagement level: `"regular"`, `"irregular"`, or `"dormant"` |
 | `leader_id` | string | ❌ | ID of their direct leader (for pastoral structure) |
 
@@ -85,6 +85,7 @@ The application uses **Convex** as its backend database. The schema is defined i
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `first_visit_date` | string | ❌ | Date of their first church visit |
+| `entry_point` | string | ❌ | How they first entered: `"sunday_service"`, `"bacenta_meeting"`, `"evangelism"`, `"referral"`, or `"other"` |
 | `membership_date` | string | ❌ | Date they became an official member |
 | `is_baptised` | boolean | ❌ | Whether they have been baptized |
 | `is_tither` | boolean | ❌ | Whether they regularly tithe |

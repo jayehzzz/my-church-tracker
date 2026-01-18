@@ -60,7 +60,7 @@
   // Role options for filter
   const roleOptions = [
     { value: "all", label: "All Roles" },
-    { value: "basonta_worker", label: "Basonta Workers" },
+    { value: "basonta_leader", label: "Basonta Leaders" },
     { value: "bacenta_leader", label: "Bacenta Leaders" },
     { value: "no_role", label: "No Role" },
   ];

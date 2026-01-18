@@ -1740,7 +1740,12 @@
 />
 
 <!-- Delete Confirmation Modal -->
-<Modal bind:isOpen={isDeleteModalOpen} title="Delete Contact" size="sm">
+<Modal
+  bind:isOpen={isDeleteModalOpen}
+  title="Delete Contact"
+  size="sm"
+  zIndex={60}
+>
   <div class="text-center">
     <div
       class="w-12 h-12 mx-auto mb-4 bg-destructive/10 rounded-full flex items-center justify-center"
@@ -1806,7 +1811,12 @@
 </Modal>
 
 <!-- Convert Confirmation Modal -->
-<Modal bind:isOpen={isConvertModalOpen} title="Mark as Converted" size="sm">
+<Modal
+  bind:isOpen={isConvertModalOpen}
+  title="Mark as Converted"
+  size="sm"
+  zIndex={60}
+>
   <div class="text-center">
     <div
       class="w-12 h-12 mx-auto mb-4 bg-success/10 rounded-full flex items-center justify-center"

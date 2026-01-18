@@ -26,7 +26,7 @@ export default defineSchema({
 
         // Status & Role (The Core State Machine)
         member_status: v.string(), // "guest", "member", "leader", "archived" (Normalized from visitor->guest)
-        role: v.optional(v.string()), // "basonta_leader", "bacenta_leader", "basonta_worker", "no_role"
+        role: v.optional(v.string()), // "basonta_leader", "bacenta_leader", "no_role" (Leadership roles only)
         activity_status: v.optional(v.string()), // "regular", "irregular", "dormant"
         leader_id: v.optional(v.string()), // Direct leader assignment
 
@@ -37,6 +37,7 @@ export default defineSchema({
 
         // Spiritual Journey
         first_visit_date: v.optional(v.string()), // When they became a "First Timer"
+        entry_point: v.optional(v.string()), // "sunday_service" | "bacenta_meeting" | "evangelism" | "referral" | "other"
         membership_date: v.optional(v.string()), // When they became a "Member"
         is_baptised: v.optional(v.boolean()),
         is_tither: v.optional(v.boolean()),
@@ -120,6 +121,7 @@ export default defineSchema({
 
         arrived_late: v.optional(v.boolean()),
         left_early: v.optional(v.boolean()),
+        first_timer: v.optional(v.boolean()), // Is this their first time at this meeting type?
 
         created_at: v.string(),
     }).index("by_meeting", ["meeting_id"])

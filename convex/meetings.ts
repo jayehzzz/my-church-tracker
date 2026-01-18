@@ -152,6 +152,26 @@ export const addAttendee = mutation({
     },
     handler: async (ctx, args) => {
         const now = new Date().toISOString();
+        const today = now.split('T')[0];
+
+        // Check if this is their first attendance ever and set first_visit_date
+        const person = await ctx.db.get(args.personId);
+        if (person && !person.first_visit_date) {
+            // Determine entry point from meeting type
+            let entryPoint = "other";
+            const meeting = await ctx.db.get(args.meetingId);
+            if (meeting) {
+                if (meeting.meeting_type === "bacenta") entryPoint = "bacenta_meeting";
+                // Add inferred types if needed, defaults to 'other'
+            }
+
+            await ctx.db.patch(args.personId, {
+                first_visit_date: today,
+                entry_point: person.entry_point || entryPoint, // Don't overwrite if set
+                updated_at: now,
+            });
+        }
+
         const id = await ctx.db.insert("meeting_attendance", {
             meeting_id: args.meetingId,
             person_id: args.personId,

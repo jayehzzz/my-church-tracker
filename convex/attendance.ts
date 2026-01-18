@@ -44,6 +44,19 @@ export const create = mutation({
     },
     handler: async (ctx, args) => {
         const now = new Date().toISOString();
+        const today = now.split('T')[0];
+
+        // Check if this is their first attendance ever
+        const person = await ctx.db.get(args.person_id);
+        if (person && !person.first_visit_date) {
+            // Set their first visit date and infer entry point
+            await ctx.db.patch(args.person_id, {
+                first_visit_date: today,
+                entry_point: person.entry_point || "sunday_service",
+                updated_at: now,
+            });
+        }
+
         const id = await ctx.db.insert("attendance", {
             ...args,
             created_at: now,
@@ -129,10 +142,22 @@ export const bulkCreate = mutation({
     },
     handler: async (ctx, args) => {
         const now = new Date().toISOString();
+        const today = now.split('T')[0];
+
+        // Process each record: set first_visit_date if needed, then insert attendance
         const ids = await Promise.all(
-            args.records.map((record) =>
-                ctx.db.insert("attendance", { ...record, created_at: now })
-            )
+            args.records.map(async (record) => {
+                // Check if this is their first attendance ever
+                const person = await ctx.db.get(record.person_id);
+                if (person && !person.first_visit_date) {
+                    await ctx.db.patch(record.person_id, {
+                        first_visit_date: today,
+                        entry_point: person.entry_point || "sunday_service",
+                        updated_at: now,
+                    });
+                }
+                return ctx.db.insert("attendance", { ...record, created_at: now });
+            })
         );
         return await Promise.all(ids.map((id) => ctx.db.get(id)));
     },
@@ -183,13 +208,26 @@ export const syncAttendance = mutation({
                 });
             } else {
                 // INSERT: Create new record
+                const now = new Date().toISOString();
+                const today = now.split('T')[0];
+
+                // Check if this is their first attendance ever and set first_visit_date
+                const person = await ctx.db.get(data.person_id);
+                if (person && !person.first_visit_date) {
+                    await ctx.db.patch(data.person_id, {
+                        first_visit_date: today,
+                        entry_point: person.entry_point || "sunday_service",
+                        updated_at: now,
+                    });
+                }
+
                 await ctx.db.insert("attendance", {
                     service_id: args.serviceId,
                     person_id: data.person_id,
                     made_salvation_decision: data.made_salvation_decision || false,
                     gave_tithe: data.gave_tithe || false,
                     first_timer: data.first_timer || false,
-                    created_at: new Date().toISOString(),
+                    created_at: now,
                 });
             }
         });

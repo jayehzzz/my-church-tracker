@@ -43,7 +43,8 @@
     basontas: [],
     member_status: "visitor",
     membership_date: "",
-    notes: "",
+    entry_point: "",
+    role: "no_role",
   });
 
   let saving = $state(false);
@@ -98,6 +99,30 @@
     { value: "dancing_stars", label: "Dancing Stars" },
   ];
 
+  // Entry point options (how Guests first entered)
+  const entryPointOptions = [
+    { value: "", label: "Select..." },
+    { value: "sunday_service", label: "Sunday Service" },
+    { value: "bacenta_meeting", label: "Bacenta (Cell Group)" },
+    { value: "evangelism", label: "Evangelism Outreach" },
+    { value: "other", label: "Other" },
+  ];
+
+  // Role options (for Leaders only)
+  const roleOptions = [
+    { value: "no_role", label: "No Role" },
+    { value: "basonta_leader", label: "Basonta Leader" },
+    { value: "bacenta_leader", label: "Bacenta Leader" },
+  ];
+
+  // Check if status is guest/visitor
+  const isGuestStatus = $derived(
+    formData.member_status === "guest" || formData.member_status === "visitor",
+  );
+
+  // Check if status is leader
+  const isLeaderStatus = $derived(formData.member_status === "leader");
+
   // Initialize/reset form when person changes or modal opens
   $effect(() => {
     if (isOpen) {
@@ -118,7 +143,8 @@
           basontas: person.basontas || [],
           member_status: person.member_status || "visitor",
           membership_date: person.membership_date || "",
-          notes: person.notes || "",
+          entry_point: person.entry_point || "",
+          role: person.role || "no_role",
         };
       } else {
         formData = {
@@ -137,7 +163,8 @@
           basontas: [],
           member_status: "visitor",
           membership_date: "",
-          notes: "",
+          entry_point: "",
+          role: "no_role",
         };
       }
       errors = {};
@@ -339,6 +366,28 @@
         />
       </div>
 
+      {#if isGuestStatus}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <SearchableSelect
+            label="Entry Point (How did they find us?)"
+            bind:value={formData.entry_point}
+            options={entryPointOptions}
+            disabled={saving}
+          />
+        </div>
+      {/if}
+
+      {#if isLeaderStatus}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <SearchableSelect
+            label="Leadership Role"
+            bind:value={formData.role}
+            options={roleOptions}
+            disabled={saving}
+          />
+        </div>
+      {/if}
+
       <!-- Basontas (Ministry Groups) -->
       <div class="space-y-2">
         <label class="block text-sm font-medium text-muted-foreground">
@@ -373,32 +422,6 @@
             {formData.basontas.length} selected
           </p>
         {/if}
-      </div>
-    </div>
-
-    <hr class="border-border" />
-
-    <!-- Notes Section -->
-    <div class="space-y-4">
-      <h3 class="text-lg font-medium text-foreground">Notes</h3>
-
-      <div>
-        <label
-          for="notes"
-          class="block text-sm font-medium text-muted-foreground mb-2"
-        >
-          Additional Information
-        </label>
-        <textarea
-          id="notes"
-          bind:value={formData.notes}
-          rows="3"
-          disabled={saving}
-          class="w-full px-3 py-2 bg-input border border-border rounded-lg text-foreground
-                 placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary
-                 focus:ring-1 focus:ring-primary transition-premium resize-none"
-          placeholder="Add any notes about this person..."
-        ></textarea>
       </div>
     </div>
   </form>

@@ -108,6 +108,7 @@ export const create = mutation({
 
             // New unified fields for attendance/spiritual tracking
             membership_date: args.conversion_date,
+            entry_point: "evangelism",
 
             created_at: now,
             updated_at: now,

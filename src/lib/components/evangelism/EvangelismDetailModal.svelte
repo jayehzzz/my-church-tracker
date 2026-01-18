@@ -238,7 +238,7 @@
                         {/if}
                     </div>
                     {#if contact.converted}
-                        <Badge variant="success">Converted</Badge>
+                        <Badge variant="success">Member</Badge>
                     {/if}
                 </div>
             </div>
@@ -593,7 +593,7 @@
                     </svg>
                     <div>
                         <span class="text-sm font-medium text-success"
-                            >Converted on</span
+                            >Became Member on</span
                         >
                         <span class="text-sm text-success/80 ml-1"
                             >{formatShortDate(contact.conversion_date)}</span
@@ -678,7 +678,7 @@
                                 d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
                             />
                         </svg>
-                        Mark Converted
+                        Promote to Member
                     </Button>
                 {/if}
                 {#if onEdit && contact}

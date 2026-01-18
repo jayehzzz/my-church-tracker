@@ -32,7 +32,7 @@
     // Format role name for display
     function formatRole(role) {
         const map = {
-            basonta_worker: "Basonta Workers",
+            basonta_leader: "Basonta Leaders",
             bacenta_leader: "Bacenta Leaders",
             no_role: "No Role",
             leader: "Leaders",

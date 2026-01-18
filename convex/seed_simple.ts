@@ -25,8 +25,7 @@ export const seed = mutation({
             member_status: "member", // Converted status
             membership_date: new Date().toISOString().split("T")[0],
             salvation_decision: true,
-            converted: true,
-            conversion_date: new Date().toISOString().split("T")[0],
+            // Note: 'converted' field was removed as it doesn't exist in schema
             intended_use: "evangelism", // Or whatever flag distinguishes them if any
             contact_category: "responsive",
             invited_by_id: leaderId,
