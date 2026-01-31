@@ -566,7 +566,7 @@
         pageSize={15}
         searchPlaceholder="Search by name or notes..."
         emptyMessage="No visitations found. Log your first visit to get started."
-        onRowClick={(row) => {
+        onrowclick={(row) => {
           selectedVisitation = row;
           isDetailModalOpen = true;
         }}
