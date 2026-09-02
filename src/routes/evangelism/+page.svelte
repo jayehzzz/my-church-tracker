@@ -247,7 +247,7 @@
   {/snippet}
 
   <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-    <PageHeader title="Evangelism" subtitle="Capture outreach, follow each person’s journey, and understand the fruit." />
+    <PageHeader title="Evangelism" subtitle="Capture outreach, see what happened next, and focus the next conversation." />
     <div class="flex flex-wrap items-center gap-2">
       <Button variant="secondary" onclick={() => goto("/pipeline")}>
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m-6-6l6 6-6 6" /></svg>
