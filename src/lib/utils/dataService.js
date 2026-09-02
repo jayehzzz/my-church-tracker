@@ -110,7 +110,7 @@ export const kpiData = [
   },
   {
     id: 'visitors',
-    label: 'New Visitors',
+    label: 'New Guests',
     currentValue: 34,
     previousValue: 36,
     format: 'number'
@@ -183,7 +183,7 @@ export const activityData = (() => {
   
   const activityTemplates = [
     { type: 'new_member', action: 'joined the church', description: 'New member registration' },
-    { type: 'visitor', action: 'visited for the first time', description: 'First-time visitor' },
+    { type: 'visitor', action: 'attended for the first time', description: 'First-time guest' },
     { type: 'salvation', action: 'made a salvation decision', description: 'Salvation decision recorded' },
     { type: 'baptism', action: 'was baptized', description: 'Baptism completed' },
     { type: 'event', action: 'registered for Youth Camp', description: 'Event registration' },
@@ -403,7 +403,7 @@ export function getFilteredKPIs(dateRange) {
       format: 'number'
     },
     {
-      title: 'New Visitors',
+      title: 'New Guests',
       value: newVisitors || kpiData[2].currentValue,
       trend: calculateTrendPercentage(newVisitors, prevVisitors),
       format: 'number'

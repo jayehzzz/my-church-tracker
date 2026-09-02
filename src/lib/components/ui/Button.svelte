@@ -62,7 +62,7 @@
   const iconSize = $derived(iconSizeMap[size] || iconSizeMap.md);
   
   const buttonClasses = $derived(
-    `inline-flex items-center justify-center font-medium rounded-lg transition-premium
+    `inline-flex appearance-none items-center justify-center font-medium rounded-lg transition-premium
     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background
     disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none
     ${variantClasses} ${sizeClasses} ${fullWidth ? 'w-full' : ''}`
@@ -119,11 +119,3 @@
     </span>
   {/if}
 </button>
-
-<style>
-  button {
-    /* Ensure consistent appearance across browsers */
-    -webkit-appearance: none;
-    appearance: none;
-  }
-</style>

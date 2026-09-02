@@ -1,705 +1,216 @@
-<!--
-  EvangelismDetailModal.svelte
-  Modal for viewing and editing evangelism contact details.
-  
-  Features:
-  - View mode with formatted details
-  - Copy-to-clipboard on hover for contact details
-  - Inline edit dropdowns matching MultiSelectFilter styling
-  - Linked person names (clickable)
-  - Status badges
-  - Smooth animations
--->
-
 <script>
-    import { Modal, Button, Badge } from "$lib/components/ui";
-    import InlineSelectDropdown from "$lib/components/ui/InlineSelectDropdown.svelte";
-    import { goto } from "$app/navigation";
+  import { Modal, Button, Badge } from "$lib/components/ui";
+  import { goto } from "$app/navigation";
 
-    let {
-        isOpen = $bindable(false),
-        contact = null,
-        onEdit = null,
-        onDelete = null,
-        onConvert = null,
-        onQuickUpdate = null,
-    } = $props();
+  let {
+    isOpen = $bindable(false), contact = null, profile = null, profileLoading = false,
+    leaders = [], onEdit = null, onDelete = null, onConvert = null,
+    onQuickUpdate = null, onAssign = null, onOpenCrm = null,
+  } = $props();
 
-    // Track which field is being edited inline
-    let editingField = $state(null);
-    let copiedField = $state(null);
-    let isUpdating = $state(false);
+  let activeTab = $state("overview");
+  let ownerId = $state("");
+  let assigning = $state(false);
+  let assignmentError = $state("");
+  let updatingResponse = $state(false);
 
-    // Response options for the dropdown
-    const responseOptions = [
-        { value: "responsive", label: "Responsive" },
-        { value: "non_responsive", label: "Non-Responsive" },
-        { value: "has_church", label: "Has Church" },
-        { value: "events_only", label: "Events Only" },
-        { value: "big_events_only", label: "Big Events Only" },
-        { value: "bacenta_mainly", label: "Bacenta Mainly" },
-        { value: "do_not_contact", label: "Do Not Contact" },
-    ];
+  const responseOptions = [
+    ["responsive", "Responsive"], ["non_responsive", "Non-responsive"],
+    ["events_only", "Events only"], ["big_events_only", "Big events only"],
+    ["bacenta_mainly", "Bacenta mainly"], ["has_church", "Has another church"],
+    ["do_not_contact", "Do not contact"],
+  ];
 
-    // Boolean options for Yes/No fields
-    const booleanOptions = [
-        { value: true, label: "Yes" },
-        { value: false, label: "No" },
-    ];
+  const owner = $derived(profile?.active_assignment?.assigned_leader || contact?.assigned_leader || contact?.crm_assignment?.assigned_leader || null);
+  const openTasks = $derived((profile?.tasks || []).filter((task) => task.status === "open"));
+  const nextTask = $derived(contact?.crm_next_task || openTasks[0] || null);
+  const latestSunday = $derived(contact?.crm_sunday_commitment || (profile?.commitments || []).find((item) => item.gathering_type === "sunday_service") || null);
+  const tabs = $derived([
+    { id: "overview", label: "Overview" },
+    { id: "activity", label: "Follow-up activity", count: (profile?.follow_ups?.length || 0) + (profile?.tasks?.length || 0) },
+    {
+      id: "attendance",
+      label: "Gatherings & visits",
+      count: (profile?.commitments?.length || 0)
+        + (profile?.meeting_attendance?.length || 0)
+        + (profile?.visitations?.length || 0),
+    },
+  ]);
+  const activityItems = $derived(() => [
+    ...(profile?.follow_ups || []).map((item) => ({
+      id: item._id, date: item.created_at || item.follow_up_date, type: "interaction",
+      title: `${readable(item.method, "Contact")} · ${readable(item.outcome, "Outcome recorded")}`,
+      detail: item.notes || `Recorded by ${personName(item.leader)}`,
+    })),
+    ...(profile?.tasks || []).map((item) => ({
+      id: item._id, date: item.completed_at || item.created_at || item.due_date, type: "task",
+      title: `${readable(item.task_type, "Follow-up task")} · ${readable(item.status, "Open")}`,
+      detail: item.reason || `Due ${formatShortDate(item.due_date)}`,
+    })),
+  ].sort((a, b) => String(b.date).localeCompare(String(a.date))));
 
-    // Derived state for dropdown visibility
-    let responseDropdownOpen = $derived(editingField === "response");
-    let attendedDropdownOpen = $derived(editingField === "attended_church");
-    let salvationDropdownOpen = $derived(editingField === "salvation_decision");
+  $effect(() => {
+    if (!isOpen) return;
+    activeTab = "overview";
+    ownerId = owner?._id || owner?.id || "";
+    assignmentError = "";
+  });
 
-    function formatDate(dateStr) {
-        if (!dateStr) return "—";
-        return new Date(dateStr).toLocaleDateString("en-US", {
-            weekday: "long",
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-        });
+  function personName(person) {
+    return [person?.first_name, person?.last_name].filter(Boolean).join(" ") || "Unassigned";
+  }
+
+  function formatShortDate(value) {
+    if (!value) return "—";
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  }
+
+  function readable(value, fallback = "—") {
+    if (!value) return fallback;
+    return String(value).replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  function meetingName(meeting) {
+    return meeting?.title || meeting?.topic || readable(meeting?.meeting_type, "Meeting");
+  }
+
+  function responseVariant(value) {
+    if (value === "responsive") return "success";
+    if (["do_not_contact", "non_responsive"].includes(value)) return "danger";
+    if (["events_only", "big_events_only", "bacenta_mainly"].includes(value)) return "warning";
+    return "default";
+  }
+
+  function freshnessLabel() {
+    if (contact?.freshness_label) return contact.freshness_label;
+    if (!contact?.contact_date) return "Date unknown";
+    const captured = new Date(`${contact.contact_date}T00:00:00`);
+    const today = new Date();
+    const days = Math.max(0, Math.floor((new Date(today.getFullYear(), today.getMonth(), today.getDate()) - captured) / 86400000));
+    return days <= 14 ? `Fresh · ${days}d` : `Older · ${Math.floor(days / 7)}w`;
+  }
+
+  function safePhone(value) {
+    return value ? String(value).replace(/[^\d+]/g, "") : "";
+  }
+
+  async function updateResponse(event) {
+    if (!onQuickUpdate || !contact) return;
+    updatingResponse = true;
+    await onQuickUpdate(contact.id || contact._id, { response: event.currentTarget.value });
+    updatingResponse = false;
+  }
+
+  async function assignOwner() {
+    if (!ownerId || !onAssign) return;
+    assigning = true;
+    assignmentError = "";
+    try {
+      const result = await onAssign(contact, ownerId);
+      if (result?.error) assignmentError = result.error.message || "The contact could not be assigned.";
+    } catch (error) {
+      assignmentError = error?.message || "The contact could not be assigned.";
+    } finally {
+      assigning = false;
     }
+  }
 
-    function formatShortDate(dateStr) {
-        if (!dateStr) return "—";
-        return new Date(dateStr).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-        });
-    }
-
-    function formatResponse(response) {
-        const map = {
-            responsive: "Responsive",
-            non_responsive: "Non-Responsive",
-            has_church: "Has Church",
-            events_only: "Events Only",
-            big_events_only: "Big Events Only",
-            bacenta_mainly: "Bacenta Mainly",
-            do_not_contact: "Do Not Contact",
-        };
-        return map[response] || response || "—";
-    }
-
-    function getResponseVariant(response) {
-        const map = {
-            responsive: "success",
-            non_responsive: "secondary",
-            has_church: "info",
-            events_only: "warning",
-            big_events_only: "warning",
-            bacenta_mainly: "default",
-            do_not_contact: "destructive",
-        };
-        return map[response] || "secondary";
-    }
-
-    function calculateDaysSince(dateStr) {
-        if (!dateStr) return "—";
-        const contactDate = new Date(dateStr);
-        const today = new Date();
-        const diffTime = Math.abs(today - contactDate);
-        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-        return `${diffDays} days`;
-    }
-
-    function handleClose() {
-        isOpen = false;
-        editingField = null;
-    }
-
-    function handleEdit() {
-        isOpen = false;
-        onEdit?.(contact);
-    }
-
-    function handleDelete() {
-        onDelete?.(contact);
-    }
-
-    function handleConvert() {
-        onConvert?.(contact);
-    }
-
-    function navigateToPerson(personId) {
-        if (personId) {
-            isOpen = false;
-            goto(`/people/${personId}`);
-        }
-    }
-
-    async function copyToClipboard(text, fieldName) {
-        if (!text) return;
-        try {
-            await navigator.clipboard.writeText(text);
-            copiedField = fieldName;
-            setTimeout(() => {
-                copiedField = null;
-            }, 2000);
-        } catch (err) {
-            console.error("Failed to copy:", err);
-        }
-    }
-
-    async function handleQuickUpdate(field, value) {
-        if (!onQuickUpdate || !contact) return;
-
-        isUpdating = true;
-        editingField = null;
-        try {
-            await onQuickUpdate(contact.id, { [field]: value });
-            // Update local contact state
-            contact = { ...contact, [field]: value };
-        } catch (err) {
-            console.error("Failed to update:", err);
-        } finally {
-            isUpdating = false;
-        }
-    }
-
-    function toggleEditField(field, event) {
-        event?.stopPropagation();
-        if (editingField === field) {
-            editingField = null;
-        } else {
-            editingField = field;
-        }
-    }
-
-    function closeDropdowns() {
-        editingField = null;
-    }
+  function openPerson(personId) {
+    if (!personId) return;
+    isOpen = false;
+    goto(`/people/${personId}`);
+  }
 </script>
 
-<Modal bind:isOpen title="Contact Details" size="md">
-    {#if contact}
-        <div class="space-y-6">
-            <!-- Header with name and status -->
-            <div class="text-center pb-4 border-b border-border">
-                <div
-                    class="w-16 h-16 mx-auto mb-3 rounded-full bg-primary/10 flex items-center justify-center"
-                >
-                    <span class="text-xl font-bold text-primary">
-                        {contact.first_name?.[0] || ""}{contact
-                            .last_name?.[0] || ""}
-                    </span>
-                </div>
-                <h3 class="text-xl font-bold text-foreground">
-                    {contact.first_name || ""}
-                    {contact.last_name || ""}
-                </h3>
-
-                <!-- Editable Response Badge -->
-                <div
-                    class="flex items-center justify-center gap-2 mt-2 relative"
-                >
-                    <div class="inline-flex items-center group relative">
-                        <Badge variant={getResponseVariant(contact.response)}>
-                            {formatResponse(contact.response)}
-                        </Badge>
-                        {#if onQuickUpdate}
-                            <button
-                                type="button"
-                                class="ml-1 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
-                                onclick={(e) => toggleEditField("response", e)}
-                                title="Change category"
-                            >
-                                <svg
-                                    class="w-3.5 h-3.5 text-muted-foreground"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                >
-                                    <path
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M19 9l-7 7-7-7"
-                                    />
-                                </svg>
-                            </button>
-                        {/if}
-
-                        <!-- Response Dropdown -->
-                        {#if editingField === "response"}
-                            <InlineSelectDropdown
-                                options={responseOptions}
-                                value={contact.response}
-                                placeholder="Search..."
-                                showSearch={true}
-                                disabled={isUpdating}
-                                onSelect={(val) =>
-                                    handleQuickUpdate("response", val)}
-                                bind:isOpen={responseDropdownOpen}
-                            />
-                        {/if}
-                    </div>
-                    {#if contact.converted}
-                        <Badge variant="success">Member</Badge>
-                    {/if}
-                </div>
-            </div>
-
-            <!-- Contact Info with Copy to Clipboard -->
-            <div class="grid grid-cols-2 gap-4 text-sm">
-                {#if contact.phone}
-                    <div class="group relative">
-                        <span class="text-muted-foreground">Phone</span>
-                        <div class="flex items-center gap-2">
-                            <p class="font-medium text-foreground">
-                                {contact.phone}
-                            </p>
-                            <button
-                                type="button"
-                                class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
-                                onclick={() =>
-                                    copyToClipboard(contact.phone, "phone")}
-                                title="Copy phone"
-                            >
-                                {#if copiedField === "phone"}
-                                    <svg
-                                        class="w-4 h-4 text-success"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                            stroke-width="2"
-                                            d="M5 13l4 4L19 7"
-                                        />
-                                    </svg>
-                                {:else}
-                                    <svg
-                                        class="w-4 h-4 text-muted-foreground"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                            stroke-width="2"
-                                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                        />
-                                    </svg>
-                                {/if}
-                            </button>
-                        </div>
-                    </div>
-                {/if}
-                {#if contact.email}
-                    <div class="group relative">
-                        <span class="text-muted-foreground">Email</span>
-                        <div class="flex items-center gap-2">
-                            <p class="font-medium text-foreground">
-                                {contact.email}
-                            </p>
-                            <button
-                                type="button"
-                                class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
-                                onclick={() =>
-                                    copyToClipboard(contact.email, "email")}
-                                title="Copy email"
-                            >
-                                {#if copiedField === "email"}
-                                    <svg
-                                        class="w-4 h-4 text-success"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                            stroke-width="2"
-                                            d="M5 13l4 4L19 7"
-                                        />
-                                    </svg>
-                                {:else}
-                                    <svg
-                                        class="w-4 h-4 text-muted-foreground"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                            stroke-width="2"
-                                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                        />
-                                    </svg>
-                                {/if}
-                            </button>
-                        </div>
-                    </div>
-                {/if}
-                <div class="group relative">
-                    <span class="text-muted-foreground">Contact Date</span>
-                    <div class="flex items-center gap-2">
-                        <p class="font-medium text-foreground">
-                            {formatShortDate(contact.contact_date)}
-                        </p>
-                        <button
-                            type="button"
-                            class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
-                            onclick={() =>
-                                copyToClipboard(
-                                    formatShortDate(contact.contact_date),
-                                    "contact_date",
-                                )}
-                            title="Copy date"
-                        >
-                            {#if copiedField === "contact_date"}
-                                <svg
-                                    class="w-4 h-4 text-success"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                >
-                                    <path
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M5 13l4 4L19 7"
-                                    />
-                                </svg>
-                            {:else}
-                                <svg
-                                    class="w-4 h-4 text-muted-foreground"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                >
-                                    <path
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                                    />
-                                </svg>
-                            {/if}
-                        </button>
-                    </div>
-                </div>
-                <div>
-                    <span class="text-muted-foreground">Days Since Contact</span
-                    >
-                    <p class="font-medium text-foreground">
-                        {calculateDaysSince(contact.contact_date)}
-                    </p>
-                </div>
-            </div>
-
-            <!-- Inviter Section -->
-            {#if contact.invited_by_id || contact.invited_by_name}
-                <div class="p-4 bg-secondary/30 rounded-lg">
-                    <h4 class="text-sm font-medium text-muted-foreground mb-2">
-                        Invited By
-                    </h4>
-                    {#if contact.invited_by_id}
-                        <button
-                            class="text-primary hover:underline font-medium cursor-pointer"
-                            onclick={() =>
-                                navigateToPerson(contact.invited_by_id)}
-                        >
-                            {contact.invited_by_name || "Unknown"}
-                            <svg
-                                class="w-3 h-3 inline ml-1"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                            >
-                                <path
-                                    stroke-linecap="round"
-                                    stroke-linejoin="round"
-                                    stroke-width="2"
-                                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                                />
-                            </svg>
-                        </button>
-                    {:else}
-                        <span class="font-medium text-foreground"
-                            >{contact.invited_by_name}</span
-                        >
-                    {/if}
-                </div>
-            {/if}
-
-            <!-- Spiritual Journey with Inline Edit -->
-            <div class="grid grid-cols-2 gap-4">
-                <!-- Attended Church -->
-                <div
-                    class="p-3 bg-secondary/20 rounded-lg text-center relative group"
-                >
-                    <div
-                        class="flex items-center justify-center gap-1 text-xs text-muted-foreground mb-1"
-                    >
-                        <span>Attended Church</span>
-                        {#if onQuickUpdate}
-                            <button
-                                type="button"
-                                class="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
-                                onclick={(e) =>
-                                    toggleEditField("attended_church", e)}
-                                title="Change status"
-                            >
-                                <svg
-                                    class="w-3.5 h-3.5 text-muted-foreground"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                >
-                                    <path
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M19 9l-7 7-7-7"
-                                    />
-                                </svg>
-                            </button>
-                        {/if}
-                    </div>
-                    <Badge
-                        variant={contact.attended_church
-                            ? "success"
-                            : "secondary"}
-                    >
-                        {contact.attended_church ? "Yes" : "No"}
-                    </Badge>
-
-                    <!-- Attended Church Dropdown -->
-                    {#if editingField === "attended_church"}
-                        <InlineSelectDropdown
-                            options={booleanOptions}
-                            value={contact.attended_church}
-                            showSearch={false}
-                            placement="top"
-                            disabled={isUpdating}
-                            onSelect={(val) =>
-                                handleQuickUpdate("attended_church", val)}
-                            bind:isOpen={attendedDropdownOpen}
-                        />
-                    {/if}
-                </div>
-
-                <!-- Salvation Decision -->
-                <div
-                    class="p-3 bg-secondary/20 rounded-lg text-center relative group"
-                >
-                    <div
-                        class="flex items-center justify-center gap-1 text-xs text-muted-foreground mb-1"
-                    >
-                        <span>Salvation Decision</span>
-                        {#if onQuickUpdate}
-                            <button
-                                type="button"
-                                class="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-secondary/50 transition-all"
-                                onclick={(e) =>
-                                    toggleEditField("salvation_decision", e)}
-                                title="Change status"
-                            >
-                                <svg
-                                    class="w-3.5 h-3.5 text-muted-foreground"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                >
-                                    <path
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M19 9l-7 7-7-7"
-                                    />
-                                </svg>
-                            </button>
-                        {/if}
-                    </div>
-                    <Badge
-                        variant={contact.salvation_decision
-                            ? "success"
-                            : "secondary"}
-                    >
-                        {contact.salvation_decision ? "Yes" : "No"}
-                    </Badge>
-
-                    <!-- Salvation Decision Dropdown -->
-                    {#if editingField === "salvation_decision"}
-                        <InlineSelectDropdown
-                            options={booleanOptions}
-                            value={contact.salvation_decision}
-                            showSearch={false}
-                            placement="top"
-                            disabled={isUpdating}
-                            onSelect={(val) =>
-                                handleQuickUpdate("salvation_decision", val)}
-                            bind:isOpen={salvationDropdownOpen}
-                        />
-                    {/if}
-                </div>
-            </div>
-
-            <!-- Follow-up Info -->
-            {#if contact.follow_up_date}
-                <div
-                    class="flex items-center gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg"
-                >
-                    <svg
-                        class="w-5 h-5 text-warning flex-shrink-0"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                    </svg>
-                    <div>
-                        <span class="text-sm font-medium text-warning"
-                            >Follow-up scheduled</span
-                        >
-                        <span class="text-sm text-warning/80 ml-1"
-                            >{formatShortDate(contact.follow_up_date)}</span
-                        >
-                    </div>
-                </div>
-            {/if}
-
-            <!-- Conversion Info -->
-            {#if contact.converted && contact.conversion_date}
-                <div
-                    class="flex items-center gap-2 p-3 bg-success/10 border border-success/30 rounded-lg"
-                >
-                    <svg
-                        class="w-5 h-5 text-success flex-shrink-0"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                    >
-                        <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                    </svg>
-                    <div>
-                        <span class="text-sm font-medium text-success"
-                            >Became Member on</span
-                        >
-                        <span class="text-sm text-success/80 ml-1"
-                            >{formatShortDate(contact.conversion_date)}</span
-                        >
-                    </div>
-                </div>
-            {/if}
-
-            <!-- Notes/Comments -->
-            {#if contact.notes || (contact.comments && contact.comments.length > 0)}
-                <div class="p-4 bg-secondary/30 rounded-lg">
-                    <h4 class="text-sm font-medium text-muted-foreground mb-2">
-                        Notes
-                    </h4>
-                    {#if contact.notes}
-                        <p
-                            class="text-sm text-foreground/90 whitespace-pre-wrap"
-                        >
-                            {contact.notes}
-                        </p>
-                    {/if}
-                    {#if contact.comments && contact.comments.length > 0}
-                        <div class="space-y-2 mt-2">
-                            {#each contact.comments as comment}
-                                <div
-                                    class="text-sm text-foreground/80 pl-3 border-l-2 border-border"
-                                >
-                                    {comment}
-                                </div>
-                            {/each}
-                        </div>
-                    {/if}
-                </div>
-            {/if}
+<Modal bind:isOpen title="Evangelism contact profile" size="xl">
+  {#if contact}
+    <div class="space-y-5">
+      <header class="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-start sm:justify-between">
+        <div class="flex items-center gap-3">
+          <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">{contact.first_name?.[0] || ""}{contact.last_name?.[0] || ""}</div>
+          <div>
+            <div class="flex flex-wrap items-center gap-2"><h3 class="text-xl font-semibold text-foreground">{contact.first_name} {contact.last_name || ""}</h3><Badge variant="default">{readable(contact.response)}</Badge>{#if contact.converted || contact.member_status === "member"}<Badge variant="default">Member</Badge>{/if}</div>
+            <p class="mt-1 text-sm text-muted-foreground">{freshnessLabel()} · Met {formatShortDate(contact.contact_date)}</p>
+          </div>
         </div>
-    {:else}
-        <div class="text-center py-8 text-muted-foreground">
-            No contact details available.
+        <div class="flex flex-wrap gap-2">
+          {#if contact.phone}<a href={`tel:${safePhone(contact.phone)}`} class="inline-flex h-9 items-center rounded-lg border border-border bg-secondary px-3 text-xs font-medium text-foreground hover:bg-secondary/70">Call</a><a href={`https://wa.me/${safePhone(contact.phone).replace(/\D/g, "")}`} target="_blank" rel="noreferrer" class="inline-flex h-9 items-center rounded-lg border border-border bg-secondary px-3 text-xs font-medium text-foreground hover:bg-secondary/70">WhatsApp</a>{/if}
+          <Button size="sm" onclick={() => onOpenCrm?.(contact)}>Open in CRM</Button>
         </div>
-    {/if}
+      </header>
 
-    {#snippet footer()}
-        <div class="flex items-center justify-between w-full">
-            <div class="flex gap-2">
-                {#if onDelete && contact}
-                    <Button
-                        variant="ghost"
-                        class="text-destructive hover:text-destructive"
-                        onclick={handleDelete}
-                    >
-                        <svg
-                            class="w-4 h-4 mr-1"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                            />
-                        </svg>
-                        Delete
-                    </Button>
-                {/if}
-            </div>
-            <div class="flex gap-2">
-                <Button variant="secondary" onclick={handleClose}>Close</Button>
-                {#if onConvert && contact && !contact.converted}
-                    <Button variant="success" onclick={handleConvert}>
-                        <svg
-                            class="w-4 h-4 mr-1"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                            />
-                        </svg>
-                        Promote to Member
-                    </Button>
-                {/if}
-                {#if onEdit && contact}
-                    <Button onclick={handleEdit}>
-                        <svg
-                            class="w-4 h-4 mr-1"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                        >
-                            <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                            />
-                        </svg>
-                        Edit
-                    </Button>
-                {/if}
-            </div>
+      <nav class="flex gap-1 overflow-x-auto rounded-lg bg-secondary/30 p-1" aria-label="Contact profile sections">
+        {#each tabs as tab (tab.id)}
+          <button type="button" onclick={() => activeTab = tab.id} class="min-w-fit flex-1 rounded-md px-3 py-2 text-xs font-medium {activeTab === tab.id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}">{tab.label}{#if tab.count} <span class="ml-1 opacity-70">{tab.count}</span>{/if}</button>
+        {/each}
+      </nav>
+
+      {#if profileLoading}
+        <div class="rounded-xl border border-border py-12 text-center text-sm text-muted-foreground">Loading CRM history…</div>
+      {:else if activeTab === "overview"}
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <div class="space-y-4">
+            <section class="rounded-xl border border-border bg-card p-4">
+              <h4 class="text-sm font-semibold text-foreground">Contact and outreach</h4>
+              <dl class="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+                <div><dt class="text-xs text-muted-foreground">Phone</dt><dd class="mt-1 font-medium text-foreground">{contact.phone || "Not recorded"}</dd></div>
+                <div><dt class="text-xs text-muted-foreground">Email</dt><dd class="mt-1 break-all font-medium text-foreground">{contact.email || "Not recorded"}</dd></div>
+                <div><dt class="text-xs text-muted-foreground">Invited by</dt><dd class="mt-1 font-medium text-foreground">{contact.invited_by_name || "Not recorded"}</dd></div>
+                <div><dt class="text-xs text-muted-foreground">Interest</dt><dd class="mt-1 font-medium text-foreground">{readable(contact.response)}</dd></div>
+              </dl>
+              {#if onQuickUpdate}<div class="mt-4 border-t border-border pt-4"><label for="profile-response" class="mb-1.5 block text-xs text-muted-foreground">Update response category</label><select id="profile-response" value={contact.response} onchange={updateResponse} disabled={updatingResponse} class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground">{#each responseOptions as option}<option value={option[0]}>{option[1]}</option>{/each}</select></div>{/if}
+            </section>
+            {#if contact.notes}<section class="rounded-xl border border-border bg-card p-4"><h4 class="text-sm font-semibold text-foreground">Context</h4><p class="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{contact.notes}</p></section>{/if}
+          </div>
+
+          <div class="space-y-4">
+            <section class="rounded-xl border border-border bg-card p-4">
+              <h4 class="text-sm font-semibold text-foreground">Follow-up ownership</h4>
+              <div class="mt-3"><p class="text-xs text-muted-foreground">Current owner</p><p class="mt-1 font-medium text-foreground">{personName(owner)}</p></div>
+              <div class="mt-4 flex gap-2"><select aria-label="Assign follow-up owner" bind:value={ownerId} class="min-w-0 flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"><option value="">Choose leader…</option>{#each leaders as leader (leader._id || leader.id)}<option value={leader._id || leader.id}>{personName(leader)}</option>{/each}</select><Button size="sm" loading={assigning} disabled={!ownerId} onclick={assignOwner}>{owner ? "Reassign" : "Assign"}</Button></div>
+              {#if assignmentError}<p class="mt-2 text-xs text-destructive">{assignmentError}</p>{/if}
+            </section>
+            <section class="rounded-xl border border-border bg-card p-4"><h4 class="text-sm font-semibold text-foreground">Next action</h4>{#if nextTask}<p class="mt-3 font-medium text-foreground">{readable(nextTask.task_type)}</p><p class="mt-1 text-sm text-muted-foreground">Due {formatShortDate(nextTask.due_date)}{#if nextTask.reason} · {nextTask.reason}{/if}</p>{:else}<p class="mt-3 text-sm text-muted-foreground">No open task. Assign the contact or create the next action in the CRM.</p>{/if}</section>
+            <section class="rounded-xl border border-border bg-card p-4"><h4 class="text-sm font-semibold text-foreground">This Sunday</h4>{#if latestSunday}<div class="mt-3 flex items-center justify-between gap-3"><div><p class="font-medium text-foreground">{readable(latestSunday.response)}</p><p class="text-sm text-muted-foreground">{formatShortDate(latestSunday.gathering_date)}</p></div><Badge variant={latestSunday.response === "yes" ? "success" : "default"}>{readable(latestSunday.resolution)}</Badge></div>{:else}<p class="mt-3 text-sm text-muted-foreground">No Sunday response recorded.</p>{/if}</section>
+          </div>
         </div>
-    {/snippet}
+      {:else if activeTab === "activity"}
+        <section class="rounded-xl border border-border bg-card"><div class="border-b border-border px-4 py-3"><h4 class="text-sm font-semibold text-foreground">Follow-up history</h4><p class="mt-1 text-xs text-muted-foreground">Interactions and tasks are kept as factual history.</p></div>{#if activityItems().length}<div class="divide-y divide-border">{#each activityItems() as item (item.id)}<div class="flex gap-3 px-4 py-3"><span class="mt-1 h-2 w-2 rounded-full {item.type === 'interaction' ? 'bg-primary' : 'bg-warning'}"></span><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center justify-between gap-2"><p class="text-sm font-medium text-foreground">{item.title}</p><time class="text-xs text-muted-foreground">{formatShortDate(item.date)}</time></div><p class="mt-1 text-xs text-muted-foreground">{item.detail}</p></div></div>{/each}</div>{:else}<div class="px-4 py-12 text-center text-sm text-muted-foreground">No follow-up activity has been recorded yet.</div>{/if}</section>
+      {:else}
+        <div class="space-y-4">
+          <section class="rounded-xl border border-border bg-card">
+            <div class="border-b border-border px-4 py-3"><h4 class="text-sm font-semibold text-foreground">Planned gatherings</h4><p class="mt-1 text-xs text-muted-foreground">Sunday, Bacenta and special-event responses recorded by follow-up leaders.</p></div>
+            {#if profile?.commitments?.length}
+              <div class="divide-y divide-border">{#each profile.commitments as commitment (commitment._id)}<div class="flex items-center justify-between gap-3 px-4 py-3"><div><p class="text-sm font-medium text-foreground">{readable(commitment.gathering_type)}</p><p class="mt-1 text-xs text-muted-foreground">{formatShortDate(commitment.gathering_date)} · recorded by {personName(commitment.leader)}</p></div><div class="flex gap-2"><Badge variant="default">{readable(commitment.response)}</Badge><Badge variant="default">{readable(commitment.resolution)}</Badge></div></div>{/each}</div>
+            {:else}<div class="px-4 py-8 text-center text-sm text-muted-foreground">No gathering plans recorded.</div>{/if}
+          </section>
+
+          <section class="rounded-xl border border-border bg-card">
+            <div class="border-b border-border px-4 py-3"><h4 class="text-sm font-semibold text-foreground">Recorded attendance</h4><p class="mt-1 text-xs text-muted-foreground">Meeting attendance connects back to this CRM profile automatically.</p></div>
+            {#if profile?.meeting_attendance?.length}
+              <div class="divide-y divide-border">{#each profile.meeting_attendance.slice(0, 12) as attendance (attendance._id || attendance.id)}<div class="px-4 py-3"><p class="text-sm font-medium text-foreground">{meetingName(attendance.meeting)}</p><p class="mt-1 text-xs text-muted-foreground">{formatShortDate(attendance.meeting?.meeting_date)} · {readable(attendance.status || (attendance.attended ? 'present' : 'recorded'))}</p></div>{/each}</div>
+            {:else}<div class="px-4 py-8 text-center text-sm text-muted-foreground">No linked meeting attendance yet.</div>{/if}
+          </section>
+
+          <section class="rounded-xl border border-border bg-card">
+            <div class="border-b border-border px-4 py-3"><h4 class="text-sm font-semibold text-foreground">Visitations</h4><p class="mt-1 text-xs text-muted-foreground">Pastoral visits and any required follow-up.</p></div>
+            {#if profile?.visitations?.length}
+              <div class="divide-y divide-border">{#each profile.visitations.slice(0, 12) as visitation (visitation._id || visitation.id)}<div class="px-4 py-3"><div class="flex items-center justify-between gap-3"><p class="text-sm font-medium text-foreground">{readable(visitation.outcome, 'Visitation')}</p><span class="text-xs text-muted-foreground">{formatShortDate(visitation.visit_date)}</span></div><p class="mt-1 text-xs text-muted-foreground">Visited by {visitation.visited_by_name || 'leader'}{#if visitation.follow_up_required} · follow-up {formatShortDate(visitation.follow_up_date)}{/if}</p></div>{/each}</div>
+            {:else}<div class="px-4 py-8 text-center text-sm text-muted-foreground">No linked visitations yet.</div>{/if}
+          </section>
+        </div>
+      {/if}
+    </div>
+  {:else}
+    <div class="py-12 text-center text-sm text-muted-foreground">No contact selected.</div>
+  {/if}
+
+  {#snippet footer()}
+    <div class="flex w-full items-center justify-between gap-3">
+      <div>{#if onDelete && contact}<Button variant="ghost" class="text-destructive" onclick={() => { isOpen = false; onDelete(contact); }}>Delete</Button>{/if}</div>
+      <div class="flex gap-2"><Button variant="secondary" onclick={() => isOpen = false}>Close</Button>{#if onConvert && contact && !contact.converted && contact.member_status !== "member"}<Button variant="success" onclick={() => { isOpen = false; onConvert(contact); }}>Promote to member</Button>{/if}{#if onEdit && contact}<Button onclick={() => { isOpen = false; onEdit(contact); }}>Edit details</Button>{/if}</div>
+    </div>
+  {/snippet}
 </Modal>

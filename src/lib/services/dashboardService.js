@@ -1,257 +1,370 @@
 /**
- * Dashboard Service - Aggregates data from multiple Convex services
- * 
- * Provides KPIs and chart data for the main dashboard using real backend data.
+ * Dashboard Service
+ * Combines church health reporting with the lightweight activity feed used by
+ * the action-first home dashboard.
  */
 import * as peopleService from "./peopleService.js";
 import * as servicesService from "./servicesService.js";
 import * as evangelismService from "./evangelismService.js";
 import * as visitationsService from "./visitationsService.js";
+import * as meetingsService from "./meetingsService.js";
+
+function parseDate(value) {
+  if (!value) return null;
+  const date = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00`)
+    : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDateISO(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function todayISO() {
+  return formatDateISO(new Date());
+}
+
+function previousRange(dateRange) {
+  const start = parseDate(dateRange?.startDate);
+  let end = parseDate(dateRange?.endDate);
+  if (!start || !end) return null;
+  const today = parseDate(todayISO());
+  if (today && start <= today && end > today) end = today;
+  const span = Math.max(1, Math.round((end - start) / 86400000) + 1);
+  const previousEnd = new Date(start);
+  previousEnd.setDate(previousEnd.getDate() - 1);
+  const previousStart = new Date(previousEnd);
+  previousStart.setDate(previousStart.getDate() - span + 1);
+  return {
+    startDate: formatDateISO(previousStart),
+    endDate: formatDateISO(previousEnd),
+  };
+}
+
+function isCompleted(item, field) {
+  const value = item?.[field];
+  return !value || value <= todayISO();
+}
+
+function isSundayService(service) {
+  const type = String(service?.service_type || "").toLowerCase();
+  return type === "sunday" || type.includes("sunday");
+}
+
+function attendanceCount(service) {
+  if (Number(service?.total_attendance) > 0) return Number(service.total_attendance);
+  if (Number(service?.attendance_count) > 0) return Number(service.attendance_count);
+  return Array.isArray(service?.individuals) ? service.individuals.length : 0;
+}
+
+function averageAttendance(services) {
+  if (!services.length) return 0;
+  return Math.round(services.reduce((sum, service) => sum + attendanceCount(service), 0) / services.length);
+}
+
+function percentChange(current, previous) {
+  if (!previous) return null;
+  return Math.round(((current - previous) / previous) * 100);
+}
 
 /**
- * Get dashboard KPIs based on date range
- * @param {{ startDate: string, endDate: string }} dateRange 
- * @returns {Promise<{ kpis: Array, periodLabel: string }>}
+ * Church-health metrics for the selected reporting period, including a
+ * like-for-like comparison with the immediately preceding period.
  */
 export async function getDashboardKPIs(dateRange) {
-    const periodLabel = formatPeriodLabel(dateRange);
+  const prior = previousRange(dateRange);
+  const hasRange = dateRange?.startDate && dateRange?.endDate;
 
-    // Fetch data in parallel for performance
-    const [
-        membersResult,
-        leadersResult,
-        servicesResult,
-        evangelismFollowUpsResult,
-        visitationFollowUpsResult
-    ] = await Promise.all([
-        peopleService.getByStatus("member"),
-        peopleService.getByStatus("leader"),
-        dateRange?.startDate && dateRange?.endDate
-            ? servicesService.getByDateRange(dateRange.startDate, dateRange.endDate)
-            : servicesService.getAll(),
-        evangelismService.getRequiringFollowUp(),
-        visitationsService.getRequiringFollowUp()
-    ]);
+  const [membersResult, leadersResult, currentResult, previousResult] = await Promise.all([
+    peopleService.getByStatus("member"),
+    peopleService.getByStatus("leader"),
+    hasRange
+      ? servicesService.getByDateRange(dateRange.startDate, dateRange.endDate)
+      : servicesService.getAll(),
+    prior
+      ? servicesService.getByDateRange(prior.startDate, prior.endDate)
+      : Promise.resolve({ data: [] }),
+  ]);
 
-    // Calculate Total Members (members + leaders)
-    const memberCount = (membersResult.data?.length || 0) + (leadersResult.data?.length || 0);
+  const currentServices = (currentResult.data || []).filter((service) => isCompleted(service, "service_date"));
+  const previousServices = (previousResult.data || []).filter((service) => isCompleted(service, "service_date"));
+  const currentSundays = currentServices.filter(isSundayService);
+  const previousSundays = previousServices.filter(isSundayService);
 
-    // Calculate attendance stats from services in date range
-    const services = servicesResult.data || [];
+  const attendance = averageAttendance(currentSundays);
+  const previousAttendance = averageAttendance(previousSundays);
+  const guests = currentServices.reduce((sum, service) => sum + (Number(service.guests_count) || 0), 0);
+  const previousGuests = previousServices.reduce((sum, service) => sum + (Number(service.guests_count) || 0), 0);
+  const salvations = currentServices.reduce((sum, service) => sum + (Number(service.salvation_decisions) || 0), 0);
+  const previousSalvations = previousServices.reduce((sum, service) => sum + (Number(service.salvation_decisions) || 0), 0);
+  const churchFamily = (membersResult.data?.length || 0) + (leadersResult.data?.length || 0);
 
-    // Filter to main Sunday services (handles various naming conventions)
-    const sundayServices = services.filter(s => {
-        const type = s.service_type?.toLowerCase() || '';
-        return type === 'sunday' ||
-            type === 'sunday service' ||
-            type === 'sunday_service' ||
-            type.includes('sunday');
-    });
-
-    // Calculate attendance: prefer total_attendance, fallback to individuals array length
-    const getAttendanceCount = (service) => {
-        if (service.total_attendance && service.total_attendance > 0) {
-            return service.total_attendance;
-        }
-        // Fallback: count individuals array if available
-        if (service.individuals && Array.isArray(service.individuals)) {
-            return service.individuals.length;
-        }
-        return 0;
-    };
-
-    // Average attendance from services
-    const avgAttendance = sundayServices.length > 0
-        ? Math.round(
-            sundayServices.reduce((sum, s) => sum + getAttendanceCount(s), 0) / sundayServices.length
-        )
-        : 0;
-
-    // Sum of guests from all services in range
-    const totalGuests = services.reduce((sum, s) => sum + (s.guests_count || 0), 0);
-
-    // Follow-ups needed (combine evangelism + visitation)
-    const evangelismFollowUps = evangelismFollowUpsResult.data?.length || 0;
-    const visitationFollowUps = visitationFollowUpsResult.data?.length || 0;
-    const totalFollowUps = evangelismFollowUps + visitationFollowUps;
-
-    return {
-        periodLabel,
-        kpis: [
-            {
-                id: 'members',
-                title: 'Total Members',
-                value: memberCount,
-                format: 'number',
-                description: 'Active members & leaders'
-            },
-            {
-                id: 'attendance',
-                title: 'Avg Attendance',
-                value: avgAttendance,
-                format: 'number',
-                description: periodLabel || 'All time'
-            },
-            {
-                id: 'visitors',
-                title: 'New Visitors',
-                value: totalGuests,
-                format: 'number',
-                description: periodLabel || 'All time'
-            },
-            {
-                id: 'followups',
-                title: 'Follow-ups Needed',
-                value: totalFollowUps,
-                format: 'number',
-                description: `${evangelismFollowUps} contacts, ${visitationFollowUps} visits`
-            }
-        ]
-    };
+  return {
+    periodLabel: formatPeriodLabel(dateRange),
+    kpis: [
+      {
+        id: "attendance",
+        title: "Avg Sunday attendance",
+        value: attendance,
+        trend: percentChange(attendance, previousAttendance),
+        format: "number",
+        description: `${currentSundays.length} completed service${currentSundays.length === 1 ? "" : "s"}`,
+        href: "/services",
+        icon: "chart",
+        variant: "info",
+      },
+      {
+        id: "guests",
+        title: "Guests welcomed",
+        value: guests,
+        trend: percentChange(guests, previousGuests),
+        format: "number",
+        description: "Across completed services",
+        href: "/services",
+        icon: "user-plus",
+        variant: "default",
+      },
+      {
+        id: "salvations",
+        title: "Salvation decisions",
+        value: salvations,
+        trend: percentChange(salvations, previousSalvations),
+        format: "number",
+        description: "Recorded during services",
+        href: "/evangelism",
+        icon: "heart",
+        variant: "success",
+      },
+      {
+        id: "family",
+        title: "Church family",
+        value: churchFamily,
+        trend: null,
+        format: "number",
+        description: "Active members & leaders",
+        href: "/people",
+        icon: "users",
+        variant: "default",
+      },
+    ],
+  };
 }
 
 /**
- * Get attendance chart data grouped by month
- * @param {{ startDate: string, endDate: string }} dateRange 
- * @returns {Promise<Array<{ month: string, attendance: number }>>}
+ * Returns weekly points for shorter periods and monthly points for longer
+ * reports. Future service records are deliberately excluded.
  */
 export async function getAttendanceChartData(dateRange) {
-    const servicesResult = dateRange?.startDate && dateRange?.endDate
-        ? await servicesService.getByDateRange(dateRange.startDate, dateRange.endDate)
-        : await servicesService.getAll();
+  const hasRange = dateRange?.startDate && dateRange?.endDate;
+  const result = hasRange
+    ? await servicesService.getByDateRange(dateRange.startDate, dateRange.endDate)
+    : await servicesService.getAll();
+  let services = (result.data || [])
+    .filter(isSundayService)
+    .filter((service) => isCompleted(service, "service_date"))
+    .sort((a, b) => String(a.service_date).localeCompare(String(b.service_date)));
 
-    const services = servicesResult.data || [];
+  let contextLabel = dateRange?.label || formatPeriodLabel(dateRange) || "All completed Sundays";
+  let isFallback = false;
 
-    // Filter to Sunday services only for main attendance chart (handles various naming conventions)
-    const sundayServices = services.filter(s => {
-        const type = s.service_type?.toLowerCase() || '';
-        return type === 'sunday' ||
-            type === 'sunday service' ||
-            type === 'sunday_service' ||
-            type.includes('sunday');
-    });
+  if (!services.length && hasRange) {
+    const allResult = await servicesService.getAll();
+    services = (allResult.data || [])
+      .filter(isSundayService)
+      .filter((service) => isCompleted(service, "service_date"))
+      .sort((a, b) => String(a.service_date).localeCompare(String(b.service_date)))
+      .slice(-8);
+    if (services.length) {
+      contextLabel = "Latest 8 completed Sundays · no service in selected period";
+      isFallback = true;
+    }
+  }
 
-    // Calculate attendance: prefer total_attendance, fallback to individuals array length
-    const getAttendanceCount = (service) => {
-        if (service.total_attendance && service.total_attendance > 0) {
-            return service.total_attendance;
-        }
-        if (service.individuals && Array.isArray(service.individuals)) {
-            return service.individuals.length;
-        }
-        return 0;
+  if (!services.length) return { data: [], contextLabel, isFallback };
+
+  const start = parseDate(dateRange?.startDate) || parseDate(services[0].service_date);
+  const end = parseDate(dateRange?.endDate) || parseDate(services[services.length - 1].service_date);
+  const days = start && end ? Math.round((end - start) / 86400000) + 1 : 0;
+
+  if (days <= 120 || isFallback) {
+    return {
+      contextLabel,
+      isFallback,
+      data: services.map((service) => ({
+        date: service.service_date,
+        label: parseDate(service.service_date)?.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) || service.service_date,
+        attendance: attendanceCount(service),
+        guests: Number(service.guests_count) || 0,
+      })),
     };
+  }
 
-    // Group by month and calculate average
-    const monthlyData = {};
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const months = new Map();
+  for (const service of services) {
+    const date = parseDate(service.service_date);
+    if (!date) continue;
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const entry = months.get(key) || {
+      key,
+      label: date.toLocaleDateString("en-GB", { month: "short", year: "2-digit" }),
+      attendance: 0,
+      guests: 0,
+      count: 0,
+    };
+    entry.attendance += attendanceCount(service);
+    entry.guests += Number(service.guests_count) || 0;
+    entry.count += 1;
+    months.set(key, entry);
+  }
 
-    sundayServices.forEach(service => {
-        const date = new Date(service.service_date);
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        const monthLabel = `${monthNames[date.getMonth()]} ${date.getFullYear().toString().slice(-2)}`;
-
-        if (!monthlyData[monthKey]) {
-            monthlyData[monthKey] = {
-                month: monthLabel,
-                total: 0,
-                count: 0,
-                key: monthKey
-            };
-        }
-
-        monthlyData[monthKey].total += getAttendanceCount(service);
-        monthlyData[monthKey].count += 1;
-    });
-
-    // Convert to array with averages, sorted by date
-    return Object.values(monthlyData)
-        .sort((a, b) => a.key.localeCompare(b.key))
-        .map(item => ({
-            month: item.month,
-            attendance: item.count > 0 ? Math.round(item.total / item.count) : 0
-        }));
+  return {
+    contextLabel,
+    isFallback,
+    data: [...months.values()]
+      .sort((a, b) => a.key.localeCompare(b.key))
+      .map((item) => ({
+        label: item.label,
+        attendance: Math.round(item.attendance / item.count),
+        guests: item.guests,
+      })),
+  };
 }
 
 /**
- * Get recent activities from evangelism and visitations
- * @param {number} limit - Maximum activities to return
- * @returns {Promise<Array<{ id: string, type: string, description: string, timestamp: string }>>}
+ * Recent completed activity across church domains. Future-dated meetings and
+ * services are excluded so they never appear as "1m ago".
  */
-export async function getRecentActivities(limit = 10) {
-    const [evangelismResult, visitationsResult] = await Promise.all([
-        evangelismService.getAll(),
-        visitationsService.getAll()
-    ]);
+export async function getRecentActivities(limit = 50) {
+  const [evangelismResult, visitationsResult, servicesResult, meetingsResult] = await Promise.all([
+    evangelismService.getAll(),
+    visitationsService.getAll(),
+    servicesService.getAll(),
+    meetingsService.getAll(),
+  ]);
 
-    const activities = [];
+  const activities = [];
 
-    // Add evangelism contacts as activities
-    (evangelismResult.data || []).forEach(contact => {
-        const person = contact.people;
-        const name = person
-            ? `${person.first_name} ${person.last_name}`
-            : contact.person_name || 'Unknown';
-
-        activities.push({
-            id: `evangelism-${contact._id}`,
-            type: 'contact',
-            description: `${name} was contacted`,
-            person: name,
-            personId: person?._id || null,
-            action: `Response: ${contact.response || 'Pending'}`,
-            timestamp: contact.contact_date || contact.created_at,
-            icon: 'phone'
-        });
+  for (const contact of evangelismResult.data || []) {
+    const person = contact.people;
+    const name = person
+      ? `${person.first_name} ${person.last_name}`
+      : [contact.first_name, contact.last_name].filter(Boolean).join(" ") || contact.person_name || "Unknown contact";
+    const isSalvation = contact.salvation_decision || contact.converted;
+    activities.push({
+      id: `evangelism-${contact._id || contact.id}`,
+      type: isSalvation ? "salvation" : "contact",
+      description: isSalvation ? `${name} made a salvation decision` : `${name} was contacted`,
+      person: name,
+      personId: person?._id || person?.id || contact._id || contact.id || null,
+      action: isSalvation
+        ? "Salvation decision recorded"
+        : `Response: ${String(contact.response || "Pending").replace(/_/g, " ")}`,
+      timestamp: contact.contact_date || contact.created_at,
+      statusOrOutcome: isSalvation ? "Salvation decision" : contact.response || contact.status || "Pending",
+      notes: contact.notes || (Array.isArray(contact.comments) ? contact.comments.join(", ") : null),
+      phone: person?.phone || contact.phone || null,
+      email: person?.email || contact.email || null,
+      address: person?.address || contact.address || null,
+      recordedBy: contact.invited_by_name || null,
+      route: "/evangelism",
+      routeLabel: "Evangelism Hub",
     });
+  }
 
-    // Add visitations as activities
-    (visitationsResult.data || []).forEach(visit => {
-        const person = visit.people;
-        const name = person
-            ? `${person.first_name} ${person.last_name}`
-            : visit.person_visited_name || 'Unknown';
-
-        activities.push({
-            id: `visitation-${visit._id}`,
-            type: 'visitation',
-            description: `${name} was visited`,
-            person: name,
-            personId: person?._id || null,
-            action: `Outcome: ${visit.outcome || 'Not recorded'}`,
-            timestamp: visit.visit_date || visit.created_at,
-            icon: 'home'
-        });
+  for (const visit of visitationsResult.data || []) {
+    const person = visit.people;
+    const name = person
+      ? `${person.first_name} ${person.last_name}`
+      : visit.person_visited_name || "Unknown member";
+    activities.push({
+      id: `visitation-${visit._id || visit.id}`,
+      type: "visitation",
+      description: `${name} was visited`,
+      person: name,
+      personId: person?._id || person?.id || visit.person_id || null,
+      action: `Outcome: ${String(visit.outcome || "Not recorded").replace(/_/g, " ")}`,
+      timestamp: visit.visit_date || visit.created_at,
+      statusOrOutcome: visit.outcome || "Not recorded",
+      notes: visit.notes || null,
+      recordedBy: visit.visited_by_name || null,
+      followUpRequired: visit.follow_up_required || false,
+      followUpDate: visit.follow_up_date || null,
+      route: "/visitation",
+      routeLabel: "Pastoral Care",
     });
+  }
 
-    // Sort by timestamp descending and limit
-    return activities
-        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-        .slice(0, limit);
+  for (const service of servicesResult.data || []) {
+    const serviceName = service.name || String(service.service_type || "Church service")
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    const leader = service.preacher || service.sermon_speaker || service.speaker || service.leader_name || "Pastoral team";
+    const count = attendanceCount(service);
+    activities.push({
+      id: `service-${service._id || service.id}`,
+      type: "service",
+      description: `${serviceName} conducted`,
+      person: leader,
+      personId: service.leader_id || service.speaker_id || null,
+      action: `${count} ${count === 1 ? "attendee" : "attendees"} recorded`,
+      timestamp: service.service_date || service.date || service.created_at,
+      statusOrOutcome: serviceName,
+      notes: service.notes || (service.sermon_topic ? `Theme: “${service.sermon_topic}”` : null),
+      recordedBy: leader,
+      attendeeCount: count,
+      route: "/services",
+      routeLabel: "Services",
+    });
+  }
+
+  for (const meeting of meetingsResult.data || []) {
+    const meetingName = meeting.name || String(meeting.meeting_type || "Ministry meeting")
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    const leader = meeting.leader_name || (meeting.leader
+      ? `${meeting.leader.first_name} ${meeting.leader.last_name}`
+      : "Meeting facilitator");
+    const count = Number(meeting.attendance_count) || meeting.attendees?.length || 0;
+    activities.push({
+      id: `meeting-${meeting._id || meeting.id}`,
+      type: "meeting",
+      description: `${meetingName} completed`,
+      person: leader,
+      personId: meeting.leader_id || null,
+      action: `${count} ${count === 1 ? "attendee" : "attendees"} attended`,
+      timestamp: meeting.meeting_date || meeting.date || meeting.created_at,
+      statusOrOutcome: meetingName,
+      notes: meeting.notes || (meeting.agenda ? `Agenda: ${meeting.agenda}` : null),
+      recordedBy: leader,
+      attendeeCount: count,
+      route: "/meetings",
+      routeLabel: "Meetings",
+    });
+  }
+
+  const now = Date.now();
+  return activities
+    .filter((activity) => {
+      const date = parseDate(activity.timestamp);
+      return date && date.getTime() <= now;
+    })
+    .sort((a, b) => parseDate(b.timestamp) - parseDate(a.timestamp))
+    .slice(0, limit);
 }
 
-/**
- * Format a human-readable period label from date range
- * @param {{ startDate: string, endDate: string }} dateRange 
- * @returns {string}
- */
 function formatPeriodLabel(dateRange) {
-    if (!dateRange?.startDate || !dateRange?.endDate) {
-        return '';
-    }
-
-    const start = new Date(dateRange.startDate);
-    const end = new Date(dateRange.endDate);
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-    // Same year?
-    if (start.getFullYear() === end.getFullYear()) {
-        // Same month?
-        if (start.getMonth() === end.getMonth()) {
-            return `${monthNames[start.getMonth()]} ${start.getFullYear()}`;
-        }
-        return `${monthNames[start.getMonth()]} - ${monthNames[end.getMonth()]} ${end.getFullYear()}`;
-    }
-
-    return `${monthNames[start.getMonth()]} ${start.getFullYear()} - ${monthNames[end.getMonth()]} ${end.getFullYear()}`;
+  if (!dateRange?.startDate || !dateRange?.endDate) return "";
+  const start = parseDate(dateRange.startDate);
+  const end = parseDate(dateRange.endDate);
+  if (!start || !end) return "";
+  const month = new Intl.DateTimeFormat("en-GB", { month: "short" });
+  if (start.getFullYear() === end.getFullYear()) {
+    if (start.getMonth() === end.getMonth()) return `${month.format(start)} ${start.getFullYear()}`;
+    return `${month.format(start)} – ${month.format(end)} ${end.getFullYear()}`;
+  }
+  return `${month.format(start)} ${start.getFullYear()} – ${month.format(end)} ${end.getFullYear()}`;
 }

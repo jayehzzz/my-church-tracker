@@ -59,7 +59,7 @@
         const lower = searchQuery.toLowerCase();
         searchResults = allPeople
             .filter((p) =>
-                (p.first_name + " " + p.last_name)
+                `${p.first_name || ""} ${p.last_name || ""}`
                     .toLowerCase()
                     .includes(lower),
             )
@@ -67,9 +67,9 @@
     });
 
     function handleSearchSelect(person) {
-        searchQuery = `${person.first_name} ${person.last_name}`;
+        searchQuery = `${person.first_name || ""} ${person.last_name || ""}`.trim();
         searchResults = [];
-        if (mapComponent) {
+        if (mapComponent && person.lat && person.lng) {
             mapComponent.flyTo(person.lat, person.lng);
             // Auto open popup via marker click simulation if possible, or just fly
         }
@@ -209,11 +209,11 @@
                                 class="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0"
                             >
                                 {(
-                                    result.first_name[0] + result.last_name[0]
-                                ).toUpperCase()}
+                                    (result.first_name?.[0] || "") + (result.last_name?.[0] || "")
+                                ).toUpperCase() || "?"}
                             </span>
                             <span class="truncate"
-                                >{result.first_name} {result.last_name}</span
+                                >{result.first_name || ""} {result.last_name || ""}</span
                             >
                         </button>
                     {/each}
@@ -300,7 +300,7 @@
             <div class="flex items-center gap-2">
                 <span class="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm"
                 ></span>
-                <span class="font-medium opacity-80">Visitor</span>
+                <span class="font-medium opacity-80">Guest</span>
             </div>
         </div>
     </div>

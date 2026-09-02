@@ -24,7 +24,7 @@ export function closeSearch() {
 const mockSearchData = [
     { id: 1, type: 'person', title: 'Sarah Johnson', subtitle: 'Active Member', icon: 'user', href: '/people' },
     { id: 2, type: 'person', title: 'Michael Chen', subtitle: 'Volunteer', icon: 'user', href: '/people' },
-    { id: 3, type: 'person', title: 'Emily Davis', subtitle: 'New Visitor', icon: 'user', href: '/people' },
+    { id: 3, type: 'person', title: 'Emily Davis', subtitle: 'New Guest', icon: 'user', href: '/people' },
     { id: 4, type: 'contact', title: 'Thomas Anderson', subtitle: 'Follow Up Needed', icon: 'users', href: '/evangelism' },
     { id: 5, type: 'contact', title: 'Maria Garcia', subtitle: 'Initial Contact', icon: 'users', href: '/evangelism' },
     { id: 6, type: 'service', title: 'Sunday Service - Dec 15', subtitle: '185 attendees', icon: 'calendar', href: '/services' },

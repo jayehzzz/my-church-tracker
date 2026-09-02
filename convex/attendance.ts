@@ -46,9 +46,9 @@ export const create = mutation({
         const now = new Date().toISOString();
         const today = now.split('T')[0];
 
-        // Check if this is their first attendance ever
+        // A first timer is someone attending their first-ever church gathering.
         const person = await ctx.db.get(args.person_id);
-        if (person && !person.first_visit_date) {
+        if (args.first_timer && person && !person.first_visit_date) {
             // Set their first visit date and infer entry point
             await ctx.db.patch(args.person_id, {
                 first_visit_date: today,
@@ -79,7 +79,19 @@ export const update = mutation({
     handler: async (ctx, args) => {
         const { id, ...updates } = args;
         await ctx.db.patch(id, updates);
-        return await ctx.db.get(id);
+        const record = await ctx.db.get(id);
+        if (updates.first_timer && record) {
+            const person = await ctx.db.get(record.person_id);
+            if (person && !person.first_visit_date) {
+                const now = new Date().toISOString();
+                await ctx.db.patch(record.person_id, {
+                    first_visit_date: now.split("T")[0],
+                    entry_point: person.entry_point || "sunday_service",
+                    updated_at: now,
+                });
+            }
+        }
+        return record;
     },
 });
 
@@ -147,9 +159,9 @@ export const bulkCreate = mutation({
         // Process each record: set first_visit_date if needed, then insert attendance
         const ids = await Promise.all(
             args.records.map(async (record) => {
-                // Check if this is their first attendance ever
+                // Only an explicitly marked first timer starts a guest journey.
                 const person = await ctx.db.get(record.person_id);
-                if (person && !person.first_visit_date) {
+                if (record.first_timer && person && !person.first_visit_date) {
                     await ctx.db.patch(record.person_id, {
                         first_visit_date: today,
                         entry_point: person.entry_point || "sunday_service",
@@ -209,17 +221,6 @@ export const syncAttendance = mutation({
             } else {
                 // INSERT: Create new record
                 const now = new Date().toISOString();
-                const today = now.split('T')[0];
-
-                // Check if this is their first attendance ever and set first_visit_date
-                const person = await ctx.db.get(data.person_id);
-                if (person && !person.first_visit_date) {
-                    await ctx.db.patch(data.person_id, {
-                        first_visit_date: today,
-                        entry_point: person.entry_point || "sunday_service",
-                        updated_at: now,
-                    });
-                }
 
                 await ctx.db.insert("attendance", {
                     service_id: args.serviceId,
@@ -230,6 +231,18 @@ export const syncAttendance = mutation({
                     created_at: now,
                 });
             }
+
+            if (data.first_timer) {
+                const person = await ctx.db.get(data.person_id);
+                if (person && !person.first_visit_date) {
+                    const now = new Date().toISOString();
+                    await ctx.db.patch(data.person_id, {
+                        first_visit_date: now.split("T")[0],
+                        entry_point: person.entry_point || "sunday_service",
+                        updated_at: now,
+                    });
+                }
+            }
         });
 
         // Execute all operations
@@ -238,26 +251,10 @@ export const syncAttendance = mutation({
             ...upsertPromises
         ]);
 
-        // Recalculate and update service aggregates
-        const updatedAttendance = await ctx.db
-            .query("attendance")
-            .withIndex("by_service", (q) => q.eq("service_id", args.serviceId))
-            .collect();
-
-        const aggregates = {
-            total_attendance: updatedAttendance.length,
-            tithers_count: updatedAttendance.filter(a => a.gave_tithe).length,
-            salvation_decisions: updatedAttendance.filter(a => a.made_salvation_decision).length,
-            guests_count: updatedAttendance.filter(a => a.first_timer).length,
-        };
-
-        await ctx.db.patch(args.serviceId, aggregates);
-
         return {
             success: true,
             upserted: args.attendanceData.length,
             removed: toRemove.length,
-            aggregates,
         };
     },
 });
@@ -278,4 +275,3 @@ export const getAttendanceHistory = query({
         return results;
     },
 });
-

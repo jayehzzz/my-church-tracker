@@ -37,7 +37,7 @@ The application uses **Convex** as its backend database. The schema is defined i
 
 ## 👥 People Table
 
-**Purpose**: Stores all individuals connected to the church - members, visitors, leaders, and evangelism contacts. This is the central table that most other tables reference.
+**Purpose**: Stores all individuals connected to the church - members, guests, leaders, and evangelism contacts. This is the central table that most other tables reference. Legacy `visitor` statuses are normalized to `guest`.
 
 **File**: `convex/schema.ts` (lines 5-43)
 
@@ -148,7 +148,7 @@ The application uses **Convex** as its backend database. The schema is defined i
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `total_attendance` | float64 | ❌ | Total number of people who attended |
-| `guests_count` | float64 | ❌ | Number of first-time visitors |
+| `guests_count` | float64 | ❌ | Total guest headcount, including named and unnamed guests |
 | `salvation_decisions` | float64 | ❌ | Number of people who made faith decisions |
 | `tithers_count` | float64 | ❌ | Number of people who gave tithes |
 
@@ -214,7 +214,11 @@ The application uses **Convex** as its backend database. The schema is defined i
 
 ---
 
-## 🙏 Meetings Table
+## Meeting Programmes and Meetings
+
+`meeting_programs` stores reusable definitions and `meetings` stores dated occurrences. Programme leaders and optional rosters are linked through `meeting_program_leaders` and `meeting_program_members`. See [Meetings & Attendance](./15-meetings-attendance.md) for the complete workflow.
+
+## Meetings Table
 
 **Purpose**: Records prayer meetings, cell groups, and other church gatherings that aren't formal services.
 
@@ -224,13 +228,19 @@ The application uses **Convex** as its backend database. The schema is defined i
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| `program_id` | ID(meeting_programs) | ❌ | Reusable programme for this occurrence; omitted for one-off events |
+| `title` | string | ❌ | Display name for a one-off or special event |
 | `meeting_date` | string | ✅ | Date of the meeting (YYYY-MM-DD) |
 | `meeting_type` | string | ✅ | Type of meeting (see types below) |
 | `start_time` | string | ❌ | When the meeting started |
 | `end_time` | string | ❌ | When the meeting ended |
 | `duration_minutes` | float64 | ❌ | How long the meeting lasted |
+| `format` | string | ❌ | `in_person`, `online`, or `hybrid` |
 | `location` | string | ❌ | Where the meeting was held |
-| `attendance_count` | float64 | ❌ | Number of people who attended |
+| `online_url` | string | ❌ | Link for online or hybrid meetings |
+| `status` | string | ❌ | `scheduled`, `attendance_needed`, `completed`, or `cancelled` |
+| `attendance_count` | float64 | ❌ | Cached named attendees plus unnamed guests |
+| `unnamed_guests_count` | float64 | ❌ | Attendees not yet in the people directory |
 | `leaders_count` | float64 | ❌ | Number of leaders present |
 | `leader_id` | string | ❌ | ID of the person who led the meeting |
 | `notes` | string | ❌ | Meeting notes or highlights |
@@ -242,16 +252,22 @@ The application uses **Convex** as its backend database. The schema is defined i
 | Value | Description |
 |-------|-------------|
 | `bacenta` | Cell group / home fellowship meeting |
-| `flow_prayer` | Regular prayer session |
-| `all_night_prayer` | Extended overnight prayer meeting |
-| `basonta` | Smaller unit group meeting |
-| `sat` | Saturday meeting |
-| `farley_prayer` | Farley prayer meeting |
+| `flow_service` | Online YouTube prayer service with the main church |
+| `acts_prayer` | Weekly morning prayer, formerly Farley Morning Prayer |
+| `shemen_prayer` | Friday evening prayer meeting |
+| `workers_meeting` | Worker teaching and church planning |
+| `evangelistic_event` | One-off evangelistic gathering |
+| `special_event` | Other named one-off church event |
+| `training` | One-off training or workshop |
+| `fellowship` | One-off fellowship or social gathering |
+| `other` | Configurable non-Sunday meeting |
 
 ### Indexes
 
 - `by_meeting_date` - Find meetings by date
 - `by_meeting_type` - Find all meetings of a specific type
+- `by_program` - Find occurrences for a programme
+- `by_status` - Find records that still need attendance
 
 ---
 
@@ -272,12 +288,16 @@ The application uses **Convex** as its backend database. The schema is defined i
 | `gave_tithe` | boolean | ❌ | Did they give tithe? |
 | `arrived_late` | boolean | ❌ | Were they late? |
 | `left_early` | boolean | ❌ | Did they leave early? |
+| `first_timer` | boolean | ❌ | First-ever gathering with this church |
+| `first_program_attendance` | boolean | ❌ | First attendance at this recurring programme |
+| `status` | string | ❌ | `present`, `absent`, or `excused` |
 | `created_at` | string | ✅ | Record creation timestamp |
 
 ### Indexes
 
 - `by_meeting` - Find all attendees for a specific meeting
 - `by_person` - Find all meetings a person has attended
+- `by_meeting_person` - Prevent and find duplicate attendance for one meeting/person pair
 
 ---
 

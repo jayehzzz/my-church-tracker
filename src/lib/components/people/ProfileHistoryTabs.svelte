@@ -16,15 +16,15 @@
         storageKey = "profileHistoryTab",
     } = $props();
 
-    const tabs = [
+    let tabs = $derived([
         {
             id: "attendance",
             label: "Attendance",
-            count: attendanceHistory.length,
+            count: attendanceHistory?.length || 0,
         },
-        { id: "outreach", label: "Outreach", count: outreachContacts.length },
-        { id: "visitation", label: "Visitation", count: visitations.length },
-    ];
+        { id: "outreach", label: "Outreach", count: outreachContacts?.length || 0 },
+        { id: "visitation", label: "Pastoral Care", count: visitations?.length || 0 },
+    ]);
 
     // Load active tab from localStorage or default to attendance
     let activeTab = $state("attendance");
@@ -48,14 +48,14 @@
 
 <div class="space-y-4">
     <!-- Tab Navigation -->
-    <div class="flex gap-1 p-1 bg-secondary/30 rounded-lg w-fit">
+    <div class="flex gap-2 p-1.5 bg-secondary/50 border border-border/70 rounded-lg w-fit">
         {#each tabs as tab}
             <button
                 type="button"
-                class="relative px-4 py-2 text-sm font-medium rounded-md transition-all duration-200 flex items-center gap-2
+                class="relative px-4 py-2 text-sm font-semibold rounded-md border transition-all duration-200 flex items-center gap-2
                        {activeTab === tab.id
-                    ? 'bg-card text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'}"
+                    ? 'bg-primary text-primary-foreground border-primary shadow-md'
+                    : 'bg-background/60 text-foreground/85 border-border/80 hover:text-foreground hover:bg-secondary hover:border-muted-foreground/60'}"
                 onclick={() => setActiveTab(tab.id)}
             >
                 {tab.label}
@@ -63,8 +63,8 @@
                     <span
                         class="text-xs px-1.5 py-0.5 rounded-full {activeTab ===
                         tab.id
-                            ? 'bg-primary/10 text-primary'
-                            : 'bg-muted text-muted-foreground'}"
+                            ? 'bg-primary-foreground/20 text-primary-foreground'
+                            : 'bg-muted/90 text-foreground/80'}"
                     >
                         {tab.count}
                     </span>

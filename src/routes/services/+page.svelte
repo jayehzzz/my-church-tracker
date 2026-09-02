@@ -27,7 +27,6 @@
     ColumnFilterDropdown,
     FullscreenWrapper,
   } from "$lib/components/ui";
-  import KPICard from "$lib/components/dashboard/KPICard.svelte";
   import ServiceForm from "$lib/components/forms/ServiceForm.svelte";
 
   // Import filter store for reactive date range
@@ -35,6 +34,8 @@
 
   // Import chart components
   import AttendanceTrend from "$lib/components/charts/AttendanceTrend.svelte";
+  import WeeklyAttendanceMatrix from "$lib/components/charts/WeeklyAttendanceMatrix.svelte";
+  import ServiceMemories from "$lib/components/services/ServiceMemories.svelte";
 
   // Import centralized mock data
   import {
@@ -44,13 +45,15 @@
     getServiceIndividuals,
   } from "$lib/data/mockData";
 
-  // State
-  let services = $state([]);
-  let loading = $state(true);
+  // State - initialize immediately with dynamic mock data so SSR and client load instantly
+  let services = $state(centralMockServices);
+  let people = $state(mockPeople);
+  let attendanceRecords = $state([]);
+  let loading = $state(false);
   let error = $state(null);
 
   // View state: 'list' or 'dashboard'
-  let activeView = $state("list");
+  let activeView = $state("dashboard");
 
   // Filter state
   let serviceTypeFilter = $state("all");
@@ -201,7 +204,10 @@
 
   // Get person by ID - use centralized function
   function getPersonById(id) {
-    return getCentralPersonById(id);
+    return (
+      people.find((person) => String(person.id) === String(id)) ||
+      getCentralPersonById(id)
+    );
   }
 
   // Format service type for display
@@ -220,7 +226,7 @@
   function formatDate(dateStr) {
     if (!dateStr) return "—";
     const date = new Date(dateStr);
-    return date.toLocaleDateString("en-US", {
+    return date.toLocaleDateString("en-GB", {
       weekday: "short",
       month: "short",
       day: "numeric",
@@ -232,7 +238,7 @@
   function formatShortDate(dateStr) {
     if (!dateStr) return "—";
     const date = new Date(dateStr);
-    return date.toLocaleDateString("en-US", {
+    return date.toLocaleDateString("en-GB", {
       month: "short",
       day: "numeric",
     });
@@ -306,6 +312,10 @@
       (sum, s) => sum + (s.salvation_decisions || 0),
       0,
     );
+    const totalTithers = filtered.reduce(
+      (sum, s) => sum + (s.tithers_count || 0),
+      0,
+    );
     const totalIndividuals = filtered.reduce(
       (sum, s) =>
         sum + (Array.isArray(s.individuals) ? s.individuals.length : 0),
@@ -322,10 +332,15 @@
       totalAttendance,
       totalGuests,
       totalDecisions,
+      totalTithers,
       totalIndividuals,
       totalPhotos,
       avgAttendance,
       serviceCount: filtered.length,
+      decisionRate: totalAttendance > 0 ? Math.round((totalDecisions / totalAttendance) * 100) : 0,
+      titherRate: totalAttendance - totalGuests > 0
+        ? Math.round((totalTithers / (totalAttendance - totalGuests)) * 100)
+        : 0,
     };
   });
 
@@ -337,9 +352,11 @@
       .slice(-12)
       .map((s) => ({
         date: s.service_date,
-        total: s.total_attendance || 0,
-        guests: s.guests_count || 0,
-        members: (s.total_attendance || 0) - (s.guests_count || 0),
+      total: s.total_attendance || 0,
+      guests: s.guests_count || 0,
+      decisions: s.salvation_decisions || 0,
+      firstTimers: attendanceRecords.filter((record) => String(record.service_id) === String(s.id) && record.first_timer).length,
+      members: (s.total_attendance || 0) - (s.guests_count || 0),
         id: s.id,
         topic: s.sermon_topic,
       }));
@@ -367,10 +384,31 @@
   );
 
   const recentDecisions = $derived(() => {
-    return filteredServices()
+    return [...filteredServices()]
+      .sort((a, b) => new Date(b.service_date) - new Date(a.service_date))
       .slice(0, 3)
       .reduce((sum, s) => sum + (s.salvation_decisions || 0), 0);
   });
+
+  const recentServices = $derived(() =>
+    [...filteredServices()]
+      .sort((a, b) => new Date(b.service_date) - new Date(a.service_date))
+      .slice(0, 5),
+  );
+
+  const latestService = $derived(() => recentServices()[0]);
+  const previousService = $derived(() => recentServices()[1]);
+  const attendanceDelta = $derived(() => {
+    if (!latestService() || !previousService()) return null;
+    return (latestService().total_attendance || 0) -
+      (previousService().total_attendance || 0);
+  });
+
+  const guestRate = $derived(() =>
+    kpis().totalAttendance > 0
+      ? Math.round((kpis().totalGuests / kpis().totalAttendance) * 100)
+      : 0,
+  );
 
   // Donut chart data
   const donutData = $derived(() => {
@@ -430,17 +468,29 @@
     error = null;
 
     try {
-      const servicesService = await import("$lib/services/servicesService");
-      const result = await servicesService.getAll();
+      const [servicesService, peopleService, attendanceService] = await Promise.all([
+        import("$lib/services/servicesService"),
+        import("$lib/services/peopleService"),
+        import("$lib/services/attendanceService"),
+      ]);
+      const [result, peopleResult, attendanceResult] = await Promise.all([
+        servicesService.getAll(),
+        peopleService.getAll(),
+        attendanceService.getAll(),
+      ]);
 
       if (result.error) {
         throw result.error;
       }
       services = result.data || [];
+      people = Array.isArray(peopleResult.data) ? peopleResult.data : mockPeople;
+      attendanceRecords = Array.isArray(attendanceResult.data) ? attendanceResult.data : [];
       usingMockData = false;
     } catch (e) {
       console.warn("Failed to load from Convex, using mock data:", e.message);
       services = centralMockServices;
+      people = mockPeople;
+      attendanceRecords = [];
       usingMockData = true;
       error = null;
     } finally {
@@ -581,18 +631,18 @@
     <FilterBar />
   {/snippet}
 
-  <!-- Page Header with Add Button -->
-  <div
-    class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 animate-in"
-  >
-    <PageHeader
-      title="Sunday Services"
-      subtitle="Track and manage church service attendance and schedules"
-    />
+  <div class="mb-5 flex flex-col gap-4 pt-1 sm:flex-row sm:items-end sm:justify-between animate-in">
+    <div>
+      <p class="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">Gatherings</p>
+      <PageHeader
+        title="Sunday Services"
+        subtitle="See the health of each service, then record attendance and ministry outcomes."
+      />
+    </div>
 
     <Button onclick={handleAddService}>
       <svg
-        class="w-4 h-4 mr-2"
+        class="mr-2 h-4 w-4"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
@@ -604,7 +654,7 @@
           d="M12 4v16m8-8H4"
         />
       </svg>
-      Add Service
+      Record service
     </Button>
   </div>
 
@@ -633,67 +683,53 @@
     </div>
   {/if}
 
-  <!-- View Toggle Tabs -->
-  <div
-    class="mb-6 relative grid grid-cols-2 gap-1 p-1 bg-secondary/30 rounded-lg w-fit animate-in delay-2 isolate"
-  >
-    <!-- Sliding Pill Background -->
-    <div
-      class="absolute top-1 bottom-1 rounded-md bg-primary shadow-sm transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]"
-      style="
-            width: calc((100% - 0.75rem) / 2);
-            left: calc(0.25rem + {activeView === 'dashboard'
-        ? 1
-        : 0} * ((100% - 0.75rem) / 2 + 0.25rem));
-        "
-    ></div>
+  <div class="mb-6 flex flex-col gap-3 rounded-xl border border-border bg-card p-2 sm:flex-row sm:items-center animate-in delay-2">
+    <div class="grid grid-cols-3 gap-1 rounded-lg bg-secondary/35 p-1" role="tablist" aria-label="Sunday Services views">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeView === "dashboard"}
+        class="rounded-md px-4 py-2 text-sm font-medium transition-colors {activeView === 'dashboard' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}"
+        onclick={() => (activeView = "dashboard")}
+      >
+        Overview
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeView === "memories"}
+        class="rounded-md px-4 py-2 text-sm font-medium transition-colors {activeView === 'memories' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}"
+        onclick={() => (activeView = "memories")}
+      >
+        Memories
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeView === "list"}
+        class="rounded-md px-4 py-2 text-sm font-medium transition-colors {activeView === 'list' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}"
+        onclick={() => (activeView = "list")}
+      >
+        All services
+      </button>
+    </div>
 
-    <button
-      type="button"
-      class="relative z-10 px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 {activeView ===
-      'list'
-        ? 'text-primary-foreground'
-        : 'text-muted-foreground hover:text-foreground'}"
-      onclick={() => (activeView = "list")}
-    >
-      <svg
-        class="w-4 h-4 inline-block mr-1.5 -mt-0.5"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
+    <div class="flex flex-1 flex-wrap items-center gap-2 sm:justify-end">
+      <label for="shared-type-filter" class="sr-only">Filter by service type</label>
+      <select
+        id="shared-type-filter"
+        bind:value={serviceTypeFilter}
+        class="min-w-40 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
       >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M4 6h16M4 10h16M4 14h16M4 18h16"
-        />
-      </svg>
-      Service List
-    </button>
-    <button
-      type="button"
-      class="relative z-10 px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 {activeView ===
-      'dashboard'
-        ? 'text-primary-foreground'
-        : 'text-muted-foreground hover:text-foreground'}"
-      onclick={() => (activeView = "dashboard")}
-    >
-      <svg
-        class="w-4 h-4 inline-block mr-1.5 -mt-0.5"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-        />
-      </svg>
-      Dashboard
-    </button>
+        {#each serviceTypeOptions as option}
+          <option value={option.value}>{option.label}</option>
+        {/each}
+      </select>
+      <CopyDropdown data={getAllServicesCopyData()} label="Export" />
+      <span class="px-2 text-sm text-muted-foreground">
+        {filteredServices().length} {filteredServices().length === 1 ? "service" : "services"}
+      </span>
+    </div>
   </div>
 
   <!-- Error State -->
@@ -723,33 +759,6 @@
   {:else}
     <!-- SERVICE LIST VIEW -->
     {#if activeView === "list"}
-      <!-- Filters Row -->
-      <div class="mb-4 flex flex-wrap items-center gap-4">
-        <div class="flex items-center gap-2">
-          <label for="type-filter" class="text-sm text-muted-foreground"
-            >Type:</label
-          >
-          <select
-            id="type-filter"
-            bind:value={serviceTypeFilter}
-            class="px-3 py-2 bg-input border border-border rounded-lg text-foreground text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-          >
-            {#each serviceTypeOptions as option}
-              <option value={option.value}>{option.label}</option>
-            {/each}
-          </select>
-        </div>
-
-        <div class="h-6 w-px bg-border hidden sm:block"></div>
-
-        <CopyDropdown data={getAllServicesCopyData()} label="Copy as..." />
-
-        <span class="text-sm text-muted-foreground ml-auto">
-          {filteredServices().length}
-          {filteredServices().length === 1 ? "service" : "services"}
-        </span>
-      </div>
-
       <!-- Custom Service Table -->
       <div class="card-base overflow-hidden mb-6">
         <!-- Search Bar -->
@@ -912,7 +921,7 @@
                     colspan="10"
                     class="px-4 py-8 text-center text-muted-foreground"
                   >
-                    No services found. Add your first service record to get
+                    No services found. Record your first service to get
                     started.
                   </td>
                 </tr>
@@ -1038,593 +1047,278 @@
         </div>
       </div>
 
+      <!-- MEMORIES VIEW -->
+    {:else if activeView === "memories"}
+      <ServiceMemories
+        services={filteredServices()}
+        onOpen={handleServiceClick}
+        onEdit={handleEditService}
+      />
+
       <!-- DASHBOARD VIEW -->
     {:else if activeView === "dashboard"}
-      <FullscreenWrapper title="Services Dashboard">
-        {#snippet filters()}
-          <FilterBar />
-        {/snippet}
-
-        <!-- Quick Actions Panel -->
-        <div class="mb-6 flex flex-wrap items-center gap-3">
-          <Button onclick={handleAddService}>
-            <svg
-              class="w-4 h-4 mr-1.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            Add Service
-          </Button>
-          <Button variant="secondary" onclick={() => (activeView = "list")}>
-            <svg
-              class="w-4 h-4 mr-1.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M4 6h16M4 10h16M4 14h16M4 18h16"
-              />
-            </svg>
-            View List
-          </Button>
-          <CopyDropdown data={getAllServicesCopyData()} label="Export Data" />
-          <span class="ml-auto text-sm text-muted-foreground">
-            {filteredServices().length} services in period
-          </span>
-        </div>
-
-        <!-- KPI Cards Section -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <KPICard
-            title="Total Attendance"
-            value={kpis().totalAttendance}
-            icon="users"
-            trend={null}
-          />
-          <KPICard
-            title="Total Guests"
-            value={kpis().totalGuests}
-            icon="user-plus"
-            variant="info"
-            trend={null}
-          />
-          <KPICard
-            title="Salvation Decisions"
-            value={kpis().totalDecisions}
-            icon="heart"
-            variant="success"
-            trend={null}
-          />
-          <KPICard
-            title="Avg. Attendance"
-            value={kpis().avgAttendance}
-            icon="chart"
-            trend={null}
-          />
-        </div>
-
-        <!-- Insights / Highlights Cards -->
-        <div class="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {#if highestService()}
-            <button
-              type="button"
-              class="card-interactive p-4 border-l-4 border-l-success text-left w-full cursor-pointer hover:bg-success/5 transition-colors"
-              onclick={() => handleServiceClick(highestService())}
-            >
-              <div class="flex items-center gap-2 mb-2">
-                <svg
-                  class="w-5 h-5 text-success"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M5 10l7-7m0 0l7 7m-7-7v18"
-                  />
-                </svg>
-                <span class="text-sm font-medium text-success"
-                  >Highest Attendance</span
-                >
-              </div>
-              <div class="text-2xl font-bold text-foreground">
-                {highestService().total_attendance}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {formatShortDate(highestService().service_date)} - {highestService()
-                  .sermon_topic || "Service"}
-              </div>
-              <div class="text-[10px] text-muted-foreground/60 mt-1">
-                Click to view details
-              </div>
-            </button>
-          {/if}
-
-          {#if lowestService() && sortedByAttendance().length > 1}
-            <button
-              type="button"
-              class="card-interactive p-4 border-l-4 border-l-warning text-left w-full cursor-pointer hover:bg-warning/5 transition-colors"
-              onclick={() => handleServiceClick(lowestService())}
-            >
-              <div class="flex items-center gap-2 mb-2">
-                <svg
-                  class="w-5 h-5 text-warning"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                  />
-                </svg>
-                <span class="text-sm font-medium text-warning"
-                  >Lowest Attendance</span
-                >
-              </div>
-              <div class="text-2xl font-bold text-foreground">
-                {lowestService().total_attendance}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {formatShortDate(lowestService().service_date)} - {lowestService()
-                  .sermon_topic || "Service"}
-              </div>
-              <div class="text-[10px] text-muted-foreground/60 mt-1">
-                Click to view details
-              </div>
-            </button>
-          {/if}
-
-          <div class="card-interactive p-4 border-l-4 border-l-primary">
-            <div class="flex items-center gap-2 mb-2">
-              <svg
-                class="w-5 h-5 text-primary"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-                />
+      <div class="space-y-6">
+        {#if filteredServices().length === 0}
+          <section class="rounded-2xl border border-dashed border-border bg-card px-6 py-16 text-center">
+            <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              <span class="text-sm font-medium text-primary"
-                >Recent Decisions</span
-              >
             </div>
-            <div class="text-2xl font-bold text-foreground">
-              {recentDecisions()}
-            </div>
-            <div class="text-xs text-muted-foreground">In last 3 services</div>
-          </div>
-
-          <div class="card-interactive p-4 border-l-4 border-l-info">
-            <div class="flex items-center gap-2 mb-2">
-              <svg
-                class="w-5 h-5 text-info"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                />
-              </svg>
-              <span class="text-sm font-medium text-info">Guest Rate</span>
-            </div>
-            <div class="text-2xl font-bold text-foreground">
-              {kpis().totalAttendance > 0
-                ? Math.round(
-                    (kpis().totalGuests / kpis().totalAttendance) * 100,
-                  )
-                : 0}%
-            </div>
-            <div class="text-xs text-muted-foreground">
-              {kpis().totalGuests} guests of {kpis().totalAttendance} total
-            </div>
-          </div>
-        </div>
-
-        <!-- Charts Row -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <!-- Attendance Trend Chart (larger) -->
-          <div class="lg:col-span-2 relative">
-            <div class="absolute top-3 right-3 z-10">
-              <CopyButton
-                data={getChartCopyData()}
-                format="json"
-                label="Copy"
-              />
-            </div>
-            <AttendanceTrend
-              data={trendData()}
-              title="Attendance Trend"
-              onPointClick={handleChartPointClick}
-            />
-          </div>
-
-          <!-- Guest vs Member Donut Chart -->
-          <div class="card-base p-4">
-            <h3 class="text-sm font-medium text-muted-foreground mb-4">
-              Guest vs Member Split
-            </h3>
-
-            <div class="relative w-40 h-40 mx-auto mb-4">
-              <svg viewBox="0 0 36 36" class="w-full h-full rotate-[-90deg]">
-                <!-- Background circle -->
-                <circle
-                  cx="18"
-                  cy="18"
-                  r="15.9"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="3"
-                  class="text-secondary"
-                />
-                <!-- Member segment -->
-                <circle
-                  cx="18"
-                  cy="18"
-                  r="15.9"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="3"
-                  class="text-primary"
-                  stroke-dasharray="{donutData().memberPct} {100 -
-                    donutData().memberPct}"
-                  stroke-linecap="round"
-                />
-                <!-- Guest segment (starts after member) -->
-                <circle
-                  cx="18"
-                  cy="18"
-                  r="15.9"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="3"
-                  class="text-info"
-                  stroke-dasharray="{donutData().guestPct} {100 -
-                    donutData().guestPct}"
-                  stroke-dashoffset="-{donutData().memberPct}"
-                  stroke-linecap="round"
-                />
-              </svg>
-              <div
-                class="absolute inset-0 flex flex-col items-center justify-center"
-              >
-                <span class="text-2xl font-bold text-foreground"
-                  >{donutData().total}</span
-                >
-                <span class="text-xs text-muted-foreground">Total</span>
+            <h2 class="mt-4 text-lg font-semibold text-foreground">No services in this period</h2>
+            <p class="mx-auto mt-2 max-w-md text-sm text-muted-foreground">Change the date or service-type filter, or record the first service for this period.</p>
+            <div class="mt-5"><Button onclick={handleAddService}>Record service</Button></div>
+          </section>
+        {:else}
+          <section class="overflow-hidden rounded-2xl border border-border bg-card" aria-labelledby="period-overview-title">
+            <div class="flex items-center justify-between border-b border-border px-5 py-4">
+              <div>
+                <h2 id="period-overview-title" class="text-sm font-semibold text-foreground">Period overview</h2>
+                <p class="mt-1 text-xs text-muted-foreground">A concise view across {kpis().serviceCount} recorded {kpis().serviceCount === 1 ? "service" : "services"}.</p>
               </div>
-            </div>
-
-            <div class="flex justify-center gap-6">
-              <div class="flex items-center gap-2">
-                <div class="w-3 h-3 rounded-full bg-primary"></div>
-                <span class="text-sm text-foreground"
-                  >Members ({donutData().memberPct}%)</span
-                >
-              </div>
-              <div class="flex items-center gap-2">
-                <div class="w-3 h-3 rounded-full bg-info"></div>
-                <span class="text-sm text-foreground"
-                  >Guests ({donutData().guestPct}%)</span
-                >
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Service Type Distribution & Top Attendees Row -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <!-- Service Type Distribution -->
-          <div class="card-base p-4">
-            <h3 class="text-sm font-medium text-muted-foreground mb-4">
-              Service Type Distribution
-            </h3>
-
-            <div class="space-y-3">
-              {#each typeDistribution().typeEntries as [type, count]}
-                {@const pct = Math.round(
-                  (count / filteredServices().length) * 100,
-                )}
-                <button
-                  type="button"
-                  class="w-full text-left hover:bg-secondary/30 p-1 -m-1 rounded transition-colors cursor-pointer"
-                  onclick={() => (serviceTypeFilter = type)}
-                >
-                  <div class="flex justify-between text-sm mb-1">
-                    <span class="text-foreground"
-                      >{formatServiceType(type)}</span
-                    >
-                    <span class="text-muted-foreground">{count} ({pct}%)</span>
-                  </div>
-                  <div class="h-2 bg-secondary rounded-full overflow-hidden">
-                    <div
-                      class="h-full rounded-full transition-all duration-500 {type ===
-                      'sunday_service'
-                        ? 'bg-primary'
-                        : type === 'midweek_service'
-                          ? 'bg-info'
-                          : 'bg-warning'}"
-                      style="width: {(count / typeDistribution().maxCount) *
-                        100}%"
-                    ></div>
-                  </div>
+              {#if latestService()}
+                <button type="button" class="text-xs font-semibold text-primary hover:underline" onclick={() => handleServiceClick(latestService())}>
+                  Latest: {formatShortDate(latestService().service_date)}
                 </button>
-              {/each}
-            </div>
-          </div>
-
-          <!-- Top Attendees Leaderboard -->
-          <div class="card-base p-4">
-            <h3 class="text-sm font-medium text-muted-foreground mb-4">
-              Top Attendees
-            </h3>
-
-            <div class="space-y-3">
-              {#each topAttendees() as { person, count }, i}
-                {#if person}
-                  <a
-                    href="/people/{person.id}"
-                    class="flex items-center gap-3 p-2 -mx-2 rounded-lg hover:bg-secondary/50 transition-colors group"
-                  >
-                    <div
-                      class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold
-                      {i === 0
-                        ? 'bg-yellow-500/20 text-yellow-500'
-                        : i === 1
-                          ? 'bg-gray-400/20 text-gray-400'
-                          : i === 2
-                            ? 'bg-amber-600/20 text-amber-600'
-                            : 'bg-secondary text-muted-foreground'}"
-                    >
-                      {i + 1}
-                    </div>
-                    <div
-                      class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-sm font-medium text-primary"
-                    >
-                      {person.first_name[0]}{person.last_name[0]}
-                    </div>
-                    <div class="flex-1">
-                      <div
-                        class="text-sm font-medium text-foreground group-hover:text-primary group-hover:underline transition-colors"
-                      >
-                        {person.first_name}
-                        {person.last_name}
-                      </div>
-                      <div class="text-xs text-muted-foreground">
-                        {person.member_status}
-                      </div>
-                    </div>
-                    <div class="text-sm font-bold text-primary">
-                      {count} services
-                    </div>
-                  </a>
-                {/if}
-              {/each}
-              {#if topAttendees().length === 0}
-                <div class="text-center py-6 text-muted-foreground text-sm">
-                  No individual attendance data available
-                </div>
               {/if}
             </div>
-          </div>
-        </div>
 
-        <!-- Photo Gallery Carousel -->
-        {#if allPhotos().length > 0}
-          <div class="card-base p-4 mb-6">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-sm font-medium text-muted-foreground">
-                Recent Service Photos
-              </h3>
-              <span class="text-xs text-muted-foreground"
-                >{allPhotos().length} photos</span
-              >
+            <div class="grid grid-cols-2 divide-x divide-y divide-border lg:grid-cols-4 lg:divide-y-0">
+              <div class="px-5 py-5">
+                <div class="flex items-center justify-between gap-3">
+                  <p class="text-xs font-medium text-muted-foreground">Tithers</p>
+                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2a5 5 0 00-10 0v2m10 0H7m8-13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                  </span>
+                </div>
+                  <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{kpis().totalTithers}</p>
+                  <p class="mt-1 text-xs text-muted-foreground">{kpis().titherRate}% of member attendance</p>
+              </div>
+
+              <div class="px-5 py-5">
+                <div class="flex items-center justify-between gap-3">
+                  <p class="text-xs font-medium text-muted-foreground">Guests</p>
+                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-info/10 text-info">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v6m3-3h-6m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 21v-1a6 6 0 0112 0v1" /></svg>
+                  </span>
+                </div>
+                <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{kpis().totalGuests}</p>
+                <p class="mt-1 text-xs text-muted-foreground">{guestRate()}% of all attendance</p>
+              </div>
+
+              <div class="px-5 py-5">
+                <div class="flex items-center justify-between gap-3">
+                  <p class="text-xs font-medium text-muted-foreground">Decisions</p>
+                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-success/10 text-success">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 000-7.78z" /></svg>
+                  </span>
+                </div>
+                <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{kpis().totalDecisions}</p>
+                <p class="mt-1 text-xs text-muted-foreground">{recentDecisions()} across the latest 3 services</p>
+              </div>
+
+              <div class="px-5 py-5">
+                <div class="flex items-center justify-between gap-3">
+                  <p class="text-xs font-medium text-muted-foreground">Latest service</p>
+                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-warning/10 text-warning">
+                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M7 15l4-4 3 3 5-6" /></svg>
+                  </span>
+                </div>
+                <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{latestService()?.total_attendance || 0}</p>
+                <p class="mt-1 text-xs {attendanceDelta() === null ? 'text-muted-foreground' : attendanceDelta() >= 0 ? 'text-success' : 'text-warning'}">
+                  {#if attendanceDelta() === null}
+                    No previous service to compare
+                  {:else if attendanceDelta() === 0}
+                    No change from previous service
+                  {:else}
+                    {attendanceDelta() > 0 ? "+" : ""}{attendanceDelta()} from previous service
+                  {/if}
+                </p>
+              </div>
             </div>
-            <div class="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
-              {#each allPhotos() as { photo, service }}
-                <button
-                  type="button"
-                  class="flex-shrink-0 group relative"
-                  onclick={() => handleServiceClick(service)}
-                >
-                  <img
-                    src={photo.replace("w=100&h=100", "w=200&h=150")}
-                    alt="Service on {formatShortDate(service.service_date)}"
-                    class="w-48 h-32 object-cover rounded-lg border-2 border-transparent group-hover:border-primary transition-all duration-200"
-                  />
-                  <div
-                    class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <div class="absolute bottom-2 left-2 right-2">
-                      <div class="text-white text-xs font-medium truncate">
-                        {formatShortDate(service.service_date)}
-                      </div>
-                      <div class="text-white/70 text-xs truncate">
-                        {service.sermon_topic ||
-                          formatServiceType(service.service_type)}
-                      </div>
-                    </div>
+          </section>
+
+          <section class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]" aria-label="Attendance performance">
+            <div class="relative min-w-0">
+              <div class="absolute right-3 top-3 z-10">
+                <CopyButton data={getChartCopyData()} format="json" label="Copy" />
+              </div>
+              <FullscreenWrapper title="Attendance trend">
+                {#snippet filters()}
+                  <FilterBar compact />
+                {/snippet}
+                <AttendanceTrend
+                  data={trendData()}
+                  title="Attendance trend"
+                  onPointClick={handleChartPointClick}
+                  comparisonOptions={[
+                    { key: "guests", label: "Guests", color: "warning" },
+                    { key: "decisions", label: "Salvation decisions", color: "success" },
+                    { key: "firstTimers", label: "First timers", color: "warning" },
+                  ]}
+                />
+              </FullscreenWrapper>
+            </div>
+
+            <aside class="rounded-2xl border border-border bg-card p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h2 class="text-sm font-semibold text-foreground">At a glance</h2>
+                  <p class="mt-1 text-xs text-muted-foreground">Useful context for this period.</p>
+                </div>
+                <span class="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">{guestRate()}% guests</span>
+              </div>
+
+              <div class="mt-5 space-y-1">
+                {#if highestService()}
+                  <button type="button" class="flex w-full items-center justify-between gap-4 rounded-lg px-3 py-3 text-left transition-colors hover:bg-secondary/35" onclick={() => handleServiceClick(highestService())}>
+                    <span>
+                      <span class="block text-xs text-muted-foreground">Highest attendance</span>
+                      <span class="mt-1 block text-sm font-medium text-foreground">{formatShortDate(highestService().service_date)} · {highestService().sermon_topic || "Service"}</span>
+                    </span>
+                    <span class="text-lg font-semibold text-success">{highestService().total_attendance || 0}</span>
+                  </button>
+                {/if}
+
+                {#if latestService()}
+                  <button type="button" class="flex w-full items-center justify-between gap-4 rounded-lg px-3 py-3 text-left transition-colors hover:bg-secondary/35" onclick={() => handleServiceClick(latestService())}>
+                    <span>
+                      <span class="block text-xs text-muted-foreground">Latest guests</span>
+                      <span class="mt-1 block text-sm font-medium text-foreground">{formatShortDate(latestService().service_date)}</span>
+                    </span>
+                    <span class="text-lg font-semibold text-info">{latestService().guests_count || 0}</span>
+                  </button>
+                {/if}
+
+                <div class="flex items-center justify-between gap-4 rounded-lg px-3 py-3">
+                  <span>
+                    <span class="block text-xs text-muted-foreground">Recent decisions</span>
+                    <span class="mt-1 block text-sm font-medium text-foreground">Latest 3 services</span>
+                  </span>
+                  <span class="text-lg font-semibold text-primary">{recentDecisions()}</span>
+                </div>
+              </div>
+            </aside>
+          </section>
+
+          <section class="overflow-hidden rounded-2xl border border-border bg-card" aria-labelledby="recent-services-title">
+            <div class="flex items-center justify-between border-b border-border px-5 py-4">
+              <div>
+                <h2 id="recent-services-title" class="text-sm font-semibold text-foreground">Recent services</h2>
+                <p class="mt-1 text-xs text-muted-foreground">Open a service to review attendance, people and photos.</p>
+              </div>
+              <button type="button" class="text-xs font-semibold text-primary hover:underline" onclick={() => (activeView = "list")}>View all services</button>
+            </div>
+
+            <div class="divide-y divide-border">
+              {#each recentServices() as service}
+                <button type="button" class="group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-secondary/25 sm:grid-cols-[150px_minmax(0,1fr)_auto]" onclick={() => handleServiceClick(service)}>
+                  <div>
+                    <p class="text-sm font-medium text-foreground">{formatShortDate(service.service_date)}</p>
+                    <p class="mt-1 text-xs text-muted-foreground">{formatServiceType(service.service_type)}</p>
+                  </div>
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-medium text-foreground transition-colors group-hover:text-primary">{service.sermon_topic || "Untitled service"}</p>
+                    <p class="mt-1 truncate text-xs text-muted-foreground">{service.sermon_speaker || "Speaker not recorded"}{service.location ? " · " + service.location : ""}</p>
+                  </div>
+                  <div class="col-span-2 flex items-center justify-end gap-4 text-xs sm:col-span-1">
+                    <span class="text-muted-foreground"><strong class="text-foreground">{service.total_attendance || 0}</strong> attended</span>
+                    <span class="text-info"><strong>{service.guests_count || 0}</strong> guests</span>
+                    <span class="hidden text-success md:inline"><strong>{service.salvation_decisions || 0}</strong> decisions</span>
+                    <svg class="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
                   </div>
                 </button>
               {/each}
             </div>
-          </div>
-        {/if}
+          </section>
 
-        <!-- Recent Services Cards -->
-        <div class="mb-6">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-sm font-medium text-muted-foreground">
-              Recent Services
-            </h3>
-            <button
-              type="button"
-              class="text-xs text-primary hover:underline"
-              onclick={() => (activeView = "list")}
-            >
-              View all →
-            </button>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {#each filteredServices().slice(0, 6) as service}
-              <button
-                type="button"
-                class="card-interactive p-4 text-left group"
-                onclick={() => handleServiceClick(service)}
-              >
-                <!-- Header with photo thumbnail -->
-                <div class="flex items-start gap-3 mb-3">
-                  {#if Array.isArray(service.photos) && service.photos.length > 0}
-                    <img
-                      src={service.photos[0]}
-                      alt="Service thumbnail"
-                      class="w-12 h-12 rounded-lg object-cover flex-shrink-0"
-                    />
-                  {:else}
-                    <div
-                      class="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0"
-                    >
-                      <svg
-                        class="w-6 h-6 text-primary"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                        />
-                      </svg>
-                    </div>
-                  {/if}
-                  <div class="flex-1 min-w-0">
-                    <div
-                      class="text-sm font-medium text-foreground group-hover:text-primary transition-colors"
-                    >
-                      {formatShortDate(service.service_date)}
-                    </div>
-                    <span
-                      class="text-xs px-2 py-0.5 rounded-full bg-secondary text-muted-foreground"
-                    >
-                      {formatServiceType(service.service_type)}
-                    </span>
+          <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <section class="rounded-2xl border border-border bg-card p-5" aria-labelledby="attendance-mix-title">
+              <div>
+                <h2 id="attendance-mix-title" class="text-sm font-semibold text-foreground">Attendance &amp; outcomes</h2>
+                <p class="mt-1 text-xs text-muted-foreground">Member and guest attendance alongside recorded ministry outcomes.</p>
+              </div>
+
+              <div class="mt-5 flex flex-col items-center gap-6 sm:flex-row">
+                <div class="relative h-32 w-32 shrink-0" role="img" aria-label="{donutData().memberPct}% members and {donutData().guestPct}% guests">
+                  <svg viewBox="0 0 36 36" class="h-full w-full -rotate-90">
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-secondary" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-primary" stroke-dasharray="{donutData().memberPct} {100 - donutData().memberPct}" stroke-linecap="round" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-info" stroke-dasharray="{donutData().guestPct} {100 - donutData().guestPct}" stroke-dashoffset="-{donutData().memberPct}" stroke-linecap="round" />
+                  </svg>
+                  <div class="absolute inset-0 flex flex-col items-center justify-center">
+                    <span class="text-xl font-semibold text-foreground">{donutData().total}</span>
+                    <span class="text-[10px] uppercase tracking-wide text-muted-foreground">attendances</span>
                   </div>
                 </div>
-
-                <!-- Topic -->
-                <div class="text-sm text-foreground mb-2 line-clamp-1">
-                  {service.sermon_topic || "No topic recorded"}
+                <div class="w-full space-y-4">
+                  <div class="flex items-center justify-between gap-4">
+                    <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-primary"></span>Members</span>
+                    <span class="text-sm font-semibold text-foreground">{donutData().members} <span class="font-normal text-muted-foreground">({donutData().memberPct}%)</span></span>
+                  </div>
+                  <div class="flex items-center justify-between gap-4">
+                    <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-info"></span>Guests</span>
+                    <span class="text-sm font-semibold text-foreground">{donutData().guests} <span class="font-normal text-muted-foreground">({donutData().guestPct}%)</span></span>
+                  </div>
                 </div>
+              </div>
 
-                <!-- Stats Row -->
-                <div
-                  class="flex items-center gap-4 text-xs text-muted-foreground"
-                >
-                  <span class="flex items-center gap-1">
-                    <svg
-                      class="w-3.5 h-3.5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                    </svg>
-                    {service.total_attendance || 0}
-                  </span>
-                  <span class="flex items-center gap-1 text-info">
-                    <svg
-                      class="w-3.5 h-3.5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
-                      />
-                    </svg>
-                    {service.guests_count || 0}
-                  </span>
-                  {#if service.salvation_decisions > 0}
-                    <span class="flex items-center gap-1 text-success">
-                      <svg
-                        class="w-3.5 h-3.5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-                        />
-                      </svg>
-                      {service.salvation_decisions}
-                    </span>
-                  {/if}
-                  {#if Array.isArray(service.photos) && service.photos.length > 0}
-                    <span class="flex items-center gap-1 ml-auto">
-                      📷 {service.photos.length}
-                    </span>
-                  {/if}
+              <div class="mt-6 grid grid-cols-2 gap-3 border-t border-border pt-4">
+                <div class="rounded-xl bg-secondary/25 p-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-xs text-muted-foreground">Salvation decisions</span>
+                    <span class="h-2 w-2 rounded-full bg-success"></span>
+                  </div>
+                  <p class="mt-2 text-2xl font-semibold text-foreground">{kpis().totalDecisions}</p>
+                  <p class="mt-1 text-[11px] text-muted-foreground">{kpis().decisionRate}% of attendances</p>
                 </div>
-              </button>
-            {/each}
+                <div class="rounded-xl bg-secondary/25 p-3">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-xs text-muted-foreground">Tithers</span>
+                    <span class="h-2 w-2 rounded-full bg-warning"></span>
+                  </div>
+                  <p class="mt-2 text-2xl font-semibold text-foreground">{kpis().totalTithers}</p>
+                  <p class="mt-1 text-[11px] text-muted-foreground">{kpis().titherRate}% of members</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-border bg-card p-5" aria-labelledby="service-mix-title">
+              <div>
+                <h2 id="service-mix-title" class="text-sm font-semibold text-foreground">Service mix</h2>
+                <p class="mt-1 text-xs text-muted-foreground">How the selected period is distributed by gathering type.</p>
+              </div>
+              <div class="mt-5 space-y-4">
+                {#each typeDistribution().typeEntries as [type, count]}
+                  {@const pct = Math.round((count / filteredServices().length) * 100)}
+                  <button type="button" class="w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-primary" onclick={() => (serviceTypeFilter = type)}>
+                    <span class="mb-2 flex items-center justify-between text-sm">
+                      <span class="font-medium text-foreground">{formatServiceType(type)}</span>
+                      <span class="text-muted-foreground">{count} · {pct}%</span>
+                    </span>
+                    <span class="block h-2 overflow-hidden rounded-full bg-secondary">
+                      <span class="block h-full rounded-full {type === 'sunday_service' ? 'bg-primary' : type === 'midweek_service' ? 'bg-info' : 'bg-warning'}" style="width: {pct}%"></span>
+                    </span>
+                  </button>
+                {/each}
+              </div>
+            </section>
           </div>
-        </div>
 
-        <!-- Service Type Filter -->
-        <div class="mb-4 flex items-center gap-4">
-          <label
-            for="dashboard-type-filter"
-            class="text-sm text-muted-foreground">Filter by Type:</label
-          >
-          <select
-            id="dashboard-type-filter"
-            bind:value={serviceTypeFilter}
-            class="px-3 py-2 bg-input border border-border rounded-lg text-foreground text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-          >
-            {#each serviceTypeOptions as option}
-              <option value={option.value}>{option.label}</option>
-            {/each}
-          </select>
-        </div>
-      </FullscreenWrapper>
+          <details class="overflow-hidden rounded-2xl border border-border bg-card">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 outline-none transition-colors hover:bg-secondary/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
+              <span>
+                <span class="block text-sm font-semibold text-foreground">Individual attendance detail</span>
+                <span class="mt-1 block text-xs text-muted-foreground">Open the attendance matrix when you need person-by-person history.</span>
+              </span>
+              <span class="text-xs font-semibold text-primary">Show matrix</span>
+            </summary>
+            <div class="border-t border-border p-4">
+              <WeeklyAttendanceMatrix services={filteredServices()} {people} onServiceClick={handleServiceClick} />
+            </div>
+          </details>
+        {/if}
+      </div>
     {/if}
   {/if}
 </DashboardLayout>

@@ -1,5 +1,6 @@
 <script>
     import { Card, Badge } from "$lib/components/ui";
+    import { formatInteraction } from "$lib/utils/pastoralCare.js";
 
     let { visitations } = $props();
 
@@ -19,6 +20,8 @@
             not_home: "Not Home",
             concerns_shared: "Concerns Shared",
             invited_to_service: "Invited to Service",
+            follow_up_needed: "Follow-up Needed",
+            declined: "Declined",
         };
         return map[outcome] || outcome || "—";
     }
@@ -30,6 +33,8 @@
             not_home: "secondary",
             concerns_shared: "warning",
             invited_to_service: "default",
+            follow_up_needed: "warning",
+            declined: "danger",
         };
         return map[outcome] || "secondary";
     }
@@ -53,7 +58,7 @@
                     d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
                 />
             </svg>
-            Visitation History
+            Pastoral Care History
         </h3>
 
         {#if visitations.length === 0}
@@ -78,6 +83,7 @@
                             </Badge>
                         </div>
                         <p class="text-xs text-muted-foreground mb-1">
+                            {formatInteraction(visit.interaction_type)} ·
                             Visited by:
                             {#if visit.visited_by_id}
                                 <a
@@ -92,6 +98,11 @@
                                 </span>
                             {/if}
                         </p>
+                        {#if visit.next_task?.status === "open"}
+                            <p class="mb-1 text-xs font-medium text-warning">
+                                Next action due {formatShortDate(visit.next_task.due_date)}
+                            </p>
+                        {/if}
                         {#if visit.notes}
                             <p class="text-sm italic text-muted-foreground">
                                 "{visit.notes}"

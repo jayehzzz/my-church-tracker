@@ -44,9 +44,11 @@
     loading = false,
     emptyMessage = "No data available",
     searchPlaceholder = "Search...",
+    searchKeys = [],
     onselectionchange,
     onrowclick,
     enableCopy = true,
+    rowActionLabel = "",
     enableColumnToggle = true,
     enableResize = true,
     storageKey = "dataTable",
@@ -227,9 +229,10 @@
     if (!debouncedSearchQuery.trim()) return data;
 
     const query = debouncedSearchQuery.toLowerCase();
+    const searchableKeys = [...new Set([...columns.map((column) => column.key), ...searchKeys])];
     return data.filter((row) => {
-      return columns.some((col) => {
-        const value = row[col.key];
+      return searchableKeys.some((key) => {
+        const value = row[key];
         if (value == null) return false;
         return String(value).toLowerCase().includes(query);
       });
@@ -417,6 +420,16 @@
   // Get row ID
   function getRowId(row, index) {
     return row.id ?? `row-${(currentPage - 1) * pageSize + index}`;
+  }
+
+  function openRow(row) {
+    onrowclick?.(row);
+  }
+
+  function handleRowKeydown(event, row) {
+    if (!onrowclick || !["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    openRow(row);
   }
 
   // Clear search
@@ -666,8 +679,8 @@
             </th>
           {/each}
 
-          <!-- Copy row header -->
-          {#if enableCopy}
+          <!-- Row actions header -->
+          {#if enableCopy || rowActionLabel}
             <th class="action-cell" scope="col">
               <span class="sr-only">Actions</span>
             </th>
@@ -682,7 +695,7 @@
             <td
               colspan={visibleColumns().length +
                 (selectable ? 1 : 0) +
-                (enableCopy ? 1 : 0)}
+                (enableCopy || rowActionLabel ? 1 : 0)}
               class="loading-cell"
             >
               <div class="loading-spinner">
@@ -715,7 +728,7 @@
             <td
               colspan={visibleColumns().length +
                 (selectable ? 1 : 0) +
-                (enableCopy ? 1 : 0)}
+                (enableCopy || rowActionLabel ? 1 : 0)}
               class="empty-cell"
             >
               <div class="empty-state">
@@ -743,7 +756,9 @@
             <tr
               class:selected={isSelected}
               class:cursor-pointer={!!onrowclick}
-              onclick={() => onrowclick?.(row)}
+              onclick={() => openRow(row)}
+              onkeydown={(event) => handleRowKeydown(event, row)}
+              tabindex={onrowclick ? 0 : undefined}
             >
               {#if selectable}
                 <td class="checkbox-cell">
@@ -764,33 +779,49 @@
                 </td>
               {/each}
 
-              <!-- Copy row button -->
-              {#if enableCopy}
+              <!-- Row actions -->
+              {#if enableCopy || rowActionLabel}
                 <td class="action-cell">
-                  <button
-                    type="button"
-                    class="copy-btn row-copy-btn"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      copyRow(row);
-                    }}
-                    title="Copy row data"
-                    aria-label="Copy this row"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                    >
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                      <path
-                        d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"
-                      />
-                    </svg>
-                  </button>
+                  <div class="row-actions">
+                    {#if rowActionLabel}
+                      <button
+                        type="button"
+                        class="row-action-btn"
+                        onclick={(event) => {
+                          event.stopPropagation();
+                          openRow(row);
+                        }}
+                      >
+                        {rowActionLabel}
+                      </button>
+                    {/if}
+                    {#if enableCopy}
+                      <button
+                        type="button"
+                        class="copy-btn row-copy-btn"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          copyRow(row);
+                        }}
+                        title="Copy row data"
+                        aria-label="Copy this row"
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                          <path
+                            d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"
+                          />
+                        </svg>
+                      </button>
+                    {/if}
+                  </div>
                 </td>
               {/if}
             </tr>
@@ -1360,9 +1391,37 @@
   }
 
   .action-cell {
-    width: 3rem;
+    width: 1%;
+    white-space: nowrap;
     text-align: center;
     padding: 0.5rem !important;
+  }
+
+  .row-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+  }
+
+  .row-action-btn {
+    min-height: 2rem;
+    padding: 0 0.75rem;
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    background: hsl(var(--secondary));
+    color: hsl(var(--foreground));
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 150ms ease;
+  }
+
+  .row-action-btn:hover,
+  .row-action-btn:focus-visible {
+    border-color: hsl(var(--primary));
+    color: hsl(var(--primary));
+    outline: none;
   }
 
   .th-label {

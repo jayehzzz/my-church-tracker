@@ -1,306 +1,298 @@
-<!--
-  VisitationForm.svelte
-  A form component for adding/editing visitation records.
-  
-  Features:
-  - Add new visitation or edit existing
-  - Person visited and visitor selection
-  - Outcome tracking
-  - Follow-up required toggle
-  - Uses Svelte 5 runes syntax
--->
-
 <script>
-    import { Modal, Button, Input, Select } from "$lib/components/ui";
+  import { Modal, Button, Input, Select, SearchableSelect } from "$lib/components/ui";
+  import { fullName, localDate, recordId } from "$lib/utils/pastoralCare.js";
 
-    let {
-        isOpen = $bindable(false),
-        visitation = null, // null for create, object for edit
-        onsave,
-        ...restProps
-    } = $props();
+  let {
+    isOpen = $bindable(false),
+    visitation = null,
+    task = null,
+    people = [],
+    initialPersonId = "",
+    onsave = null,
+    ...restProps
+  } = $props();
 
-    // Form state
-    let formData = $state({
-        person_visited_name: "",
-        person_visited_id: "",
-        visited_by_name: "",
-        visited_by_id: "",
-        visit_date: "",
-        outcome: "welcomed_encouraged",
-        follow_up_required: false,
-        follow_up_date: "",
-        notes: "",
-    });
+  let saving = $state(false);
+  let errors = $state({});
+  let formData = $state({
+    person_id: "",
+    visited_by_id: "",
+    visit_date: "",
+    interaction_type: "home_visit",
+    purpose: "general_care",
+    outcome: "welcomed_encouraged",
+    follow_up_required: false,
+    follow_up_date: "",
+    notes: "",
+  });
 
-    let saving = $state(false);
-    let errors = $state({});
+  const mode = $derived(visitation?.id || visitation?._id ? "edit" : "create");
+  const modalTitle = $derived(
+    mode === "edit" ? "Edit Care Interaction" : task ? "Complete Care Task" : "Log Pastoral Care",
+  );
 
-    // Mode: 'create' or 'edit'
-    const mode = $derived(visitation?.id ? "edit" : "create");
-    const modalTitle = $derived(
-        mode === "edit" ? "Edit Visitation" : "Log New Visitation",
-    );
+  const personOptions = $derived(
+    people
+      .filter((person) => person.member_status !== "archived")
+      .slice()
+      .sort((a, b) => fullName(a).localeCompare(fullName(b)))
+      .map((person) => ({ value: recordId(person), label: fullName(person) })),
+  );
 
-    // Outcome options (from spec)
-    const outcomeOptions = [
-        { value: "welcomed_encouraged", label: "Welcomed & Encouraged" },
-        { value: "prayer_request_received", label: "Prayer Request Received" },
-        { value: "invited_to_service", label: "Invited to Service" },
-        { value: "concerns_shared", label: "Concerns Shared" },
-        { value: "follow_up_needed", label: "Follow-up Needed" },
-        { value: "not_home", label: "Not Home" },
-        { value: "declined", label: "Declined Visit" },
-    ];
+  const leaderOptions = $derived(
+    people
+      .filter((person) => person.member_status === "leader")
+      .slice()
+      .sort((a, b) => fullName(a).localeCompare(fullName(b)))
+      .map((person) => ({ value: recordId(person), label: fullName(person) })),
+  );
 
-    // Initialize/reset form when visitation changes or modal opens
-    $effect(() => {
-        if (isOpen) {
-            if (visitation) {
-                formData = {
-                    person_visited_name:
-                        visitation.person_visited_name ||
-                        (visitation.people
-                            ? `${visitation.people.first_name} ${visitation.people.last_name || ""}`.trim()
-                            : ""),
-                    person_visited_id:
-                        visitation.person_visited_id ||
-                        visitation.person_id ||
-                        "",
-                    visited_by_name: visitation.visited_by_name || "",
-                    visited_by_id: visitation.visited_by_id || "",
-                    visit_date: visitation.visit_date || "",
-                    outcome: visitation.outcome || "welcomed_encouraged",
-                    follow_up_required: visitation.follow_up_required || false,
-                    follow_up_date: visitation.follow_up_date || "",
-                    notes: visitation.notes || "",
-                };
-            } else {
-                // Default to today's date for new visitations
-                const today = new Date().toISOString().split("T")[0];
-                formData = {
-                    person_visited_name: "",
-                    person_visited_id: "",
-                    visited_by_name: "",
-                    visited_by_id: "",
-                    visit_date: today,
-                    outcome: "welcomed_encouraged",
-                    follow_up_required: false,
-                    follow_up_date: "",
-                    notes: "",
-                };
-            }
-            errors = {};
-        }
-    });
+  const selectedPerson = $derived(
+    people.find((person) => String(recordId(person)) === String(formData.person_id)) || task?.person || null,
+  );
 
-    // Validate form
-    function validate() {
-        const newErrors = {};
+  const interactionOptions = [
+    { value: "home_visit", label: "Home visit" },
+    { value: "hospital_visit", label: "Hospital visit" },
+    { value: "church_meeting", label: "Church conversation" },
+    { value: "phone_call", label: "Phone call" },
+    { value: "message", label: "Message" },
+    { value: "practical_support", label: "Practical support" },
+    { value: "other", label: "Other" },
+  ];
 
-        if (!formData.person_visited_name.trim()) {
-            newErrors.person_visited_name = "Person visited is required";
-        }
+  const purposeOptions = [
+    { value: "new_guest", label: "New guest care" },
+    { value: "attendance_concern", label: "Attendance concern" },
+    { value: "welfare", label: "Welfare" },
+    { value: "prayer", label: "Prayer" },
+    { value: "bereavement", label: "Bereavement" },
+    { value: "membership", label: "Membership" },
+    { value: "general_care", label: "General care" },
+    { value: "other", label: "Other" },
+  ];
 
-        if (!formData.visit_date) {
-            newErrors.visit_date = "Visit date is required";
-        }
+  const outcomeOptions = [
+    { value: "welcomed_encouraged", label: "Welcomed & encouraged" },
+    { value: "prayer_request_received", label: "Prayer request received" },
+    { value: "invited_to_service", label: "Invited to service" },
+    { value: "concerns_shared", label: "Concerns shared" },
+    { value: "follow_up_needed", label: "Follow-up needed" },
+    { value: "not_home", label: "Not home / no contact" },
+    { value: "declined", label: "Declined care" },
+  ];
 
-        if (!formData.outcome) {
-            newErrors.outcome = "Outcome is required";
-        }
+  $effect(() => {
+    if (!isOpen) return;
+    const existing = visitation;
+    formData = {
+      person_id: existing?.person_id || task?.person_id || initialPersonId || "",
+      visited_by_id: existing?.visited_by_id || task?.assigned_leader_id || "",
+      visit_date: existing?.visit_date || localDate(),
+      interaction_type: existing?.interaction_type || "home_visit",
+      purpose: existing?.purpose
+        || (task?.task_type === "member_care" ? "general_care" : "attendance_concern"),
+      outcome: existing?.outcome || "welcomed_encouraged",
+      follow_up_required: Boolean(existing?.follow_up_required),
+      follow_up_date: existing?.follow_up_date || "",
+      notes: existing?.notes || "",
+    };
+    errors = {};
+  });
 
-        // If follow-up required but no date
-        if (formData.follow_up_required && !formData.follow_up_date) {
-            formData.follow_up_date = "";
-        }
-
-        errors = newErrors;
-        return Object.keys(newErrors).length === 0;
+  function validate() {
+    const nextErrors = {};
+    if (!formData.person_id) nextErrors.person_id = "Choose the person who received care";
+    if (!formData.visited_by_id) nextErrors.visited_by_id = "Choose the care leader";
+    if (!formData.visit_date) nextErrors.visit_date = "Choose the interaction date";
+    if (!formData.outcome) nextErrors.outcome = "Choose an outcome";
+    if (formData.follow_up_required && !formData.follow_up_date) {
+      nextErrors.follow_up_date = "Choose when the next action is due";
     }
+    errors = nextErrors;
+    return Object.keys(nextErrors).length === 0;
+  }
 
-    // Handle form submission
-    async function handleSubmit() {
-        if (!validate()) return;
-
-        saving = true;
-        errors = {};
-
-        try {
-            // Dynamically import to avoid SSR issues
-            const visitationsService =
-                await import("$lib/services/visitationsService");
-
-            // Clean up data - use person_id as expected by backend
-            // The service layer's cleanData will remove undefined/null values
-            const cleanData = {
-                person_id: formData.person_visited_id || undefined, // Backend expects person_id
-                person_visited_name: formData.person_visited_name,
-                visited_by_name: formData.visited_by_name || undefined,
-                visited_by_id: formData.visited_by_id || undefined,
-                visit_date: formData.visit_date,
-                outcome: formData.outcome,
-                follow_up_required: formData.follow_up_required,
-                follow_up_date: formData.follow_up_date || undefined,
-                notes: formData.notes || undefined,
-            };
-
-            let result;
-            if (mode === "edit") {
-                result = await visitationsService.update(
-                    visitation.id,
-                    cleanData,
-                );
-            } else {
-                result = await visitationsService.create(cleanData);
-            }
-
-            if (result.error) {
-                errors.submit =
-                    result.error.message || "Failed to save visitation";
-                return;
-            }
-
-            onsave?.(result.data);
-            isOpen = false;
-        } catch (e) {
-            errors.submit = e.message || "An unexpected error occurred";
-        } finally {
-            saving = false;
-        }
+  async function handleSubmit() {
+    if (!validate()) return;
+    saving = true;
+    errors = {};
+    try {
+      const service = await import("$lib/services/visitationsService.js");
+      const person = people.find((candidate) => String(recordId(candidate)) === String(formData.person_id));
+      const visitor = people.find((candidate) => String(recordId(candidate)) === String(formData.visited_by_id));
+      const payload = {
+        person_id: formData.person_id,
+        person_visited_name: fullName(person || selectedPerson),
+        visited_by_id: formData.visited_by_id,
+        visited_by_name: fullName(visitor),
+        visit_date: formData.visit_date,
+        interaction_type: formData.interaction_type,
+        purpose: formData.purpose,
+        outcome: formData.outcome,
+        follow_up_required: formData.follow_up_required,
+        follow_up_date: formData.follow_up_required ? formData.follow_up_date : undefined,
+        notes: formData.notes.trim() || undefined,
+        ...(mode === "create" && task ? { source_task_id: task._id || task.id } : {}),
+      };
+      const result = mode === "edit"
+        ? await service.update(visitation.id || visitation._id, payload)
+        : await service.create(payload);
+      if (result.error) throw result.error;
+      onsave?.(result.data);
+      isOpen = false;
+    } catch (error) {
+      errors.submit = error?.message || "Unable to save this care interaction";
+    } finally {
+      saving = false;
     }
-
-    // Handle close
-    function handleClose() {
-        isOpen = false;
-    }
+  }
 </script>
 
 <Modal bind:isOpen title={modalTitle} size="lg" {...restProps}>
-    <form
-        onsubmit={(e) => {
-            e.preventDefault();
-            handleSubmit();
-        }}
-        class="space-y-6"
-    >
-        <!-- Error message -->
-        {#if errors.submit}
-            <div
-                class="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm"
-            >
-                {errors.submit}
-            </div>
-        {/if}
+  <form
+    class="space-y-6"
+    onsubmit={(event) => {
+      event.preventDefault();
+      handleSubmit();
+    }}
+  >
+    {#if errors.submit}
+      <div class="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+        {errors.submit}
+      </div>
+    {/if}
 
-        <!-- Person Visited -->
-        <Input
-            label="Person Visited"
-            bind:value={formData.person_visited_name}
-            error={errors.person_visited_name}
-            required
-            disabled={saving}
-            placeholder="Enter the name of the person visited"
-        />
+    {#if task}
+      <div class="rounded-xl border border-primary/20 bg-primary/5 p-4">
+        <p class="text-sm font-medium text-foreground">Completing a shared care task</p>
+        <p class="mt-1 text-xs text-muted-foreground">
+          Saving this interaction closes the task in Pastoral Care and Follow-Up CRM.
+        </p>
+      </div>
+    {/if}
 
-        <!-- Visited By and Date -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input
-                label="Visited By"
-                bind:value={formData.visited_by_name}
-                disabled={saving}
-                placeholder="Who made the visit"
-            />
-            <Input
-                label="Visit Date"
-                type="date"
-                bind:value={formData.visit_date}
-                error={errors.visit_date}
-                required
-                disabled={saving}
-            />
-        </div>
+    <SearchableSelect
+      label="Person who received care"
+      options={personOptions}
+      bind:value={formData.person_id}
+      placeholder="Search people…"
+      error={errors.person_id}
+      required
+      disabled={saving || Boolean(task)}
+    />
 
-        <!-- Outcome -->
-        <Select
-            label="Visit Outcome"
-            bind:value={formData.outcome}
-            options={outcomeOptions}
-            error={errors.outcome}
-            disabled={saving}
-        />
-
-        <!-- Follow-up Section -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-            <label class="flex items-center gap-3 cursor-pointer">
-                <input
-                    type="checkbox"
-                    bind:checked={formData.follow_up_required}
-                    disabled={saving}
-                    class="w-4 h-4 rounded border-border bg-input text-primary focus:ring-primary"
-                />
-                <span class="text-sm text-foreground">Follow-up Required</span>
-            </label>
-            {#if formData.follow_up_required}
-                <Input
-                    label="Follow-up Date"
-                    type="date"
-                    bind:value={formData.follow_up_date}
-                    disabled={saving}
-                />
-            {/if}
-        </div>
-
-        <!-- Notes Section -->
+    {#if selectedPerson}
+      <div class="grid grid-cols-1 gap-3 rounded-xl border border-border bg-secondary/20 p-4 text-sm sm:grid-cols-3">
         <div>
-            <label
-                for="notes"
-                class="block text-sm font-medium text-muted-foreground mb-2"
-            >
-                Notes
-            </label>
-            <textarea
-                id="notes"
-                bind:value={formData.notes}
-                rows="4"
-                disabled={saving}
-                class="w-full px-3 py-2 bg-input border border-border rounded-lg text-foreground
-               placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary
-               focus:ring-1 focus:ring-primary transition-premium resize-none"
-                placeholder="Add details about the visit, prayer requests, concerns shared, etc..."
-            ></textarea>
+          <span class="block text-xs text-muted-foreground">Status</span>
+          <span class="font-medium capitalize text-foreground">{selectedPerson.member_status || "Unknown"}</span>
         </div>
-    </form>
+        <div>
+          <span class="block text-xs text-muted-foreground">Phone</span>
+          <span class="font-medium text-foreground">{selectedPerson.phone || "Not recorded"}</span>
+        </div>
+        <div>
+          <span class="block text-xs text-muted-foreground">Address</span>
+          <span class="font-medium text-foreground">{selectedPerson.address || "Not recorded"}</span>
+        </div>
+      </div>
+    {/if}
 
-    {#snippet footer()}
-        <Button variant="secondary" onclick={handleClose} disabled={saving}>
-            Cancel
-        </Button>
-        <Button onclick={handleSubmit} disabled={saving}>
-            {#if saving}
-                <svg
-                    class="animate-spin -ml-1 mr-2 h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                >
-                    <circle
-                        class="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        stroke-width="4"
-                    />
-                    <path
-                        class="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    />
-                </svg>
-                Saving...
-            {:else}
-                {mode === "edit" ? "Save Changes" : "Log Visitation"}
-            {/if}
-        </Button>
-    {/snippet}
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <SearchableSelect
+        label="Care leader"
+        options={leaderOptions}
+        bind:value={formData.visited_by_id}
+        placeholder="Search leaders…"
+        error={errors.visited_by_id}
+        required
+        disabled={saving}
+      />
+      <Input
+        label="Interaction date"
+        type="date"
+        bind:value={formData.visit_date}
+        error={errors.visit_date}
+        required
+        disabled={saving}
+      />
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <Select
+        label="Care method"
+        options={interactionOptions}
+        bind:value={formData.interaction_type}
+        disabled={saving}
+      />
+      <Select
+        label="Purpose"
+        options={purposeOptions}
+        bind:value={formData.purpose}
+        disabled={saving}
+      />
+    </div>
+
+    <Select
+      label="Outcome"
+      options={outcomeOptions}
+      bind:value={formData.outcome}
+      error={errors.outcome}
+      disabled={saving}
+    />
+
+    <div class="rounded-xl border border-border bg-secondary/20 p-4">
+      <div class="grid grid-cols-1 items-end gap-4 md:grid-cols-2">
+        <label class="flex cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            bind:checked={formData.follow_up_required}
+            disabled={saving || mode === "edit"}
+            class="h-4 w-4 rounded border-border bg-input text-primary focus:ring-primary"
+          />
+          <span>
+            <span class="block text-sm font-medium text-foreground">Create a next action</span>
+            <span class="block text-xs text-muted-foreground">The new task will be visible across the care and CRM workspaces.</span>
+          </span>
+        </label>
+        {#if formData.follow_up_required}
+          <Input
+            label="Next action due"
+            type="date"
+            bind:value={formData.follow_up_date}
+            error={errors.follow_up_date}
+            disabled={saving || mode === "edit"}
+          />
+        {/if}
+      </div>
+      {#if mode === "edit"}
+        <p class="mt-3 text-xs text-muted-foreground">
+          Next actions are managed as shared tasks from the Pastoral Care or Follow-Up CRM workspace.
+        </p>
+      {/if}
+    </div>
+
+    <div>
+      <label for="care-notes" class="mb-2 block text-sm font-medium text-muted-foreground">Care notes</label>
+      <textarea
+        id="care-notes"
+        rows="4"
+        bind:value={formData.notes}
+        disabled={saving}
+        class="w-full resize-none rounded-lg border border-border bg-input px-3 py-2 text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+        placeholder="Record the essential outcome, concerns and agreed next step."
+      ></textarea>
+      <p class="mt-1.5 text-xs text-muted-foreground">
+        Keep sensitive safeguarding details outside general notes until role-based access is enabled.
+      </p>
+    </div>
+  </form>
+
+  {#snippet footer()}
+    <Button variant="secondary" onclick={() => (isOpen = false)} disabled={saving}>Cancel</Button>
+    <Button onclick={handleSubmit} disabled={saving} loading={saving}>
+      {saving ? "Saving…" : mode === "edit" ? "Save changes" : task ? "Complete care task" : "Log care"}
+    </Button>
+  {/snippet}
 </Modal>

@@ -2,7 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
-    // People - Unified table for Members, Visitors, Leaders, and Contacts
+    // People - Unified table for Members, Guests, Leaders, and Contacts
     people: defineTable({
         // Identity
         first_name: v.string(),
@@ -43,13 +43,26 @@ export default defineSchema({
         is_tither: v.optional(v.boolean()),
         salvation_decision: v.optional(v.boolean()), // Made salvation decision during evangelism outreach
 
+        // Pipeline Tracking (cached, updated by follow-up mutations)
+        pipeline_stage: v.optional(v.string()),        // "new" | "contacted" | "promised" | "showed_up" | "no_show" | "cold" | "paused"
+        warmth_score: v.optional(v.string()),          // "hot" | "warm" | "cool" | "cold" | "dead"
+        total_follow_ups: v.optional(v.float64()),     // Cached count of follow-ups
+        last_follow_up_date: v.optional(v.string()),   // For quick sorting/display
+        promises_made: v.optional(v.float64()),        // Times they promised to come
+        promises_kept: v.optional(v.float64()),        // Times they actually showed
+        is_paused: v.optional(v.boolean()),            // Currently snoozed?
+        pause_reason: v.optional(v.string()),          // "on_holiday" | "asked_to_pause" | "busy_period"
+        resume_date: v.optional(v.string()),           // When to auto-resume follow-ups
+
         // System
         created_at: v.string(),
         updated_at: v.string(),
     }).index("by_member_status", ["member_status"])
         .index("by_last_name", ["last_name"])
         .index("by_contact_date", ["contact_date"])
-        .index("by_invited_by", ["invited_by_id"]),
+        .index("by_invited_by", ["invited_by_id"])
+        .index("by_pipeline_stage", ["pipeline_stage"])
+        .index("by_warmth", ["warmth_score"]),
 
 
     // Services - Church services
@@ -60,6 +73,7 @@ export default defineSchema({
         location: v.optional(v.string()),
         sermon_topic: v.optional(v.string()),
         sermon_speaker: v.optional(v.string()),
+        notes: v.optional(v.string()),
 
         // Aggregates (calculated from meeting_attendance usually, but kept for cache)
         total_attendance: v.optional(v.float64()),
@@ -74,7 +88,7 @@ export default defineSchema({
     }).index("by_service_date", ["service_date"]),
 
     // Attendance - Links people to services (Legacy? Or specific to Services vs Meetings?)
-    // Note: The specs mention a unified 'meetings' and 'meeting_attendance' for everything. 
+    // Note: The specs mention a unified 'meetings' and 'meeting_attendance' for everything.
     // We will keep 'services' distinct if the user prefers, but 'meeting_attendance' is the powerful one.
     // For now, I'll upgrade `attendance` to match the specs just in case it's used for Sunday services specifically.
     attendance: defineTable({
@@ -90,24 +104,74 @@ export default defineSchema({
     }).index("by_service", ["service_id"])
         .index("by_person", ["person_id"]),
 
-    // Meetings - Prayer meetings and group gatherings (Bacenta, Flow, etc)
+    // Meeting programmes describe the recurring gathering itself. A separate
+    // meetings record is created for each dated occurrence.
+    meeting_programs: defineTable({
+        code: v.string(),
+        name: v.string(),
+        meeting_type: v.string(), // bacenta | flow_service | acts_prayer | shemen_prayer | workers_meeting | other
+        category: v.string(), // bacenta | prayer | workers | other
+        description: v.optional(v.string()),
+        default_day: v.optional(v.string()),
+        default_start_time: v.optional(v.string()),
+        default_end_time: v.optional(v.string()),
+        default_format: v.string(), // in_person | online | hybrid
+        default_location: v.optional(v.string()),
+        online_url: v.optional(v.string()),
+        active: v.boolean(),
+        created_at: v.string(),
+        updated_at: v.string(),
+    }).index("by_code", ["code"])
+      .index("by_active", ["active"])
+      .index("by_meeting_type", ["meeting_type"]),
+
+    meeting_program_leaders: defineTable({
+        program_id: v.id("meeting_programs"),
+        person_id: v.id("people"),
+        is_primary: v.boolean(),
+        created_at: v.string(),
+    }).index("by_program", ["program_id"])
+      .index("by_person", ["person_id"])
+      .index("by_program_person", ["program_id", "person_id"]),
+
+    meeting_program_members: defineTable({
+        program_id: v.id("meeting_programs"),
+        person_id: v.id("people"),
+        status: v.string(), // active | inactive
+        joined_at: v.string(),
+    }).index("by_program", ["program_id"])
+      .index("by_person", ["person_id"])
+      .index("by_program_person", ["program_id", "person_id"]),
+
+    // Meetings - individual dated occurrences for a programme.
     meetings: defineTable({
+        program_id: v.optional(v.id("meeting_programs")),
+        title: v.optional(v.string()), // Used by one-off and special events.
         meeting_date: v.string(),
-        meeting_type: v.string(), // "bacenta", "flow_prayer", "all_night_prayer", "basonta", "sat", "farley_prayer"
+        meeting_type: v.string(), // Programme type or evangelistic_event | special_event | training | fellowship | other.
         start_time: v.optional(v.string()),
         end_time: v.optional(v.string()),
         duration_minutes: v.optional(v.float64()),
+        format: v.optional(v.string()), // in_person | online | hybrid
         location: v.optional(v.string()),
+        online_url: v.optional(v.string()),
+        status: v.optional(v.string()), // scheduled | attendance_needed | completed | cancelled
 
+        // Cached aggregates. Named attendance is synced from meeting_attendance;
+        // total attendance also includes unnamed guests.
         attendance_count: v.optional(v.float64()),
+        unnamed_guests_count: v.optional(v.float64()),
         leaders_count: v.optional(v.float64()),
         leader_id: v.optional(v.string()),
 
         notes: v.optional(v.string()),
+        attendance_completed_at: v.optional(v.string()),
         created_at: v.string(),
         updated_at: v.optional(v.string()),
     }).index("by_meeting_date", ["meeting_date"])
-        .index("by_meeting_type", ["meeting_type"]),
+        .index("by_meeting_type", ["meeting_type"])
+        .index("by_program", ["program_id"])
+        .index("by_status", ["status"]),
 
     // Meeting Attendance - Unified attendance tracking
     meeting_attendance: defineTable({
@@ -121,11 +185,14 @@ export default defineSchema({
 
         arrived_late: v.optional(v.boolean()),
         left_early: v.optional(v.boolean()),
-        first_timer: v.optional(v.boolean()), // Is this their first time at this meeting type?
+        first_timer: v.optional(v.boolean()), // First-ever gathering with this church.
+        first_program_attendance: v.optional(v.boolean()), // First attendance at this recurring programme.
+        status: v.optional(v.string()), // present | absent | excused
 
         created_at: v.string(),
     }).index("by_meeting", ["meeting_id"])
-        .index("by_person", ["person_id"]),
+        .index("by_person", ["person_id"])
+        .index("by_meeting_person", ["meeting_id", "person_id"]),
 
     // Visitations - Home visit records
     visitations: defineTable({
@@ -135,15 +202,43 @@ export default defineSchema({
         visited_by_name: v.optional(v.string()),
 
         visit_date: v.string(),
+        status: v.optional(v.union(
+            v.literal("completed"),
+            v.literal("unsuccessful"),
+            v.literal("cancelled"),
+        )),
+        interaction_type: v.optional(v.union(
+            v.literal("home_visit"),
+            v.literal("hospital_visit"),
+            v.literal("church_meeting"),
+            v.literal("phone_call"),
+            v.literal("message"),
+            v.literal("practical_support"),
+            v.literal("other"),
+        )),
+        purpose: v.optional(v.union(
+            v.literal("new_guest"),
+            v.literal("attendance_concern"),
+            v.literal("welfare"),
+            v.literal("prayer"),
+            v.literal("bereavement"),
+            v.literal("membership"),
+            v.literal("general_care"),
+            v.literal("other"),
+        )),
         outcome: v.string(), // "welcomed_encouraged", "prayer_request_received", "not_home", "concerns_shared", "invited_to_service"
         follow_up_required: v.boolean(),
         follow_up_date: v.optional(v.string()),
+        source_task_id: v.optional(v.id("follow_up_tasks")),
+        next_task_id: v.optional(v.id("follow_up_tasks")),
         notes: v.optional(v.string()),
         created_at: v.string(),
         updated_at: v.optional(v.string()),
     }).index("by_visit_date", ["visit_date"])
         .index("by_person", ["person_id"])
-        .index("by_follow_up", ["follow_up_required"]),
+        .index("by_visitor", ["visited_by_id"])
+        .index("by_follow_up", ["follow_up_required"])
+        .index("by_source_task", ["source_task_id"]),
 
     // Activities - Activity log entries
     activities: defineTable({
@@ -154,4 +249,159 @@ export default defineSchema({
         notes: v.optional(v.string()),
         created_at: v.string(),
     }).index("by_activity_date", ["activity_date"]),
+
+    // Follow-Ups - Track every leader-contact interaction for the Pipeline
+    follow_ups: defineTable({
+        contact_id: v.id("people"),         // The evangelism contact being followed up
+        leader_id: v.id("people"),          // The leader who did the follow-up
+        follow_up_date: v.string(),         // When this interaction happened (YYYY-MM-DD)
+        method: v.string(),                 // "call" | "whatsapp" | "in_person" | "sms" | "other"
+        outcome: v.string(),               // Includes positive, no-response, pause, re-engagement, and not_serious_now outcomes
+        promised_date: v.optional(v.string()),   // If they promised to attend, which date?
+        promise_fulfilled: v.optional(v.boolean()), // Did they actually show up? (resolved later)
+        resume_date: v.optional(v.string()),     // For pause outcomes — when to resume follow-ups
+        next_action_date: v.optional(v.string()), // When the next CRM task is due
+        gathering_type: v.optional(v.union(
+            v.literal("sunday_service"),
+            v.literal("bacenta"),
+            v.literal("special_event"),
+        )),
+        gathering_date: v.optional(v.string()),
+        attendance_response: v.optional(v.union(
+            v.literal("yes"),
+            v.literal("maybe"),
+            v.literal("no"),
+        )),
+        notes: v.optional(v.string()),           // Free text context
+        created_at: v.string(),
+    }).index("by_contact", ["contact_id"])
+      .index("by_leader", ["leader_id"])
+      .index("by_date", ["follow_up_date"])
+      .index("by_promised_date", ["promised_date"]),
+
+    // CRM ownership is deliberately separate from invited_by_id: the person who
+    // met a contact is not necessarily the leader responsible for following up.
+    follow_up_assignments: defineTable({
+        person_id: v.id("people"),
+        assigned_leader_id: v.id("people"),
+        assigned_by_id: v.optional(v.id("people")),
+        status: v.union(v.literal("active"), v.literal("ended")),
+        assigned_at: v.string(),
+        ended_at: v.optional(v.string()),
+        created_at: v.string(),
+        updated_at: v.string(),
+    }).index("by_person", ["person_id"])
+      .index("by_person_status", ["person_id", "status"])
+      .index("by_leader_status", ["assigned_leader_id", "status"]),
+
+    follow_up_tasks: defineTable({
+        person_id: v.id("people"),
+        assigned_leader_id: v.id("people"),
+        created_by_id: v.optional(v.id("people")),
+        due_date: v.string(),
+        status: v.union(
+            v.literal("open"),
+            v.literal("completed"),
+            v.literal("cancelled"),
+        ),
+        task_type: v.union(
+            v.literal("first_contact"),
+            v.literal("follow_up"),
+            v.literal("sunday_confirmation"),
+            v.literal("member_care"),
+            v.literal("visitation"),
+            v.literal("reengagement"),
+            v.literal("other"),
+        ),
+        priority: v.union(
+            v.literal("urgent"),
+            v.literal("high"),
+            v.literal("normal"),
+            v.literal("low"),
+        ),
+        reason: v.optional(v.string()),
+        automation_key: v.optional(v.string()), // e.g. quarterly_reengagement
+        source_visitation_id: v.optional(v.id("visitations")),
+        gathering_type: v.optional(v.union(
+            v.literal("sunday_service"),
+            v.literal("bacenta"),
+            v.literal("special_event"),
+        )),
+        gathering_date: v.optional(v.string()),
+        outcome: v.optional(v.string()),
+        notes: v.optional(v.string()),
+        completed_at: v.optional(v.string()),
+        completed_by_id: v.optional(v.id("people")),
+        created_at: v.string(),
+        updated_at: v.string(),
+    }).index("by_person", ["person_id"])
+      .index("by_person_status", ["person_id", "status"])
+      .index("by_assignee_status", ["assigned_leader_id", "status"])
+      .index("by_status_due_date", ["status", "due_date"]),
+
+    gathering_commitments: defineTable({
+        person_id: v.id("people"),
+        leader_id: v.id("people"),
+        gathering_type: v.union(
+            v.literal("sunday_service"),
+            v.literal("bacenta"),
+            v.literal("special_event"),
+        ),
+        gathering_date: v.string(),
+        response: v.union(
+            v.literal("yes"),
+            v.literal("maybe"),
+            v.literal("no"),
+        ),
+        resolution: v.union(
+            v.literal("pending"),
+            v.literal("attended"),
+            v.literal("no_show"),
+            v.literal("cancelled"),
+        ),
+        resolved_at: v.optional(v.string()),
+        created_at: v.string(),
+        updated_at: v.string(),
+    }).index("by_person", ["person_id"])
+      .index("by_person_date", ["person_id", "gathering_date"])
+      .index("by_gathering", ["gathering_type", "gathering_date"])
+      .index("by_leader_date", ["leader_id", "gathering_date"]),
+
+    // Regular members are expected by default. This table stores weekly
+    // confirmations and known absences, plus confirmations for irregular members.
+    attendance_plans: defineTable({
+        person_id: v.id("people"),
+        service_date: v.string(),
+        status: v.union(
+            v.literal("expected"),
+            v.literal("away"),
+            v.literal("confirmed"),
+        ),
+        leader_id: v.id("people"),
+        notes: v.optional(v.string()),
+        created_at: v.string(),
+        updated_at: v.string(),
+    }).index("by_person_date", ["person_id", "service_date"])
+      .index("by_service_date", ["service_date"])
+      .index("by_leader_date", ["leader_id", "service_date"]),
+
+    // Authentication will be added later. This supplies a stable app-user and
+    // permission model without coupling it to a specific auth provider today.
+    crm_users: defineTable({
+        person_id: v.optional(v.id("people")),
+        external_auth_id: v.optional(v.string()),
+        display_name: v.optional(v.string()),
+        email: v.optional(v.string()),
+        role: v.union(
+            v.literal("owner"),
+            v.literal("admin"),
+            v.literal("leader"),
+            v.literal("viewer"),
+        ),
+        status: v.union(v.literal("active"), v.literal("inactive")),
+        created_at: v.string(),
+        updated_at: v.string(),
+    }).index("by_person", ["person_id"])
+      .index("by_external_auth_id", ["external_auth_id"])
+      .index("by_status", ["status"]),
 });

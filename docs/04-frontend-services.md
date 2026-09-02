@@ -479,7 +479,8 @@ Creates a new meeting.
 - `start_time`, `end_time`
 - `duration_minutes`
 - `location`
-- `attendance_count`, `leaders_count`
+- `program_id`, `format`, `status`
+- `unnamed_guests_count`
 - `leader_id`
 - `notes`
 
@@ -492,13 +493,16 @@ Deletes a meeting.
 #### `getByType(meetingType)`
 Filters meetings by type.
 
-**Meeting types**: `"bacenta"`, `"flow_prayer"`, `"all_night_prayer"`, `"basonta"`, `"sat"`, `"farley_prayer"`
+**Meeting types**: `"bacenta"`, `"flow_service"`, `"acts_prayer"`, `"shemen_prayer"`, `"workers_meeting"`, and configurable `"other"` programmes.
 
 #### `getByDateRange(startDate, endDate)`
 Filters meetings by date range.
 
 #### `addAttendee(meetingId, personId)`
 Adds an attendee to a meeting.
+
+#### `syncAttendance(meetingId, attendanceData, unnamedGuestsCount, markComplete)`
+Synchronizes the complete named attendance list, removes deselected records, prevents duplicates, and recalculates totals.
 
 #### `getAttendees(meetingId)`
 Gets all attendees for a meeting.

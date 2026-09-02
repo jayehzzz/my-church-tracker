@@ -1,5 +1,5 @@
 <script>
-    import { onMount, onDestroy } from "svelte";
+    import { onMount } from "svelte";
     import { browser } from "$app/environment";
 
     let {
@@ -160,7 +160,10 @@
                 colorClass = "bg-emerald-500";
             else if (person.member_status === "member")
                 colorClass = "bg-blue-500";
-            else if (person.member_status === "visitor")
+            else if (
+                person.member_status === "guest" ||
+                person.member_status === "visitor"
+            )
                 colorClass = "bg-amber-500";
 
             // Determine Border/Glow
@@ -173,8 +176,8 @@
 
             // Determine Inner HTML
             const initials = (
-                person.first_name[0] + person.last_name[0]
-            ).toUpperCase();
+                (person.first_name?.[0] || "") + (person.last_name?.[0] || "")
+            ).toUpperCase() || "?";
 
             const html = `
                 <div class="${containerClass}">
@@ -202,8 +205,8 @@
                             ${initials}
                         </div>
                         <div>
-                            <h3 class="font-bold text-sm leading-none">${person.first_name} ${person.last_name}</h3>
-                            <span class="text-[10px] uppercase tracking-wider opacity-70">${person.member_status}</span>
+                            <h3 class="font-bold text-sm leading-none">${person.first_name || ""} ${person.last_name || ""}</h3>
+                            <span class="text-[10px] uppercase tracking-wider opacity-70">${person.member_status || ""}</span>
                         </div>
                     </div>
                     
@@ -271,13 +274,13 @@
 
     onMount(() => {
         document.addEventListener("map-select", handleMapSelect);
-    });
 
-    onDestroy(() => {
-        if (map) map.remove();
-        if (browser) {
-            document.removeEventListener("map-select", handleMapSelect);
-        }
+        return () => {
+            if (map) map.remove();
+            if (browser) {
+                document.removeEventListener("map-select", handleMapSelect);
+            }
+        };
     });
 </script>
 

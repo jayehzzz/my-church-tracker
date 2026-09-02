@@ -2,6 +2,7 @@
     import { Modal, Button, Badge } from "$lib/components/ui";
     import { goto } from "$app/navigation";
     import * as attendanceService from "$lib/services/attendanceService";
+    import { getServiceById } from "$lib/data/mockData.js";
 
     let {
         isOpen = $bindable(false),
@@ -9,7 +10,12 @@
         onEditAttendance = null, // Callback for edit attendance action
     } = $props();
 
-    let service = $derived(attendanceRecord?.services);
+    let service = $derived(
+        attendanceRecord?.services ||
+            (attendanceRecord?.service_id
+                ? getServiceById(attendanceRecord.service_id)
+                : attendanceRecord)
+    );
     let attendees = $state([]);
     let loadingAttendees = $state(false);
 

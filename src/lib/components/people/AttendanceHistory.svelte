@@ -12,6 +12,47 @@
             day: "numeric",
         });
     }
+
+    function gathering(record) {
+        return record.meeting || record.services || record;
+    }
+
+    function gatheringName(record) {
+        const item = gathering(record);
+        if (record.meeting) {
+            return item.title || item.program?.name || formatType(item.meeting_type);
+        }
+        return formatType(item.service_type || "sunday_service");
+    }
+
+    function formatType(type) {
+        const names = {
+            sunday_service: "Sunday Service",
+            special_service: "Special Service",
+            bacenta: "Bacenta",
+            flow_service: "Flow Service",
+            flow_prayer: "Flow Service",
+            acts_prayer: "Acts Prayer",
+            farley_prayer: "Acts Prayer",
+            shemen_prayer: "Shemen Prayer",
+            workers_meeting: "Workers Meeting",
+            evangelistic_event: "Evangelistic Event",
+            special_event: "Special Event",
+            training: "Training / Workshop",
+            fellowship: "Fellowship / Social",
+        };
+        return names[type] || String(type || "Gathering").replaceAll("_", " ");
+    }
+
+    function gatheringDate(record) {
+        const item = gathering(record);
+        return item.meeting_date || item.service_date || record.created_at;
+    }
+
+    function gatheringTime(record) {
+        const item = gathering(record);
+        return item.start_time || item.service_time || "Regular time";
+    }
 </script>
 
 <div class="space-y-4" id="attendance-history">
@@ -37,7 +78,7 @@
                 </svg>
                 <p>No attendance records found for this person.</p>
                 <p class="text-sm mt-1">
-                    Check them into a service to start tracking!
+                    Mark them present at a Sunday service or meeting to start tracking.
                 </p>
             </div>
         {:else}
@@ -49,13 +90,13 @@
                                 >Date</th
                             >
                             <th class="px-6 py-4 font-semibold text-foreground"
-                                >Service</th
+                                >Gathering</th
                             >
                             <th class="px-6 py-4 font-semibold text-foreground"
-                                >Role/Type</th
+                                >Time</th
                             >
                             <th class="px-6 py-4 font-semibold text-foreground"
-                                >Topic</th
+                                >Notes</th
                             >
                         </tr>
                     </thead>
@@ -68,22 +109,29 @@
                                 <td
                                     class="px-6 py-4 font-medium text-foreground group-hover:text-primary transition-colors"
                                 >
-                                    {formatDate(record.services.service_date)}
-                                </td>
-                                <td class="px-6 py-4 text-muted-foreground">
-                                    {record.services.service_time ||
-                                        "Regular Time"}
+                                    {formatDate(gatheringDate(record))}
                                 </td>
                                 <td class="px-6 py-4">
-                                    <Badge variant="outline" class="capitalize">
-                                        {record.services.service_type?.replace(
-                                            "_",
-                                            " ",
-                                        ) || "Service"}
-                                    </Badge>
+                                    <div class="flex flex-wrap items-center gap-1.5">
+                                        <Badge variant="outline" class="capitalize">
+                                            {gatheringName(record)}
+                                        </Badge>
+                                        {#if record.first_timer}
+                                            <Badge variant="info" size="sm">First timer</Badge>
+                                        {:else if record.first_program_attendance}
+                                            <Badge variant="success" size="sm">
+                                                First {gatheringName(record)}
+                                            </Badge>
+                                        {/if}
+                                    </div>
                                 </td>
                                 <td class="px-6 py-4 text-muted-foreground">
-                                    {record.services.sermon_topic || "-"}
+                                    {gatheringTime(record)}
+                                </td>
+                                <td class="px-6 py-4 text-muted-foreground">
+                                    {gathering(record).sermon_topic ||
+                                        gathering(record).notes ||
+                                        "—"}
                                 </td>
                             </tr>
                         {/each}

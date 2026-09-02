@@ -1,12 +1,25 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+function canonicalMemberStatus(status: string | undefined) {
+    return status === "visitor" ? "guest" : status;
+}
+
+function canonicalPerson<T extends { member_status?: string }>(person: T) {
+    return {
+        ...person,
+        member_status: canonicalMemberStatus(person.member_status),
+    };
+}
+
 // Get all people sorted by last name
 export const getAll = query({
     args: {},
     handler: async (ctx) => {
         const people = await ctx.db.query("people").collect();
-        return people.sort((a, b) => a.last_name.localeCompare(b.last_name));
+        return people
+            .map(canonicalPerson)
+            .sort((a, b) => a.last_name.localeCompare(b.last_name));
     },
 });
 
@@ -27,7 +40,7 @@ export const getById = query({
         }
 
         return {
-            ...person,
+            ...canonicalPerson(person),
             invited_by,
         };
     },
@@ -85,6 +98,7 @@ export const create = mutation({
 
         const peopleData: any = {
             ...rest,
+            member_status: canonicalMemberStatus(rest.member_status),
             created_at: now,
             updated_at: now,
         };
@@ -152,6 +166,10 @@ export const update = mutation({
 
         const updates: any = { ...rest };
 
+        if (rest.member_status) {
+            updates.member_status = canonicalMemberStatus(rest.member_status);
+        }
+
         // Map date_of_birth to birthday if provided
         if (date_of_birth) {
             updates.birthday = date_of_birth;
@@ -161,7 +179,8 @@ export const update = mutation({
             ...updates,
             updated_at: new Date().toISOString(),
         });
-        return await ctx.db.get(id);
+        const person = await ctx.db.get(id);
+        return person ? canonicalPerson(person) : null;
     },
 });
 
@@ -178,11 +197,23 @@ export const remove = mutation({
 export const getByStatus = query({
     args: { status: v.string() },
     handler: async (ctx, args) => {
-        const people = await ctx.db
-            .query("people")
-            .withIndex("by_member_status", (q) => q.eq("member_status", args.status))
-            .collect();
-        return people.sort((a, b) => a.last_name.localeCompare(b.last_name));
+        const requestedStatus = canonicalMemberStatus(args.status) || args.status;
+        const statuses = requestedStatus === "guest" ? ["guest", "visitor"] : [requestedStatus];
+        const people = (
+            await Promise.all(
+                statuses.map((status) =>
+                    ctx.db
+                        .query("people")
+                        .withIndex("by_member_status", (q) =>
+                            q.eq("member_status", status),
+                        )
+                        .collect(),
+                ),
+            )
+        ).flat();
+        return people
+            .map(canonicalPerson)
+            .sort((a, b) => a.last_name.localeCompare(b.last_name));
     },
 });
 
@@ -198,6 +229,7 @@ export const search = query({
                     p.first_name.toLowerCase().includes(term) ||
                     p.last_name.toLowerCase().includes(term)
             )
+            .map(canonicalPerson)
             .sort((a, b) => a.last_name.localeCompare(b.last_name));
     },
 });

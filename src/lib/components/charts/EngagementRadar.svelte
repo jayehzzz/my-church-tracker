@@ -33,19 +33,32 @@
         cellGroupDetail = null,
     } = $props();
 
-    // Axis definitions with labels
+    // Axis definitions with labels and subjects
     const axes = [
-        { key: "serviceAttendance", label: "Services", angle: -90 },
-        { key: "prayerMeetings", label: "Prayer", angle: -30 },
-        { key: "cellGroups", label: "Cell Groups", angle: 30 },
-        { key: "evangelismImpact", label: "Evangelism", angle: 90 },
-        { key: "givingConsistency", label: "Giving", angle: 150 },
-        { key: "visitationActivity", label: "Visitation", angle: 210 },
+        { key: "serviceAttendance", label: "Services", angle: -90, subject: "Sunday Service" },
+        { key: "prayerMeetings", label: "Prayer", angle: -30, subject: "Prayer Meeting" },
+        { key: "cellGroups", label: "Cell Groups", angle: 30, subject: "Small Group" },
+        { key: "evangelismImpact", label: "Evangelism", angle: 90, subject: "Outreach" },
+        { key: "givingConsistency", label: "Giving", angle: 150, subject: "Giving" },
+        { key: "visitationActivity", label: "Visitation", angle: 210, subject: "Serving" },
     ];
 
+    function getAxisValue(axis) {
+        if (!data || !axis) return 0;
+        if (Array.isArray(data)) {
+            const item = data.find(
+                (d) => d.subject === axis.subject || d.subject === axis.label || d.key === axis.key
+            );
+            const value = Number(item?.A ?? item?.value ?? 0);
+            return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
+        }
+        const value = Number(data[axis.key] ?? data[axis.subject] ?? 0);
+        return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
+    }
+
     // SVG Layout Constants
-    const center = size / 2;
-    const maxRadius = size / 2 - 40; // Tighter padding for cleaner look
+    let center = $derived(size / 2);
+    let maxRadius = $derived(size / 2 - 40); // Tighter padding for cleaner look
     const gridLevels = [25, 50, 75, 100];
 
     // Interactions
@@ -68,9 +81,16 @@
         return `M ${points.join(" L ")} Z`;
     }
 
+    function getAxisHitArea(angle) {
+        const hitRadius = maxRadius + 28;
+        const start = polarToCartesian(angle - 34, hitRadius);
+        const end = polarToCartesian(angle + 34, hitRadius);
+        return `M ${center},${center} L ${start.x},${start.y} A ${hitRadius},${hitRadius} 0 0 1 ${end.x},${end.y} Z`;
+    }
+
     const dataPolygonPath = $derived(() => {
         const points = axes.map((axis) => {
-            const value = Math.min(100, Math.max(0, data[axis.key] || 0));
+            const value = Math.min(100, Math.max(0, getAxisValue(axis)));
             const radius = (value / 100) * maxRadius;
             const pos = polarToCartesian(axis.angle, radius);
             return `${pos.x},${pos.y}`;
@@ -79,8 +99,8 @@
     });
 
     const overallScore = $derived(() => {
-        const values = axes.map((a) => data[a.key] || 0);
-        return Math.round(values.reduce((acc, v) => acc + v, 0) / axes.length);
+        const values = axes.map((a) => getAxisValue(a));
+        return Math.round(values.reduce((acc, v) => acc + v, 0) / (axes.length || 1));
     });
 
     function getLabelPosition(angle) {
@@ -150,28 +170,32 @@
                         class="transition-all duration-700 ease-out hover:fill-opacity-60"
                     />
 
-                    <!-- Data Points (Hidden by default, appear on hover like Shadcn behavior) -->
+                    <!-- Full-axis hit areas make every dimension easy to inspect. -->
+                    {#each axes as axis}
+                        <path
+                            d={getAxisHitArea(axis.angle)}
+                            fill="transparent"
+                            class="cursor-pointer"
+                            role="button"
+                            tabindex="0"
+                            aria-label={`${axis.label}: ${Math.round(getAxisValue(axis))} score`}
+                            onmouseenter={() => handleAxisHover(axis)}
+                            onmouseleave={handleAxisLeave}
+                            onfocus={() => handleAxisHover(axis)}
+                            onblur={handleAxisLeave}
+                        />
+                    {/each}
+
+                    <!-- Data Points (shown for the active dimension) -->
                     {#each axes as axis}
                         {@const value = Math.min(
                             100,
-                            Math.max(0, data[axis.key] || 0),
+                            Math.max(0, getAxisValue(axis)),
                         )}
                         {@const radius = (value / 100) * maxRadius}
                         {@const pos = polarToCartesian(axis.angle, radius)}
 
-                        <!-- Interactive Area -->
-                        <circle
-                            cx={pos.x}
-                            cy={pos.y}
-                            r="8"
-                            class="fill-transparent cursor-pointer"
-                            onmouseenter={() => handleAxisHover(axis)}
-                            onmouseleave={handleAxisLeave}
-                            role="button"
-                            tabindex="0"
-                        />
-
-                        <!-- Visible Point (on hover only) -->
+                        <!-- Visible Point (on hover or keyboard focus) -->
                         <circle
                             cx={pos.x}
                             cy={pos.y}
@@ -238,7 +262,7 @@
                             <div class="flex items-baseline gap-2">
                                 <span class="font-bold text-lg"
                                     >{Math.round(
-                                        data[hoveredAxis.key] || 0,
+                                        getAxisValue(hoveredAxis),
                                     )}</span
                                 >
                                 <span

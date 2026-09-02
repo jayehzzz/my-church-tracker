@@ -8,7 +8,7 @@
 
 My Church Tracker is a **church management dashboard** that helps church leaders:
 
-1. **Track People** - Maintain a directory of all members, visitors, leaders, and contacts
+1. **Track People** - Maintain a directory of all members, guests, leaders, and contacts
 2. **Monitor Attendance** - See who's attending services and meetings
 3. **Measure Growth** - Track new members, salvations, and baptisms
 4. **Manage Outreach** - Monitor evangelism efforts and follow-ups

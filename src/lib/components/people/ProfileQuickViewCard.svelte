@@ -13,7 +13,7 @@
     // Format status display
     function formatStatus(status) {
         const map = {
-            visitor: "Visitor",
+            visitor: "Guest",
             guest: "Guest",
             member: "Member",
             leader: "Leader",

@@ -211,7 +211,7 @@ This document provides detailed workflows for the most common tasks users perfor
 
 5. **Enter attendance metrics**
    - **Total Attendance**: How many people came
-   - **Guests Count**: First-time visitors
+   - **Guest Headcount**: All named and unnamed guests; mark first timers separately in attendance
    - **Salvation Decisions**: Faith decisions made
    - **Tithers Count**: People who gave
 

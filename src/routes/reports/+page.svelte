@@ -20,14 +20,21 @@
     import KPICard from "$lib/components/dashboard/KPICard.svelte";
     import { dateRange } from "$lib/stores/filterStore";
     import { exportToCSV, exportColumns } from "$lib/utils/exportUtils";
+    import {
+        mockPeople,
+        mockEvangelismContacts,
+        mockServices,
+        mockMeetings,
+        mockVisitations
+    } from "$lib/data/mockData";
 
-    // Data state
-    let people = $state([]);
-    let contacts = $state([]);
-    let services = $state([]);
-    let meetings = $state([]);
-    let visitations = $state([]);
-    let loading = $state(true);
+    // Data state - initialize immediately with dynamic mock data so SSR and client load instantly
+    let people = $state(mockPeople);
+    let contacts = $state(mockEvangelismContacts);
+    let services = $state(mockServices);
+    let meetings = $state(mockMeetings);
+    let visitations = $state(mockVisitations);
+    let loading = $state(false);
 
     // Active report tab
     let activeTab = $state("overview");
@@ -66,6 +73,11 @@
         );
     });
 
+    function hasOpenCareFollowUp(visitation) {
+        return visitation.follow_up_required &&
+            (!visitation.next_task || visitation.next_task.status === "open");
+    }
+
     // Calculate summary KPIs
     const summaryKPIs = $derived(() => {
         const fContacts = filteredContacts();
@@ -95,7 +107,7 @@
                         10,
                 ) / 10,
             visitsCompleted: fVisitations.length,
-            followUpsNeeded: fVisitations.filter((v) => v.follow_up_required)
+            followUpsNeeded: fVisitations.filter(hasOpenCareFollowUp)
                 .length,
         };
     });
@@ -144,11 +156,11 @@
         } catch (e) {
             console.warn("Using mock data for reports:", e.message);
             // Mock data fallback
-            people = [];
-            contacts = [];
-            services = [];
-            meetings = [];
-            visitations = [];
+            people = mockPeople;
+            contacts = mockEvangelismContacts;
+            services = mockServices;
+            meetings = mockMeetings;
+            visitations = mockVisitations;
         } finally {
             loading = false;
         }
@@ -210,7 +222,7 @@
         { id: "evangelism", label: "Evangelism" },
         { id: "services", label: "Services" },
         { id: "meetings", label: "Meetings" },
-        { id: "visitation", label: "Visitation" },
+        { id: "visitation", label: "Pastoral Care" },
     ];
 </script>
 
@@ -434,7 +446,7 @@
                 <div class="card-base flex items-center justify-between">
                     <div>
                         <h4 class="text-sm font-medium text-foreground">
-                            Visitations
+                            Pastoral Care
                         </h4>
                         <p class="text-xs text-muted-foreground">
                             {filteredVisitations().length} records
@@ -480,9 +492,13 @@
                 </p>
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <div class="p-3 bg-secondary/30 rounded-lg">
-                        <p class="text-xs text-muted-foreground">Visitors</p>
+                        <p class="text-xs text-muted-foreground">Guests</p>
                         <p class="text-xl font-semibold text-foreground">
-                            {people.filter((p) => p.member_status === "visitor")
+                            {people.filter(
+                                (p) =>
+                                    p.member_status === "guest" ||
+                                    p.member_status === "visitor",
+                            )
                                 .length}
                         </p>
                     </div>
@@ -663,7 +679,7 @@
             <div class="card-base">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-lg font-semibold text-foreground">
-                        Meetings & Prayer
+                        Meetings & Attendance
                     </h3>
                     <Button size="sm" onclick={handleExportMeetings}>
                         <svg
@@ -748,7 +764,7 @@
             <div class="card-base">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-lg font-semibold text-foreground">
-                        Visitation
+                        Pastoral Care
                     </h3>
                     <Button size="sm" onclick={handleExportVisitations}>
                         <svg
@@ -785,7 +801,7 @@
                         </p>
                         <p class="text-xl font-semibold text-warning">
                             {filteredVisitations().filter(
-                                (v) => v.follow_up_required,
+                                hasOpenCareFollowUp,
                             ).length}
                         </p>
                     </div>

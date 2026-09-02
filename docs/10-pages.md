@@ -384,50 +384,45 @@ Donut chart showing:
 
 ---
 
-## 🙏 Meetings Page
+## Meetings & Attendance Page
 
 **Route**: `/meetings`  
 **File**: `src/routes/meetings/+page.svelte`
 
-**Purpose**: Track prayer meetings, cell groups, and other gatherings.
+**Purpose**: Configure recurring non-Sunday meeting programmes and record named attendance for each dated occurrence.
 
 ### Sections
 
-#### KPI Cards
+#### Overview
 | Metric | Description |
 |--------|-------------|
-| Total Meetings | Count in period |
-| Avg Attendance | Mean attendance |
-| Total Prayer Hours | Sum of duration |
-| Most Active Type | Highest count type |
+| Meetings Held | Count in period |
+| Unique People | Distinct named attendees |
+| Average Attendance | Named attendees plus unnamed guests per meeting |
+| Attendance Needed | Meetings whose attendance is not final |
 
-#### Prayer Hours Chart
-Bar chart showing hours by meeting type.
-
-#### Meeting Type Distribution
-Pie chart breakdown of meeting types.
-
-#### Leader Activity Heatmap
-Calendar-style heatmap showing leader activity.
-
-#### Meetings Table
+#### Attendance
 | Column | Data |
 |--------|------|
 | Date | Meeting date |
-| Type | Meeting type |
+| Programme | Bacenta, Flow Service, Acts Prayer, Shemen Prayer, Workers Meeting, or custom programme |
 | Time | Start - End |
-| Duration | In minutes |
-| Attendance | Count |
-| Leader | Who led |
+| Format | In person, online, or hybrid |
+| Attendance | Named people plus unnamed guests |
+| Status | Attendance needed, complete, scheduled, or cancelled |
+
+#### Meeting Setup
+Programme cards manage the usual schedule, format, location, multiple leaders, and optional Bacenta/Workers roster.
 
 ### Actions
 
 | Action | Description |
 |--------|-------------|
-| Add Meeting | Opens MeetingForm |
-| View Details | Show meeting info |
-| Edit | Opens MeetingForm in edit mode |
-| Delete | Removes meeting |
+| Record Attendance | Creates a dated occurrence and syncs its named attendees |
+| Add Bacenta | Creates an additional Bacenta with its own leaders and roster |
+| Edit Programme | Updates reusable meeting defaults |
+| Edit Attendance | Safely adds or removes named attendees |
+| Delete | Removes the occurrence and its related attendance records |
 
 ---
 

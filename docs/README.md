@@ -12,10 +12,10 @@
 
 | Module | Purpose |
 |--------|---------|
-| **People** | Manage all individuals - members, visitors, leaders, and contacts |
+| **People** | Manage all individuals - members, guests, leaders, and contacts |
 | **Services** | Track church services, attendance, and spiritual decisions |
 | **Evangelism** | Monitor outreach efforts, new contacts, and conversions |
-| **Meetings** | Record prayer meetings, cell groups, and gatherings |
+| **Meetings** | Record recurring programmes and one-off event attendance |
 | **Visitation** | Log home visits and pastoral care activities |
 | **Reports** | Generate insights and export data |
 
@@ -57,6 +57,7 @@
 | [**Utilities Reference**](./12-utilities.md) | Helper functions, date utilities, validation |
 | [**Filter System**](./13-filter-system.md) | How the global filtering system works |
 | [**Glossary**](./14-glossary.md) | Key terms and concepts explained |
+| [**Meetings & Attendance**](./15-meetings-attendance.md) | Programme setup, rosters, meeting occurrences, and attendance tracking |
 
 ---
 

@@ -1,236 +1,117 @@
-<!--
-  KPICard.svelte
-  A premium KPI metric card component for the church tracker dashboard.
-  
-  Features:
-  - Displays a metric title, value, and optional trend indicator
-  - Supports number, percentage, and currency formatting
-  - Accessible with proper ARIA labels
-  - Premium styling with gradient background and hover effects
-  - Uses Svelte 5 runes syntax
--->
-
 <script>
-  /**
-   * Component Props using Svelte 5 $props() rune
-   * @param {string} title - The title/label for the metric
-   * @param {number} value - The metric value to display
-   * @param {number} [trend=0] - Trend percentage (positive = up, negative = down)
-   * @param {string} [format='number'] - Format type ('number', 'percentage', 'currency')
-   * @param {string} [description=''] - Optional description/subtitle (e.g., period label)
-   * @param {string} [href=''] - Optional navigation target when clicked
-   */
   let {
     title = "",
     value = 0,
-    trend = 0,
+    trend = null,
     format = "number",
     description = "",
     href = "",
+    icon = "chart",
+    variant = "default",
+    suffix = "",
+    trendLabel = "vs previous period",
   } = $props();
 
-  // Derived: is this card clickable?
-  const isClickable = $derived(!!href);
+  const variantClasses = {
+    default: { icon: "bg-primary/10 text-primary", edge: "from-primary/35" },
+    info: { icon: "bg-blue-500/10 text-blue-400", edge: "from-blue-500/35" },
+    success: { icon: "bg-success/10 text-success", edge: "from-success/35" },
+    warning: { icon: "bg-warning/10 text-warning", edge: "from-warning/35" },
+    danger: { icon: "bg-destructive/10 text-destructive", edge: "from-destructive/35" },
+  };
 
-  /**
-   * Format the value based on type
-   * @param {number} val - The value to format
-   * @param {string} fmt - The format type
-   * @returns {string} Formatted value string
-   */
+  const palette = $derived(variantClasses[variant] || variantClasses.default);
+  const hasTrend = $derived(trend !== null && trend !== undefined && Number.isFinite(Number(trend)));
+  const trendDirection = $derived(Number(trend) > 0 ? "up" : Number(trend) < 0 ? "down" : "steady");
+
   function formatValue(val, fmt) {
-    if (fmt === "percentage") {
-      return `${val}%`;
-    } else if (fmt === "currency") {
+    const numericValue = Number(val) || 0;
+    if (fmt === "percentage") return `${numericValue}%`;
+    if (fmt === "currency") {
       return new Intl.NumberFormat("en-GB", {
         style: "currency",
         currency: "GBP",
         minimumFractionDigits: 0,
         maximumFractionDigits: 0,
-      }).format(val);
+      }).format(numericValue);
     }
-    return new Intl.NumberFormat("en-GB").format(val);
+    return new Intl.NumberFormat("en-GB").format(numericValue);
   }
 
-  // Determine trend direction and styling using $derived rune
-  const trendDirection = $derived(
-    trend > 0 ? "up" : trend < 0 ? "down" : "neutral",
-  );
-  const trendColor = $derived(
-    trendDirection === "up"
-      ? "text-success"
-      : trendDirection === "down"
-        ? "text-destructive"
-        : "text-muted-foreground",
-  );
-  const trendBgColor = $derived(
-    trendDirection === "up"
-      ? "bg-success/10"
-      : trendDirection === "down"
-        ? "bg-destructive/10"
-        : "bg-muted/10",
-  );
-
-  // Generate ARIA label for accessibility using $derived rune
+  const displayedValue = $derived(`${formatValue(value, format)}${suffix ? ` ${suffix}` : ""}`);
   const ariaLabel = $derived(
-    (() => {
-      let label = `${title}: ${formatValue(value, format)}`;
-      if (trend !== 0) {
-        const direction = trend > 0 ? "increased" : "decreased";
-        label += `, ${direction} by ${Math.abs(trend)} percent`;
-      }
-      return label;
-    })(),
+    `${title}: ${displayedValue}${hasTrend ? `, ${Math.abs(Number(trend))}% ${trendDirection === "up" ? "increase" : trendDirection === "down" ? "decrease" : "change"} ${trendLabel}` : ""}`,
   );
 </script>
 
-<!--
-  Main card container
-  Uses card-interactive class for base styling and hover effects from app.css
-  Custom kpi-card class adds gradient background
-  When href is provided, renders as a clickable anchor
--->
-{#if isClickable}
-  <a
-    {href}
-    class="kpi-card card-interactive relative flex flex-col justify-between min-h-[140px] cursor-pointer group no-underline hover:ring-2 hover:ring-primary/30 transition-all duration-200"
-    role="article"
-    aria-label={ariaLabel}
-  >
-    <!-- Label at top -->
-    <div class="flex flex-col gap-0.5">
-      <span class="text-label">
-        {title}
+<article
+  class="kpi-card group relative min-h-[154px] overflow-hidden rounded-2xl border border-border bg-card p-5 transition-all duration-200 {href ? 'has-link' : ''}"
+  aria-label={ariaLabel}
+>
+  <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r {palette.edge} via-transparent to-transparent"></div>
+
+  {#if href}
+    <a class="absolute inset-0 z-10 rounded-2xl" {href} aria-label={`Open ${title}`}>
+      <span class="sr-only">Open {title}</span>
+    </a>
+  {/if}
+
+  <div class="relative flex h-full flex-col justify-between gap-5">
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <p class="text-sm font-medium text-muted-foreground">{title}</p>
+        {#if description}<p class="mt-1 truncate text-xs text-subtle">{description}</p>{/if}
+      </div>
+
+      <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl {palette.icon}" aria-hidden="true">
+        {#if icon === "users" || icon === "user-plus"}
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+            {#if icon === "user-plus"}<path stroke-linecap="round" d="M19 8v6m3-3h-6" />{/if}
+          </svg>
+        {:else if icon === "heart"}
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" /></svg>
+        {:else if icon === "clock"}
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" /><path stroke-linecap="round" d="M12 7v5l3 2" /></svg>
+        {:else if icon === "home"}
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1v-9Z" /></svg>
+        {:else if icon === "check-circle"}
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9" /><path stroke-linecap="round" stroke-linejoin="round" d="m8 12 2.5 2.5L16 9" /></svg>
+        {:else}
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V9m5 10V5m5 14v-7m5 7V3" /></svg>
+        {/if}
       </span>
-      {#if description}
-        <span class="text-xs text-muted-foreground/70">
-          {description}
+    </div>
+
+    <div class="flex items-end justify-between gap-3">
+      <p class="text-[2.25rem] font-semibold leading-none tracking-[-0.035em] text-foreground">{displayedValue}</p>
+
+      {#if hasTrend}
+        <span
+          class="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold {trendDirection === 'up'
+            ? 'bg-success/10 text-success'
+            : trendDirection === 'down'
+              ? 'bg-destructive/10 text-destructive'
+              : 'bg-secondary text-muted-foreground'}"
+          title={trendLabel}
+        >
+          {#if trendDirection === "up"}↑{:else if trendDirection === "down"}↓{:else}—{/if}
+          {Math.abs(Number(trend))}%
         </span>
       {/if}
     </div>
-
-    <!-- Large value in the middle/center area -->
-    <span class="text-metric text-foreground">
-      {formatValue(value, format)}
-    </span>
-
-    <!-- Trend badge positioned at bottom-right -->
-    {#if trend !== 0}
-      <div class="absolute bottom-5 right-5">
-        <span
-          class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium {trendColor} {trendBgColor}"
-          aria-hidden="true"
-        >
-          {#if trendDirection === "up"}
-            <svg
-              class="w-3 h-3"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2.5"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M5 15l7-7 7 7"
-              />
-            </svg>
-          {:else if trendDirection === "down"}
-            <svg
-              class="w-3 h-3"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2.5"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M19 9l-7 7-7-7"
-              />
-            </svg>
-          {/if}
-          {Math.abs(trend)}%
-        </span>
-      </div>
-    {/if}
-  </a>
-{:else}
-  <div
-    class="kpi-card card-interactive relative flex flex-col justify-between min-h-[140px]"
-    role="article"
-    aria-label={ariaLabel}
-  >
-    <!-- Label at top -->
-    <div class="flex flex-col gap-0.5">
-      <span class="text-label">
-        {title}
-      </span>
-      {#if description}
-        <span class="text-xs text-muted-foreground/70">
-          {description}
-        </span>
-      {/if}
-    </div>
-
-    <!-- Large value in the middle/center area -->
-    <span class="text-metric text-foreground">
-      {formatValue(value, format)}
-    </span>
-
-    <!-- Trend badge positioned at bottom-right -->
-    {#if trend !== 0}
-      <div class="absolute bottom-5 right-5">
-        <span
-          class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium {trendColor} {trendBgColor}"
-          aria-hidden="true"
-        >
-          {#if trendDirection === "up"}
-            <svg
-              class="w-3 h-3"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2.5"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M5 15l7-7 7 7"
-              />
-            </svg>
-          {:else if trendDirection === "down"}
-            <svg
-              class="w-3 h-3"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              stroke-width="2.5"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M19 9l-7 7-7-7"
-              />
-            </svg>
-          {/if}
-          {Math.abs(trend)}%
-        </span>
-      </div>
-    {/if}
   </div>
-{/if}
+</article>
 
 <style>
-  .kpi-card {
-    /* Subtle gradient background from top-left to bottom-right */
-    background: linear-gradient(135deg, hsl(0 0% 9%) 0%, hsl(0 0% 10%) 100%);
+  .kpi-card.has-link:hover {
+    transform: translateY(-2px);
+    border-color: hsl(var(--border-hover));
+    box-shadow: 0 18px 45px rgb(0 0 0 / 0.18);
   }
 
-  .text-metric {
-    font-size: 2.625rem; /* 42px */
-    font-weight: 600;
-    line-height: 1.2;
-    letter-spacing: -0.02em;
+  .kpi-card.has-link:has(a:focus-visible) {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 3px;
   }
 </style>

@@ -12,6 +12,10 @@
 <script>
     import { Modal, Button, Badge } from "$lib/components/ui";
     import { goto } from "$app/navigation";
+    import {
+        formatInteraction,
+        formatPurpose,
+    } from "$lib/utils/pastoralCare.js";
 
     let {
         isOpen = $bindable(false),
@@ -86,7 +90,7 @@
     }
 </script>
 
-<Modal bind:isOpen title="Visitation Details" size="md">
+<Modal bind:isOpen title="Pastoral Care Details" size="md">
     {#if visitation}
         <div class="space-y-6">
             <!-- Header with outcome badge -->
@@ -98,7 +102,7 @@
                     {formatOutcome(visitation.outcome)}
                 </Badge>
                 <h3 class="text-xl font-bold text-foreground">
-                    Visit to {visitation.person_visited_name || "Unknown"}
+                    Care for {visitation.person_visited_name || "Unknown"}
                 </h3>
                 <p class="text-muted-foreground">
                     {formatDate(visitation.visit_date)}
@@ -107,6 +111,20 @@
 
             <!-- Details Grid -->
             <div class="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                    <span class="text-muted-foreground">Care Method</span>
+                    <p class="font-medium text-foreground">
+                        {formatInteraction(visitation.interaction_type)}
+                    </p>
+                </div>
+
+                <div>
+                    <span class="text-muted-foreground">Purpose</span>
+                    <p class="font-medium text-foreground">
+                        {formatPurpose(visitation.purpose)}
+                    </p>
+                </div>
+
                 <!-- Person Visited -->
                 <div>
                     <span class="text-muted-foreground">Person Visited</span>
@@ -127,7 +145,7 @@
 
                 <!-- Visited By -->
                 <div>
-                    <span class="text-muted-foreground">Visited By</span>
+                    <span class="text-muted-foreground">Care Leader</span>
                     {#if visitation.visited_by_id}
                         <button
                             class="block font-medium text-primary hover:underline cursor-pointer text-left"
@@ -165,6 +183,16 @@
                         >
                         <p class="font-medium text-foreground">
                             {formatShortDate(visitation.follow_up_date)}
+                        </p>
+                    </div>
+                {/if}
+
+                {#if visitation.next_task}
+                    <div>
+                        <span class="text-muted-foreground">Next Action</span>
+                        <p class="font-medium text-foreground">
+                            {visitation.next_task.status === "open" ? "Open" : "Completed"}
+                            · {formatShortDate(visitation.next_task.due_date)}
                         </p>
                     </div>
                 {/if}

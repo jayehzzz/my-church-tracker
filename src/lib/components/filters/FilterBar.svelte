@@ -4,6 +4,8 @@
   import PeriodSelect from "./PeriodSelect.svelte";
   import DateRangePicker from "./DateRangePicker.svelte";
 
+  let { compact = false } = $props();
+
   // State for DateRangePicker modal
   let isDatePickerOpen = $state(false);
 
@@ -90,12 +92,14 @@
   </div>
 
   <!-- Mobile Label (Visible below on mobile) -->
-  <div
-    class="mt-3 pt-3 border-t border-border/50 sm:hidden flex items-center justify-between text-sm"
-  >
-    <span class="text-muted-foreground">Period:</span>
-    <span class="font-medium text-foreground">{$dateRange.label}</span>
-  </div>
+  {#if !compact}
+    <div
+      class="mt-3 pt-3 border-t border-border/50 sm:hidden flex items-center justify-between text-sm"
+    >
+      <span class="text-muted-foreground">Period:</span>
+      <span class="font-medium text-foreground">{$dateRange.label}</span>
+    </div>
+  {/if}
 </div>
 
 <!-- Date Range Picker Modal -->

@@ -9,6 +9,9 @@ export default defineConfig({
       allow: ['..']
     }
   },
+  resolve: {
+    conditions: process.env.VITEST ? ['browser'] : []
+  },
   test: {
     include: ['src/**/*.{test,spec}.{js,ts}'],
     globals: true,
@@ -16,6 +19,11 @@ export default defineConfig({
     setupFiles: ['./src/tests/setup.js'],
     alias: {
       '@testing-library/svelte': '@testing-library/svelte/svelte5'
+    },
+    server: {
+      deps: {
+        inline: [/svelte/]
+      }
     }
   }
 });

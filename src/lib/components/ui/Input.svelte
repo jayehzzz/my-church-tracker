@@ -39,8 +39,10 @@
   // Track focus state for floating label
   let isFocused = $state(false);
 
-  // Determine if label should float (focused or has value)
-  const shouldFloat = $derived(isFocused || value !== "" || placeholder !== "");
+  // Date inputs always render a native date hint, so their labels must stay clear of it.
+  const shouldFloat = $derived(
+    isFocused || value !== "" || placeholder !== "" || type === "date",
+  );
 
   // Check if prefix/suffix snippets are provided
   const hasPrefix = $derived(!!prefix);

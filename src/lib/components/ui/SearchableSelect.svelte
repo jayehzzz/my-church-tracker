@@ -25,6 +25,7 @@
         disabled = false,
         error = "",
         required = false,
+        onchange,
         id = `searchable-select-${Math.random().toString(36).slice(2, 9)}`,
         ...restProps
     } = $props();
@@ -53,12 +54,14 @@
         value = optValue;
         isOpen = false;
         searchQuery = "";
+        onchange?.({ value });
     }
 
     // Clear selection
     function clearSelection(e) {
         e.stopPropagation();
         value = "";
+        onchange?.({ value });
     }
 
     // Handle click outside
@@ -90,7 +93,7 @@
 
     // Determine if label should float
     const shouldFloat = $derived(
-        isFocused || isOpen || value !== "" || searchQuery !== "",
+        isFocused || isOpen || value !== "" || searchQuery !== "" || placeholder !== "",
     );
 
     // Classes
@@ -178,7 +181,7 @@
                 <span class="text-foreground text-sm truncate"
                     >{selectedLabel}</span
                 >
-            {:else if !label}
+            {:else}
                 <span class="text-muted-foreground text-sm">{placeholder}</span>
             {/if}
         </div>

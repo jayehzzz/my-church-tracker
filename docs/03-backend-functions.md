@@ -543,7 +543,7 @@ These functions work with the `people` table but focus on evangelism/outreach co
 **Parameters**:
 | Name | Type | Description |
 |------|------|-------------|
-| `meetingType` | string | One of: `"bacenta"`, `"flow_prayer"`, `"all_night_prayer"`, `"basonta"`, `"sat"`, `"farley_prayer"` |
+| `meetingType` | string | Current types include `"bacenta"`, `"flow_service"`, `"acts_prayer"`, `"shemen_prayer"`, and `"workers_meeting"` |
 
 **Returns**: Array of meetings of that type
 

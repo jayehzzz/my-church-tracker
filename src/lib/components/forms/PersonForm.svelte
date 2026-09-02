@@ -41,7 +41,7 @@
     marital_status: "",
     employment_status: "",
     basontas: [],
-    member_status: "visitor",
+    member_status: "guest",
     membership_date: "",
     entry_point: "",
     role: "no_role",
@@ -58,7 +58,7 @@
 
   // Status options
   const statusOptions = [
-    { value: "visitor", label: "Visitor" },
+    { value: "guest", label: "Guest" },
     { value: "member", label: "Member" },
     { value: "leader", label: "Leader" },
     { value: "archived", label: "Archived" },
@@ -115,7 +115,7 @@
     { value: "bacenta_leader", label: "Bacenta Leader" },
   ];
 
-  // Check if status is guest/visitor
+  // Legacy visitor records are treated as guests until they are saved again.
   const isGuestStatus = $derived(
     formData.member_status === "guest" || formData.member_status === "visitor",
   );
@@ -141,7 +141,10 @@
           marital_status: person.marital_status || "",
           employment_status: person.employment_status || "",
           basontas: person.basontas || [],
-          member_status: person.member_status || "visitor",
+          member_status:
+            person.member_status === "visitor"
+              ? "guest"
+              : person.member_status || "guest",
           membership_date: person.membership_date || "",
           entry_point: person.entry_point || "",
           role: person.role || "no_role",
@@ -161,7 +164,7 @@
           marital_status: "",
           employment_status: "",
           basontas: [],
-          member_status: "visitor",
+          member_status: "guest",
           membership_date: "",
           entry_point: "",
           role: "no_role",

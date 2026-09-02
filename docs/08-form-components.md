@@ -169,7 +169,7 @@ Form components live in `src/lib/components/forms/` and handle all data entry in
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | Total Attendance | number | ❌ | Number of people present |
-| Guests Count | number | ❌ | Number of first-time visitors |
+| Guest Headcount | number | ❌ | Total named and unnamed guests; first timers are marked per person |
 | Salvation Decisions | number | ❌ | Number of faith decisions |
 | Tithers Count | number | ❌ | Number of people who gave |
 

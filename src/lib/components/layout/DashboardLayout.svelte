@@ -33,7 +33,7 @@
 
     <!-- Main Content Area -->
     <div
-      class="flex-1 flex flex-col {$sidebarVisible
+      class="min-w-0 flex-1 flex flex-col {$sidebarVisible
         ? 'md:ml-64'
         : 'md:ml-16'} transition-all duration-300"
     >

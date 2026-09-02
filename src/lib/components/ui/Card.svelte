@@ -69,7 +69,7 @@
 
   // Combined card classes
   const cardClasses = $derived(
-    `rounded-xl border border-border bg-gradient-to-br from-card to-card-elevated
+    `relative rounded-xl border border-border bg-gradient-to-br from-card to-card-elevated
     ${isInteractive ? "card-interactive cursor-pointer" : ""}
     ${!hasHeader && !hasFooter ? paddingClasses : ""}
     ${className}`,
@@ -112,10 +112,3 @@
     </div>
   {/if}
 </div>
-
-<style>
-  div {
-    /* Ensure proper stacking context */
-    position: relative;
-  }
-</style>

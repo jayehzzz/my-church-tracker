@@ -55,7 +55,7 @@
   const dotSize = $derived(size === 'sm' ? 'w-1.5 h-1.5' : 'w-2 h-2');
   
   const badgeClasses = $derived(
-    `inline-flex items-center gap-1.5 font-medium rounded-full ${variantClasses} ${sizeClasses}`
+    `inline-flex items-center gap-1.5 rounded-full font-medium leading-[1.4] ${variantClasses} ${sizeClasses}`
   );
 </script>
 
@@ -75,10 +75,3 @@
     {@render children()}
   {/if}
 </span>
-
-<style>
-  span {
-    /* Ensure consistent line-height */
-    line-height: 1.4;
-  }
-</style>

@@ -47,6 +47,11 @@
         return map[status?.toLowerCase()] || "secondary";
     }
 
+    function formatStatus(status) {
+        if (!status || status === "guest" || status === "visitor") return "Guest";
+        return status.charAt(0).toUpperCase() + status.slice(1);
+    }
+
     function formatRole(role) {
         const map = {
             basonta_leader: "Basonta Leader",
@@ -246,9 +251,7 @@
                                 </span>
                             {/if}
 
-                            <span class="capitalize"
-                                >{person.member_status || "Guest"}</span
-                            >
+                            <span>{formatStatus(person.member_status)}</span>
 
                             <svg
                                 class="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity"

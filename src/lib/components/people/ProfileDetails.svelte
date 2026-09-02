@@ -82,6 +82,11 @@
         return map[status?.toLowerCase()] || "secondary";
     }
 
+    function formatStatus(status) {
+        if (!status || status === "guest" || status === "visitor") return "Guest";
+        return status.charAt(0).toUpperCase() + status.slice(1);
+    }
+
     function formatContactCategory(category) {
         const map = {
             responsive: "Responsive",
@@ -208,7 +213,7 @@
                 >
                     <span class="text-muted-foreground">Status</span>
                     <Badge variant={getStatusVariant(person.member_status)}>
-                        {person.member_status || "—"}
+                        {formatStatus(person.member_status)}
                     </Badge>
                 </div>
                 <div

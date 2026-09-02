@@ -28,8 +28,14 @@
     { icon: "home", label: "Dashboard", href: "/", active: false },
     {
       icon: "users",
-      label: "Evangelism Contacts",
+      label: "Evangelism",
       href: "/evangelism",
+      active: false,
+    },
+    {
+      icon: "pipeline",
+      label: "Follow-Up CRM",
+      href: "/pipeline",
       active: false,
     },
     {
@@ -40,7 +46,7 @@
     },
     {
       icon: "clock",
-      label: "Meetings & Prayer",
+      label: "Meetings & Attendance",
       href: "/meetings",
       active: false,
     },
@@ -52,7 +58,7 @@
     },
     {
       icon: "map-pin",
-      label: "Visitation",
+      label: "Pastoral Care",
       href: "/visitation",
       active: false,
     },
@@ -113,6 +119,9 @@
     chart: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
     </svg>`,
+    pipeline: `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h18M4 4l4 8h8l4-8M8 12v4a2 2 0 002 2h4a2 2 0 002-2v-4"/>
+    </svg>`,
   };
 </script>
 
@@ -130,13 +139,11 @@
 
 <!-- Sidebar -->
 <aside
-  class={`
-    fixed left-0 top-16 h-[calc(100vh-4rem)] z-40
-    bg-sidebar border-r border-border
-    transition-all duration-300 ease-in-out
-    {$sidebarVisible ? 'w-64' : 'w-16'}
-    {$mobileSidebarVisible ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-  `}
+  class="fixed left-0 top-16 z-40 h-[calc(100vh-4rem)] border-r border-border bg-sidebar transition-all duration-300 ease-in-out {$sidebarVisible
+    ? 'w-64'
+    : 'w-16'} {$mobileSidebarVisible
+    ? 'translate-x-0'
+    : '-translate-x-full md:translate-x-0'}"
   style="background-color: hsl(var(--card));"
 >
   <!-- Navigation Items -->

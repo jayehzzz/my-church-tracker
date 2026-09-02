@@ -10,6 +10,15 @@ function getClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
+function withTimeout(promise, timeoutMs = 3500) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Convex request timed out")), timeoutMs)
+    )
+  ]);
+}
+
 const notConfigured = () => ({ data: null, error: new Error('Convex not configured') });
 
 export async function getAll() {
@@ -17,7 +26,7 @@ export async function getAll() {
   if (!client) return notConfigured();
 
   try {
-    const data = await client.query(api.activities.getAll);
+    const data = await withTimeout(client.query(api.activities.getAll), 3500);
     return { data, error: null };
   } catch (error) {
     return { data: null, error };
@@ -29,7 +38,7 @@ export async function getById(id) {
   if (!client) return notConfigured();
 
   try {
-    const data = await client.query(api.activities.getById, { id });
+    const data = await withTimeout(client.query(api.activities.getById, { id }), 3500);
     return { data, error: null };
   } catch (error) {
     return { data: null, error };
@@ -41,7 +50,7 @@ export async function create(activityData) {
   if (!client) return notConfigured();
 
   try {
-    const data = await client.mutation(api.activities.create, activityData);
+    const data = await withTimeout(client.mutation(api.activities.create, activityData), 5000);
     return { data, error: null };
   } catch (error) {
     return { data: null, error };
@@ -53,7 +62,7 @@ export async function getByType(activityType) {
   if (!client) return notConfigured();
 
   try {
-    const data = await client.query(api.activities.getByType, { activityType });
+    const data = await withTimeout(client.query(api.activities.getByType, { activityType }), 3500);
     return { data, error: null };
   } catch (error) {
     return { data: null, error };
@@ -65,7 +74,7 @@ export async function getByDateRange(startDate, endDate) {
   if (!client) return notConfigured();
 
   try {
-    const data = await client.query(api.activities.getByDateRange, { startDate, endDate });
+    const data = await withTimeout(client.query(api.activities.getByDateRange, { startDate, endDate }), 3500);
     return { data, error: null };
   } catch (error) {
     return { data: null, error };
@@ -77,7 +86,7 @@ export async function getRecent(limit = 10) {
   if (!client) return notConfigured();
 
   try {
-    const data = await client.query(api.activities.getRecent, { limit });
+    const data = await withTimeout(client.query(api.activities.getRecent, { limit }), 3500);
     return { data, error: null };
   } catch (error) {
     return { data: null, error };

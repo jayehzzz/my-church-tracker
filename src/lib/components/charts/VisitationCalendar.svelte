@@ -8,11 +8,22 @@
 -->
 
 <script>
+    import {
+        formatInteraction,
+        formatOutcome as formatCareOutcome,
+        formatPurpose,
+    } from "$lib/utils/pastoralCare.js";
+
     /** @type {{ visit_date: string, person_visited_name: string, outcome: string }[]} */
-    let { data = [], title = "Visitation Calendar" } = $props();
+    let {
+        data = [],
+        title = "Visitation Calendar",
+        onVisitSelect = () => {},
+    } = $props();
 
     // Current viewing month
     let currentDate = $state(new Date());
+    let selectedDate = $state(null);
 
     // Navigate months
     function nextMonth() {
@@ -21,6 +32,7 @@
             currentDate.getMonth() + 1,
             1,
         );
+        selectedDate = null;
     }
 
     function prevMonth() {
@@ -29,6 +41,7 @@
             currentDate.getMonth() - 1,
             1,
         );
+        selectedDate = null;
     }
 
     // Get month name and year
@@ -81,20 +94,6 @@
         return colorMap[outcome] || "bg-primary";
     }
 
-    // Format outcome for tooltip
-    function formatOutcome(outcome) {
-        const map = {
-            welcomed_encouraged: "Welcomed",
-            prayer_request_received: "Prayer Request",
-            invited_to_service: "Invited",
-            concerns_shared: "Concerns",
-            follow_up_needed: "Follow-up",
-            not_home: "Not Home",
-            declined: "Declined",
-        };
-        return map[outcome] || outcome;
-    }
-
     // Check if a day is today
     function isToday(dateStr) {
         if (!dateStr) return false;
@@ -106,19 +105,34 @@
     const monthStats = $derived(() => {
         const year = currentDate.getFullYear();
         const month = currentDate.getMonth();
-        const monthStart = new Date(year, month, 1);
-        const monthEnd = new Date(year, month + 1, 0);
+        const monthPrefix = `${year}-${String(month + 1).padStart(2, "0")}`;
 
-        const monthVisits = data.filter((v) => {
-            const visitDate = new Date(v.visit_date);
-            return visitDate >= monthStart && visitDate <= monthEnd;
-        });
+        const monthVisits = data.filter((v) => v.visit_date?.startsWith(monthPrefix));
 
         return {
             total: monthVisits.length,
             uniqueDays: new Set(monthVisits.map((v) => v.visit_date)).size,
         };
     });
+
+    const selectedVisits = $derived(
+        selectedDate ? data.filter((visit) => visit.visit_date === selectedDate) : [],
+    );
+
+    function fullDate(dateStr) {
+        if (!dateStr) return "";
+        return new Date(`${dateStr}T00:00:00`).toLocaleDateString("en-GB", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+        });
+    }
+
+    function dayLabel(dateStr, visits) {
+        const count = visits.length;
+        return `View ${fullDate(dateStr)}: ${count} care interaction${count === 1 ? "" : "s"}`;
+    }
 </script>
 
 <div class="card-base p-4">
@@ -204,14 +218,16 @@
     <!-- Calendar grid -->
     <div class="grid grid-cols-7 gap-1">
         {#each calendarDays() as { day, dateStr, visits }}
-            <div
-                class="min-h-[48px] p-1 rounded border transition-colors
-                    {day
-                    ? 'border-border/50 hover:border-primary/50'
-                    : 'border-transparent'}
-                    {isToday(dateStr) ? 'bg-primary/10 border-primary/30' : ''}"
-            >
-                {#if day}
+            {#if day}
+                <button
+                    type="button"
+                    class="min-h-[52px] rounded border p-1 text-left transition-colors hover:border-primary/50 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary
+                        {isToday(dateStr) ? 'bg-primary/10 border-primary/30' : 'border-border/50'}
+                        {selectedDate === dateStr ? 'ring-2 ring-primary border-primary bg-primary/10' : ''}"
+                    aria-label={dayLabel(dateStr, visits)}
+                    aria-pressed={selectedDate === dateStr}
+                    onclick={() => (selectedDate = dateStr)}
+                >
                     <div class="text-xs font-medium text-foreground mb-1">
                         {day}
                     </div>
@@ -222,7 +238,7 @@
                                     class="w-2 h-2 rounded-full {getOutcomeColor(
                                         visit.outcome,
                                     )}"
-                                    title="{visit.person_visited_name}: {formatOutcome(
+                                    title="{visit.person_visited_name}: {formatCareOutcome(
                                         visit.outcome,
                                     )}"
                                 ></div>
@@ -234,10 +250,43 @@
                             {/if}
                         </div>
                     {/if}
-                {/if}
-            </div>
+                </button>
+            {:else}
+                <div class="min-h-[52px] rounded border border-transparent" aria-hidden="true"></div>
+            {/if}
         {/each}
     </div>
+
+    {#if selectedDate}
+        <section class="mt-4 rounded-xl border border-border bg-background/70 p-3 sm:p-4" aria-live="polite" aria-label={`Care on ${fullDate(selectedDate)}`}>
+            <div class="flex items-center justify-between gap-3">
+                <div>
+                    <h4 class="text-sm font-semibold text-foreground">{fullDate(selectedDate)}</h4>
+                    <p class="mt-0.5 text-xs text-muted-foreground">{selectedVisits.length} care interaction{selectedVisits.length === 1 ? "" : "s"}</p>
+                </div>
+                <button type="button" class="rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground" onclick={() => (selectedDate = null)}>Close</button>
+            </div>
+
+            {#if selectedVisits.length === 0}
+                <p class="mt-3 rounded-lg border border-dashed border-border px-4 py-5 text-center text-xs text-muted-foreground">No pastoral care was recorded on this day.</p>
+            {:else}
+                <div class="mt-3 grid gap-2 sm:grid-cols-2">
+                    {#each selectedVisits as visit}
+                        <button type="button" class="rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5" onclick={() => onVisitSelect(visit)}>
+                            <div class="flex items-start justify-between gap-2">
+                                <span class="text-sm font-semibold text-foreground">{visit.person_visited_name || "Unknown person"}</span>
+                                <span class="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-foreground">{formatCareOutcome(visit.outcome)}</span>
+                            </div>
+                            <p class="mt-1 text-xs text-muted-foreground">{formatInteraction(visit.interaction_type)} · {formatPurpose(visit.purpose)}</p>
+                            {#if visit.visited_by_name}<p class="mt-1 text-xs text-muted-foreground">Led by {visit.visited_by_name}</p>{/if}
+                            {#if visit.notes}<p class="mt-2 line-clamp-2 text-xs leading-5 text-foreground/80">{visit.notes}</p>{/if}
+                            {#if visit.follow_up_required}<p class="mt-2 text-[11px] font-medium text-warning">Follow-up required{visit.follow_up_date ? ` · ${visit.follow_up_date}` : ""}</p>{/if}
+                        </button>
+                    {/each}
+                </div>
+            {/if}
+        </section>
+    {/if}
 
     <!-- Month stats -->
     <div

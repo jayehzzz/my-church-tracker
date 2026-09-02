@@ -24,11 +24,12 @@
 
   import ProfileQuickViewCard from "$lib/components/people/ProfileQuickViewCard.svelte";
   import PeopleDashboard from "./PeopleDashboard.svelte";
+  import * as peopleService from "$lib/services/peopleService";
   import { mockPeopleWithLocation } from "$lib/data/mockPeopleWithLocation";
 
-  // State
-  let people = $state([]);
-  let loading = $state(true);
+  // State - initialize immediately with dynamic mock data so SSR and client load instantly
+  let people = $state(mockPeopleWithLocation);
+  let loading = $state(false);
   let error = $state(null);
 
   // Filter state
@@ -51,7 +52,7 @@
   // Status options for filter
   const statusOptions = [
     { value: "all", label: "All Statuses" },
-    { value: "visitor", label: "Visitors" },
+    { value: "guest", label: "Guests" },
     { value: "member", label: "Members" },
     { value: "leader", label: "Leaders" },
     { value: "archived", label: "Archived" },
@@ -73,49 +74,9 @@
     { value: "dormant", label: "Dormant" },
   ];
 
-  // Mock data for development when Convex is not configured
-  const mockPeople = [
-    {
-      id: "1",
-      first_name: "John",
-      last_name: "Doe",
-      email: "john@example.com",
-      phone: "555-1234",
-      member_status: "member",
-    },
-    {
-      id: "2",
-      first_name: "Jane",
-      last_name: "Smith",
-      email: "jane@example.com",
-      phone: "555-5678",
-      member_status: "leader",
-    },
-    {
-      id: "3",
-      first_name: "Bob",
-      last_name: "Johnson",
-      email: "bob@example.com",
-      phone: "555-9012",
-      member_status: "visitor",
-    },
-    {
-      id: "4",
-      first_name: "Alice",
-      last_name: "Williams",
-      email: "alice@example.com",
-      phone: "555-3456",
-      member_status: "member",
-    },
-    {
-      id: "5",
-      first_name: "Charlie",
-      last_name: "Brown",
-      email: "charlie@example.com",
-      phone: "555-7890",
-      member_status: "archived",
-    },
-  ];
+  import { mockPeople as centralMockPeople } from "$lib/data/mockData";
+
+  const mockPeople = centralMockPeople;
 
   // Table columns configuration
   const columns = [
@@ -160,7 +121,8 @@
   // Format status for display
   function formatStatus(status) {
     const statusMap = {
-      visitor: "Visitor",
+      visitor: "Guest",
+      guest: "Guest",
       member: "Member",
       leader: "Leader",
       archived: "Archived",
@@ -172,6 +134,7 @@
   function getStatusVariant(status) {
     const variantMap = {
       visitor: "secondary",
+      guest: "secondary",
       member: "default",
       leader: "success",
       archived: "destructive",
@@ -179,12 +142,29 @@
     return variantMap[status] || "secondary";
   }
 
+  // Helper to merge mock location data with people
+  function enhancePeopleWithLocation(list) {
+    const enhanced = list.map((p) => {
+      const loc = mockPeopleWithLocation.find((m) => String(m.id) === String(p.id));
+      return loc ? { ...p, ...loc } : p;
+    });
+    const existingIds = new Set(enhanced.map((p) => String(p.id)));
+    const extraLocationPeople = mockPeopleWithLocation.filter(
+      (p) => !existingIds.has(String(p.id)),
+    );
+    return [...enhanced, ...extraLocationPeople];
+  }
+
   // Filter people by status, role, and activity
-  const filteredPeople = $derived(() => {
-    let filtered = people;
+  const filteredPeople = $derived.by(() => {
+    let filtered = people || [];
 
     if (statusFilter !== "all") {
-      filtered = filtered.filter((p) => p.member_status === statusFilter);
+      filtered = filtered.filter((p) =>
+        statusFilter === "guest"
+          ? p.member_status === "guest" || p.member_status === "visitor"
+          : p.member_status === statusFilter,
+      );
     }
     if (roleFilter !== "all") {
       filtered = filtered.filter((p) => p.role === roleFilter);
@@ -209,32 +189,27 @@
     error = null;
 
     try {
-      // Dynamically import to avoid SSR issues
-      const peopleService = await import("$lib/services/peopleService");
       const result = await peopleService.getAll();
 
-      if (result.error) {
+      if (result?.error) {
         throw result.error;
       }
-      people = result.data || [];
-      usingMockData = false;
-    } catch (e) {
-      console.warn("Failed to load from Convex, using mock data:", e.message);
-      // Fall back to mock data
-      // Fall back to mock data
-      // Fall back to mock data
-      // MERGE basic mockPeople with Location data for the map view
-      const enhancedMockData = mockPeople.map((p) => {
-        const loc = mockPeopleWithLocation.find((m) => m.id === p.id);
-        return loc ? { ...p, ...loc } : p;
-      });
-      // Also add remaining mock location people that weren't in the original list
-      const existingIds = new Set(enhancedMockData.map((p) => p.id));
-      const extraLocationPeople = mockPeopleWithLocation.filter(
-        (p) => !existingIds.has(p.id),
-      );
 
-      people = [...enhancedMockData, ...extraLocationPeople];
+      const loadedPeople = result?.data || [];
+      if (loadedPeople.length > 0) {
+        const hasCoords = loadedPeople.some((p) => p.lat && p.lng);
+        people = hasCoords ? loadedPeople : enhancePeopleWithLocation(loadedPeople);
+        usingMockData = loadedPeople.some(
+          (p) => !p._id || String(p.id).length <= 2 || String(p.id).startsWith("mock-"),
+        );
+      } else {
+        people = enhancePeopleWithLocation(mockPeople);
+        usingMockData = true;
+      }
+      error = null;
+    } catch (e) {
+      console.warn("Failed to load from Convex, using mock data:", e?.message || e);
+      people = enhancePeopleWithLocation(mockPeople);
       usingMockData = true;
       error = null; // Clear error since we have mock data
     } finally {
@@ -319,7 +294,7 @@
   >
     <PageHeader
       title="People Directory"
-      subtitle="Manage church members, visitors, and contacts"
+      subtitle="Manage church members, guests, and contacts"
     />
 
     <Button onclick={handleAddPerson}>
@@ -479,8 +454,8 @@
     </div>
 
     <span class="text-sm text-muted-foreground ml-auto">
-      {filteredPeople().length}
-      {filteredPeople().length === 1 ? "person" : "people"}
+      {filteredPeople.length}
+      {filteredPeople.length === 1 ? "person" : "people"}
     </span>
   </div>
 
@@ -530,7 +505,7 @@
       <div class="pb-10">
         <DataTable
           columns={columns.filter((c) => c.key !== "actions")}
-          data={filteredPeople()}
+          data={filteredPeople}
           {loading}
           searchable
           selectable={false}
@@ -540,7 +515,7 @@
         />
 
         <!-- Profile Quick View Cards -->
-        {#if !loading && filteredPeople().length > 0}
+        {#if !loading && filteredPeople.length > 0}
           <div class="mt-6">
             <h4
               class="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2"
@@ -563,16 +538,16 @@
             <div
               class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"
             >
-              {#each filteredPeople().slice(0, 8) as person}
+              {#each filteredPeople.slice(0, 8) as person}
                 <ProfileQuickViewCard
                   {person}
                   onclick={() => handleRowClick(person)}
                 />
               {/each}
             </div>
-            {#if filteredPeople().length > 8}
+            {#if filteredPeople.length > 8}
               <p class="text-xs text-muted-foreground text-center py-3">
-                Showing 8 of {filteredPeople().length} people. Use the table above
+                Showing 8 of {filteredPeople.length} people. Use the table above
                 for full list.
               </p>
             {/if}
@@ -581,7 +556,7 @@
       </div>
     {:else}
       <!-- MAP VIEW -->
-      <PeopleDashboard people={activeView === "map" ? filteredPeople() : []} />
+      <PeopleDashboard people={activeView === "map" ? filteredPeople : []} />
     {/if}
   {/if}
 </DashboardLayout>

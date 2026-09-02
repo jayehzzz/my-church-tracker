@@ -15,10 +15,10 @@
 
 <script>
   import { fade, scale } from "svelte/transition";
-  import { onMount, onDestroy } from "svelte";
+  import { onMount } from "svelte";
 
   /**
-   * @typedef {'sm' | 'md' | 'lg' | 'xl'} ModalSize
+   * @typedef {'sm' | 'md' | 'lg' | 'xl' | '2xl'} ModalSize
    */
 
   let {
@@ -48,6 +48,7 @@
     md: "max-w-md",
     lg: "max-w-lg",
     xl: "max-w-xl",
+    "2xl": "max-w-4xl",
   };
 
   // Derived size classes
@@ -154,15 +155,18 @@
     }
   });
 
-  // Cleanup on unmount
-  onDestroy(() => {
-    if (typeof window !== "undefined") {
-      document.body.style.overflow = "";
-      // Remove portal target
-      if (portalTarget && portalTarget.parentNode) {
-        portalTarget.parentNode.removeChild(portalTarget);
+  // Cleanup on unmount — using $effect cleanup instead of onDestroy
+  // to avoid SSR hydration errors (onDestroy requires component context)
+  $effect(() => {
+    return () => {
+      if (typeof window !== "undefined") {
+        document.body.style.overflow = "";
+        // Remove portal target
+        if (portalTarget && portalTarget.parentNode) {
+          portalTarget.parentNode.removeChild(portalTarget);
+        }
       }
-    }
+    };
   });
 </script>
 

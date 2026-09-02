@@ -3,22 +3,36 @@
   ============================
 
   A premium top navigation bar for the church tracker dashboard.
-  Features mobile hamburger menu, dynamic page titles, and user controls.
+  Features mobile hamburger menu, dynamic page titles, search, live notification center,
+  interactive church hub launchpad, and user profile management.
 
   Features:
   - Mobile hamburger menu toggle
   - Dynamic page title based on current route
-  - Search input placeholder
-  - Notification bell with badge
-  - User avatar/profile dropdown placeholder
+  - Interactive Church Hub & Quick Action Launchpad (Top-left CT logo)
+  - Global Search with ⌘K trigger
+  - Live Notification Center with unread counter badge (Top-right Bell icon)
+  - User Profile & Admin Settings menu (Top-right Avatar icon)
+  - Keyboard Shortcuts modal (⌘K, ⌘B, Esc)
   - Sticky positioning with backdrop blur
 -->
 
 <script>
   import { navigationStore, sidebarVisible } from "$lib/stores/navigationStore";
   import { openSearch } from "$lib/stores/searchStore";
+  import { unreadCount } from "$lib/stores/notificationStore";
   import { page } from "$app/stores";
   import GlobalSearch from "./GlobalSearch.svelte";
+  import ChurchHubDropdown from "./ChurchHubDropdown.svelte";
+  import NotificationDropdown from "./NotificationDropdown.svelte";
+  import ProfileDropdown from "./ProfileDropdown.svelte";
+  import KeyboardShortcutsModal from "./KeyboardShortcutsModal.svelte";
+
+  // Dropdown states
+  let isChurchHubOpen = $state(false);
+  let isNotificationsOpen = $state(false);
+  let isProfileOpen = $state(false);
+  let isShortcutsModalOpen = $state(false);
 
   // Handle sidebar toggle
   function toggleSidebar() {
@@ -29,11 +43,11 @@
   // Page title mapping based on routes
   const pageTitles = {
     "/": "Dashboard",
-    "/evangelism": "Evangelism Contacts",
+    "/evangelism": "Evangelism",
     "/services": "Sunday Services",
-    "/meetings": "Meetings & Prayer",
+    "/meetings": "Meetings & Attendance",
     "/people": "People Directory",
-    "/visitation": "Visitation",
+    "/visitation": "Pastoral Care",
     "/reports": "Reports",
   };
 
@@ -42,6 +56,10 @@
     pageTitles[$page.url.pathname] || "Church Tracker",
   );
 
+  function goBack() {
+    window.history.back();
+  }
+
   // Handle mobile sidebar toggle
   function toggleMobileSidebar() {
     navigationStore.toggleMobileSidebar();
@@ -49,61 +67,115 @@
 
   // Open global search
   function handleSearch() {
+    isChurchHubOpen = false;
+    isNotificationsOpen = false;
+    isProfileOpen = false;
     openSearch();
   }
 
-  function handleNotifications() {
-    // Placeholder - notifications to be implemented
-    console.log("Notifications clicked");
+  function toggleChurchHub() {
+    isNotificationsOpen = false;
+    isProfileOpen = false;
+    isChurchHubOpen = !isChurchHubOpen;
   }
 
-  function handleProfile() {
-    // Placeholder - user profile to be implemented
-    console.log("Profile clicked");
+  function toggleNotifications() {
+    isChurchHubOpen = false;
+    isProfileOpen = false;
+    isNotificationsOpen = !isNotificationsOpen;
+  }
+
+  function toggleProfile() {
+    isChurchHubOpen = false;
+    isNotificationsOpen = false;
+    isProfileOpen = !isProfileOpen;
+  }
+
+  // Global keyboard shortcuts (⌘K for search, ⌘B for sidebar toggle)
+  function handleGlobalKeydown(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      handleSearch();
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
+      e.preventDefault();
+      toggleSidebar();
+    }
   }
 </script>
 
+<svelte:window onkeydown={handleGlobalKeydown} />
+
 <!-- Global Search Component -->
 <GlobalSearch />
+
+<!-- Keyboard Shortcuts Modal -->
+<KeyboardShortcutsModal
+  bind:isOpen={isShortcutsModalOpen}
+  onclose={() => (isShortcutsModalOpen = false)}
+/>
 
 <!-- Top Navigation Bar -->
 <header
   class="sticky top-0 z-30 w-full border-b border-border bg-card/80 backdrop-blur-md supports-[backdrop-filter]:bg-card/60 transition-all duration-200"
 >
-  <div class="flex h-16 items-center justify-between">
+  <div class="flex h-16 items-center justify-between relative">
     <!-- Left Section: Logo + Toggle + Title -->
     <div class="flex items-center">
       <!-- Logo/Brand Area - width matches sidebar -->
       <div
-        class="hidden md:flex items-center justify-between px-4 border-r border-border/50 transition-all duration-300 {$sidebarVisible
+        class="hidden md:flex items-center justify-between px-4 border-r border-border/50 transition-all duration-300 relative {$sidebarVisible
           ? 'w-64'
           : 'w-16'}"
       >
         {#if $sidebarVisible}
-          <div class="flex items-center space-x-3">
+          <button
+            type="button"
+            data-churchhub-trigger
+            onclick={toggleChurchHub}
+            class="flex items-center space-x-2.5 p-1.5 -ml-1.5 rounded-lg hover:bg-secondary/70 transition-all text-left group cursor-pointer"
+            aria-label="Open Church Hub and Quick Actions"
+            title="Church Hub & Quick Actions"
+          >
             <div
-              class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center"
+              class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform flex-shrink-0"
             >
               <span class="text-primary-foreground font-bold text-sm">CT</span>
             </div>
-            <span class="font-semibold text-foreground">Church Tracker</span>
-          </div>
+            <div class="flex flex-col min-w-0">
+              <span class="font-semibold text-foreground text-sm leading-tight group-hover:text-primary transition-colors truncate">
+                Church Tracker
+              </span>
+              <span class="text-[10px] text-muted-foreground font-medium flex items-center gap-0.5">
+                Quick Hub
+                <svg class="w-2.5 h-2.5 transition-transform group-hover:translate-y-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </span>
+            </div>
+          </button>
         {:else}
-          <div
-            class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center mx-auto"
+          <button
+            type="button"
+            data-churchhub-trigger
+            onclick={toggleChurchHub}
+            class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center mx-auto hover:scale-105 transition-transform shadow-sm cursor-pointer"
+            aria-label="Open Church Hub"
+            title="Church Hub & Quick Actions"
           >
             <span class="text-primary-foreground font-bold text-sm">CT</span>
-          </div>
+          </button>
         {/if}
+
         <!-- Collapse Toggle Button -->
         {#if $sidebarVisible}
           <button
             onclick={toggleSidebar}
-            class="w-6 h-6 flex items-center justify-center rounded hover:bg-secondary transition-colors"
+            class="w-6 h-6 flex items-center justify-center rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
             aria-label="Collapse sidebar"
+            title="Collapse sidebar (⌘B)"
           >
             <svg
-              class="w-4 h-4 text-muted-foreground"
+              class="w-4 h-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -144,11 +216,12 @@
       {#if !$sidebarVisible}
         <button
           onclick={toggleSidebar}
-          class="hidden md:flex w-6 h-6 ml-2 items-center justify-center rounded hover:bg-secondary transition-colors"
+          class="hidden md:flex w-6 h-6 ml-2 items-center justify-center rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
           aria-label="Expand sidebar"
+          title="Expand sidebar (⌘B)"
         >
           <svg
-            class="w-4 h-4 text-muted-foreground"
+            class="w-4 h-4"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -164,23 +237,34 @@
       {/if}
 
       <!-- Page Title -->
-      <div class="flex items-center ml-4">
-        <h1 class="text-lg font-semibold text-foreground truncate">
+      <div class="ml-4 flex items-center gap-2">
+        <button
+          type="button"
+          onclick={goBack}
+          class="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          aria-label="Go back to the previous page"
+          title="Go back to the previous page"
+        >
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <p class="text-lg font-semibold text-foreground truncate">
           {currentTitle}
-        </h1>
+        </p>
       </div>
     </div>
 
     <!-- Right Section: Search + Notifications + Profile -->
     <div class="flex items-center space-x-3 pr-4 md:pr-6">
-      <!-- Search Input (Placeholder) -->
+      <!-- Search Input Trigger -->
       <div class="hidden md:flex items-center">
         <div class="relative">
           <div
-            class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"
+            class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted-foreground"
           >
             <svg
-              class="w-4 h-4 text-muted-foreground"
+              class="w-4 h-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -196,9 +280,10 @@
           <button
             type="button"
             onclick={handleSearch}
-            class="w-64 pl-10 pr-4 py-2 bg-secondary border border-border rounded-lg text-sm text-muted-foreground text-left cursor-pointer hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+            class="w-64 pl-10 pr-3 py-1.5 bg-secondary/80 border border-border rounded-lg text-sm text-muted-foreground text-left cursor-pointer hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary transition-all flex items-center justify-between"
           >
-            Search...
+            <span>Search...</span>
+            <kbd class="px-1.5 py-0.5 text-[10px] font-mono bg-card border border-border rounded text-muted-foreground">⌘K</kbd>
           </button>
         </div>
       </div>
@@ -224,48 +309,18 @@
         </svg>
       </button>
 
-      <!-- Notifications -->
-      <button
-        onclick={handleNotifications}
-        class="relative flex items-center justify-center w-10 h-10 rounded-lg hover:bg-secondary transition-colors"
-        aria-label="Notifications"
-      >
-        <svg
-          class="w-5 h-5 text-muted-foreground"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M15 17h5l-5 5v-5z"
-          />
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M21 12V7a2 2 0 00-2-2H5a2 2 0 00-2 2v5l4 4h10l4-4z"
-          />
-        </svg>
-        <!-- Notification Badge -->
-        <span
-          class="absolute -top-1 -right-1 w-2 h-2 bg-destructive rounded-full"
-        ></span>
-      </button>
-
-      <!-- User Profile -->
-      <button
-        onclick={handleProfile}
-        class="flex items-center justify-center w-10 h-10 rounded-lg hover:bg-secondary transition-colors"
-        aria-label="User profile"
-      >
-        <div
-          class="w-8 h-8 bg-primary rounded-full flex items-center justify-center"
+      <!-- Notifications Bell Button -->
+      <div class="relative">
+        <button
+          type="button"
+          data-notification-trigger
+          onclick={toggleNotifications}
+          class="relative flex items-center justify-center w-10 h-10 rounded-lg hover:bg-secondary transition-colors {isNotificationsOpen ? 'bg-secondary text-foreground' : 'text-muted-foreground'}"
+          aria-label="Open notifications"
+          title="Notification Center"
         >
           <svg
-            class="w-4 h-4 text-primary-foreground"
+            class="w-5 h-5 transition-transform hover:scale-110"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -274,12 +329,63 @@
               stroke-linecap="round"
               stroke-linejoin="round"
               stroke-width="2"
-              d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+              d="M15 17h5l-5 5v-5z"
+            />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M21 12V7a2 2 0 00-2-2H5a2 2 0 00-2 2v5l4 4h10l4-4z"
             />
           </svg>
-        </div>
-      </button>
+          <!-- Notification Badge -->
+          {#if $unreadCount > 0}
+            <span
+              class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center shadow-md animate-pulse"
+            >
+              {$unreadCount}
+            </span>
+          {/if}
+        </button>
+
+        <!-- Notification Dropdown -->
+        <NotificationDropdown
+          isOpen={isNotificationsOpen}
+          onclose={() => (isNotificationsOpen = false)}
+        />
+      </div>
+
+      <!-- User Profile Avatar Button -->
+      <div class="relative">
+        <button
+          type="button"
+          data-profile-trigger
+          onclick={toggleProfile}
+          class="flex items-center justify-center w-10 h-10 rounded-lg hover:bg-secondary transition-colors {isProfileOpen ? 'ring-2 ring-primary ring-offset-2 ring-offset-card' : ''}"
+          aria-label="User profile & settings"
+          title="Pastor Profile & Settings"
+        >
+          <div
+            class="w-8 h-8 bg-primary rounded-full flex items-center justify-center shadow-sm text-primary-foreground font-semibold text-xs hover:scale-105 transition-transform"
+          >
+            PJ
+          </div>
+        </button>
+
+        <!-- Profile Dropdown -->
+        <ProfileDropdown
+          isOpen={isProfileOpen}
+          onclose={() => (isProfileOpen = false)}
+          onOpenShortcuts={() => (isShortcutsModalOpen = true)}
+        />
+      </div>
     </div>
+
+    <!-- Church Hub Dropdown (Anchored relative to header) -->
+    <ChurchHubDropdown
+      isOpen={isChurchHubOpen}
+      onclose={() => (isChurchHubOpen = false)}
+    />
   </div>
 </header>
 

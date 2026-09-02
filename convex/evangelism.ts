@@ -8,6 +8,17 @@ import { v } from "convex/values";
 
 // Helper to map Person -> EvangelismContact format
 const mapToContact = (person: any, inviter: any = null) => {
+    // Compute freshness based on contact_date
+    const now = new Date();
+    const contactDate = person.contact_date ? new Date(person.contact_date) : new Date(person.created_at);
+    const daysSinceContact = Math.floor((now.getTime() - contactDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    let freshness: string;
+    if (daysSinceContact <= 7) freshness = "this_week";
+    else if (daysSinceContact <= 14) freshness = "last_week";
+    else if (daysSinceContact <= 28) freshness = "two_plus_weeks";
+    else freshness = "month_plus";
+
     return {
         ...person,
         id: person._id, // Ensure ID is accessible as 'id' if needed
@@ -20,6 +31,19 @@ const mapToContact = (person: any, inviter: any = null) => {
         // Inviter info
         invited_by_name: inviter ? `${inviter.first_name || ''} ${inviter.last_name || ''}`.trim() : null,
         contacted_by_person: inviter,
+
+        // Pipeline tracking fields
+        freshness,
+        days_since_contact: daysSinceContact,
+        pipeline_stage: person.pipeline_stage || "new",
+        warmth_score: person.warmth_score || "warm",
+        total_follow_ups: person.total_follow_ups || 0,
+        last_follow_up_date: person.last_follow_up_date || null,
+        promises_made: person.promises_made || 0,
+        promises_kept: person.promises_kept || 0,
+        is_paused: person.is_paused || false,
+        pause_reason: person.pause_reason || null,
+        resume_date: person.resume_date || null,
     };
 };
 
@@ -76,6 +100,7 @@ export const create = mutation({
         contact_date: v.string(),
         response: v.string(), // Maps to contact_category
         invited_by_id: v.optional(v.id("people")),
+        assigned_leader_id: v.optional(v.id("people")),
         comments: v.optional(v.array(v.string())),
 
         // Frontend might send these
@@ -110,9 +135,46 @@ export const create = mutation({
             membership_date: args.conversion_date,
             entry_point: "evangelism",
 
+            // Pipeline tracking — new contacts start as "new" and "hot"
+            pipeline_stage: "new",
+            warmth_score: "hot",
+            total_follow_ups: 0,
+            promises_made: 0,
+            promises_kept: 0,
+
             created_at: now,
             updated_at: now,
         });
+
+        // A new evangelism contact can enter the CRM immediately. Ownership is
+        // separate from invited_by_id because the inviter is not always the
+        // leader responsible for follow-up.
+        if (args.assigned_leader_id && status === "guest"
+            && !["do_not_contact", "has_church"].includes(args.response)) {
+            const leader = await ctx.db.get(args.assigned_leader_id);
+            if (!leader || leader.member_status !== "leader") {
+                throw new Error("The follow-up owner must be a leader");
+            }
+            await ctx.db.insert("follow_up_assignments", {
+                person_id: id,
+                assigned_leader_id: args.assigned_leader_id,
+                status: "active",
+                assigned_at: now,
+                created_at: now,
+                updated_at: now,
+            });
+            await ctx.db.insert("follow_up_tasks", {
+                person_id: id,
+                assigned_leader_id: args.assigned_leader_id,
+                due_date: args.follow_up_date || args.contact_date,
+                status: "open",
+                task_type: "first_contact",
+                priority: "high",
+                reason: "Fresh evangelism contact — make the first personal follow-up",
+                created_at: now,
+                updated_at: now,
+            });
+        }
 
         return await ctx.db.get(id);
     },
@@ -141,6 +203,16 @@ export const update = mutation({
     },
     handler: async (ctx, args) => {
         const { id, response, converted, conversion_date, attended_church, ...rest } = args;
+        const existingPerson = await ctx.db.get(id);
+        if (!existingPerson) throw new Error("Contact not found");
+        const nextCategory = response ?? existingPerson.contact_category;
+        const reintroduced = Boolean(
+            rest.contact_date
+            && existingPerson.contact_date
+            && rest.contact_date > existingPerson.contact_date
+            && existingPerson.member_status === "guest"
+            && !["do_not_contact", "has_church", "wrong_number"].includes(nextCategory ?? ""),
+        );
 
         const updates: any = {
             ...rest,
@@ -154,12 +226,17 @@ export const update = mutation({
         if (conversion_date) {
             updates.membership_date = conversion_date;
         }
+        if (reintroduced) {
+            updates.pipeline_stage = "new";
+            updates.is_paused = false;
+            updates.pause_reason = undefined;
+            updates.resume_date = undefined;
+        }
 
         // Handle attended_church mapping to first_visit_date
         if (attended_church) {
             // Check if they already have a first visit date
-            const person = await ctx.db.get(id);
-            if (person && !person.first_visit_date) {
+            if (!existingPerson.first_visit_date) {
                 // Set to today/now or contact_date if today is cleaner
                 updates.first_visit_date = new Date().toISOString().split('T')[0];
             }
@@ -193,6 +270,33 @@ export const update = mutation({
         // We deleted attended_church from destructuring so it's not in 'rest'
 
         await ctx.db.patch(id, updates);
+        if (reintroduced) {
+            const [assignments, openTasks] = await Promise.all([
+                ctx.db
+                    .query("follow_up_assignments")
+                    .withIndex("by_person_status", (q) => q.eq("person_id", id).eq("status", "active"))
+                    .collect(),
+                ctx.db
+                    .query("follow_up_tasks")
+                    .withIndex("by_person_status", (q) => q.eq("person_id", id).eq("status", "open"))
+                    .collect(),
+            ]);
+            const owner = assignments.sort((a, b) => b.assigned_at.localeCompare(a.assigned_at))[0];
+            if (owner && openTasks.length === 0) {
+                const now = new Date().toISOString();
+                await ctx.db.insert("follow_up_tasks", {
+                    person_id: id,
+                    assigned_leader_id: owner.assigned_leader_id,
+                    due_date: rest.contact_date!,
+                    status: "open",
+                    task_type: "first_contact",
+                    priority: "high",
+                    reason: "Met again through evangelism — reconnect while the contact is fresh",
+                    created_at: now,
+                    updated_at: now,
+                });
+            }
+        }
         return await ctx.db.get(id);
     },
 });
