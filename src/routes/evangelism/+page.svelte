@@ -105,7 +105,8 @@
   const monthlyData = $derived(monthlyOutreach(insightRows));
   const inviterLeaders = $derived(topInviters(insightRows, people));
   const allMetrics = $derived(outreachMetrics(outreachRows));
-  const needsHandoff = $derived(outreachRows.filter((row) => row.follow_up_key === "unassigned").length);
+  const responsiveCount = $derived(outreachRows.filter((row) => row.response === "responsive").length);
+  const needsFollowUpCount = $derived(outreachRows.filter((row) => ["unassigned", "overdue", "scheduled", "active", "later"].includes(row.follow_up_key)).length);
 
   $effect(() => {
     if (hasLoadedClientData || !browser) return;
@@ -279,13 +280,14 @@
           </div>
           <div>
             <h2 id="outreach-directory-title" class="text-base font-semibold text-foreground">Outreach records</h2>
-            <p class="mt-1 max-w-xl text-sm text-muted-foreground">Your complete contact directory. Changing the Insights period never hides people here.</p>
+            <p class="mt-1 max-w-xl text-sm text-muted-foreground">Keep every contact visible while you review response, outcomes, and next actions.</p>
           </div>
         </div>
-        <dl class="grid grid-cols-3 gap-5 border-t border-border pt-4 text-center lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-          <div><dt class="text-xs text-muted-foreground">All contacts</dt><dd class="mt-1 text-xl font-semibold text-foreground">{outreachRows.length}</dd></div>
-          <div><dt class="text-xs text-muted-foreground">Need handoff</dt><dd class="mt-1 text-xl font-semibold {needsHandoff ? 'text-warning' : 'text-foreground'}">{needsHandoff}</dd></div>
-          <div><dt class="text-xs text-muted-foreground">Joined</dt><dd class="mt-1 text-xl font-semibold text-success">{allMetrics.joined}</dd></div>
+        <dl class="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-border pt-4 text-center sm:grid-cols-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+          <div><dt class="text-xs text-muted-foreground">People reached</dt><dd class="mt-1 text-xl font-semibold text-foreground">{outreachRows.length}</dd></div>
+          <div><dt class="text-xs text-muted-foreground">Responsive</dt><dd class="mt-1 text-xl font-semibold text-primary">{responsiveCount}</dd></div>
+          <div><dt class="text-xs text-muted-foreground">Needs follow-up</dt><dd class="mt-1 text-xl font-semibold {needsFollowUpCount ? 'text-warning' : 'text-success'}">{needsFollowUpCount}</dd></div>
+          <div><dt class="text-xs text-muted-foreground">Joined church</dt><dd class="mt-1 text-xl font-semibold text-success">{allMetrics.joined}</dd></div>
         </dl>
       </div>
     </section>

@@ -34,11 +34,17 @@
       ...item,
       x: chartData.length === 1 ? 50 : (index / (chartData.length - 1)) * 100,
       y: 100 - (item.attendance / max) * 86,
+      guestY: 100 - (item.guests / max) * 86,
     }));
   });
   const linePath = $derived(
     linePoints.length > 0
       ? linePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ")
+      : "",
+  );
+  const guestLinePath = $derived(
+    linePoints.length > 0
+      ? linePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.guestY}`).join(" ")
       : "",
   );
 
@@ -56,7 +62,7 @@
     </div>
     <div class="flex flex-wrap items-center justify-end gap-3 text-xs text-muted-foreground" aria-label="Chart legend">
       <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-primary"></span>Attendance</span>
-      <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-warning"></span>Guests</span>
+      <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-warning"></span>Guests</span>
       <ChartViewToggle value={chartType} onChange={(next) => (chartType = next)} />
     </div>
   </header>
@@ -73,10 +79,15 @@
             {#each chartData as item}
               <button type="button" class="group grid h-full min-w-0 flex-1 grid-rows-[minmax(0,1fr)_2rem] gap-2 rounded-md focus-visible:ring-offset-0" aria-label={`${item.label}: ${item.attendance} attendees, ${item.guests} guests`}>
                 <span class="relative flex min-h-0 items-end justify-center">
-                  <span class="relative flex w-full max-w-10 flex-col justify-end" style={`height: ${barHeight(item.attendance)}%`}>
-                    <span class="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs font-semibold tabular-nums text-foreground">{item.attendance}</span>
-                    <span class="absolute -top-1 -right-1 z-10 h-2.5 w-2.5 rounded-full border-2 border-card bg-warning shadow-sm" title={`${item.guests} guests`} aria-hidden="true"></span>
-                    <span class="h-full w-full rounded-t-lg bg-gradient-to-t from-primary/55 to-primary transition-all duration-200 group-hover:brightness-110"></span>
+                  <span class="flex h-full w-full max-w-16 items-end justify-center gap-1">
+                    <span class="relative flex h-full w-1/2 max-w-8 flex-col justify-end" style={`height: ${barHeight(item.attendance)}%`}>
+                      <span class="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-semibold tabular-nums text-foreground sm:text-xs">{item.attendance}</span>
+                      <span class="h-full w-full rounded-t-lg bg-gradient-to-t from-primary/55 to-primary transition-all duration-200 group-hover:brightness-110"></span>
+                    </span>
+                    <span class="relative flex h-full w-1/2 max-w-8 flex-col justify-end" style={`height: ${barHeight(item.guests)}%`}>
+                      <span class="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-semibold tabular-nums text-warning sm:text-xs">{item.guests}</span>
+                      <span class="h-full w-full rounded-t-lg bg-gradient-to-t from-warning/55 to-warning transition-all duration-200 group-hover:brightness-110"></span>
+                    </span>
                   </span>
                 </span>
                 <span class="flex h-8 items-center justify-center whitespace-nowrap text-[10px] font-medium text-muted-foreground transition-colors group-hover:text-foreground sm:text-xs">{item.label}</span>
@@ -87,8 +98,10 @@
           <div class="absolute inset-x-0 bottom-9 top-7">
             <svg viewBox="0 0 100 100" class="h-full w-full overflow-visible" preserveAspectRatio="none" role="img" aria-label={`${title} line chart`}>
               <path d={linePath} fill="none" stroke="hsl(var(--primary))" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+              <path d={guestLinePath} fill="none" stroke="hsl(var(--warning))" stroke-width="1" stroke-dasharray="3 2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
               {#each linePoints as point}
                 <circle cx={point.x} cy={point.y} r="1.7" fill="hsl(var(--primary))" vector-effect="non-scaling-stroke" />
+                <circle cx={point.x} cy={point.guestY} r="1.5" fill="hsl(var(--warning))" vector-effect="non-scaling-stroke" />
               {/each}
             </svg>
             <div class="absolute inset-x-0 -bottom-9 flex justify-between gap-2">

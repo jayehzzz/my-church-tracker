@@ -61,10 +61,10 @@ describe("evangelism view model", () => {
     }));
 
     expect(august).toHaveLength(2);
-    expect(outreachMetrics(august)).toEqual({ reached: 2, saved: 1, visited: 1, joined: 0 });
+    expect(outreachMetrics(august)).toEqual({ reached: 2, saved: 1, visited: 1, engaged: 1, joined: 0 });
     expect(monthlyOutreach(rows)).toEqual([
-      { month: "7", year: 2026, count: 1 },
-      { month: "8", year: 2026, count: 2 },
+      { month: "7", year: 2026, count: 1, saved: 0, visited: 1, joined: 1 },
+      { month: "8", year: 2026, count: 2, saved: 1, visited: 1, joined: 0 },
     ]);
   });
 

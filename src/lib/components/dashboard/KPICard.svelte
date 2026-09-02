@@ -45,8 +45,9 @@
 </script>
 
 <article
-  class="kpi-card group relative min-h-[154px] overflow-hidden rounded-2xl border border-border bg-card p-5 transition-all duration-200 {href ? 'has-link' : ''}"
+  class="kpi-card group relative min-h-[154px] overflow-hidden rounded-2xl border border-border bg-card p-5 transition-all duration-200 {href ? 'has-link' : ''} hover:-translate-y-0.5 hover:border-border-hover hover:shadow-[0_18px_45px_rgb(0_0_0_/_0.18)]"
   aria-label={ariaLabel}
+  title={description || ariaLabel}
 >
   <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r {palette.edge} via-transparent to-transparent"></div>
 
@@ -63,7 +64,7 @@
         {#if description}<p class="mt-1 truncate text-xs text-subtle">{description}</p>{/if}
       </div>
 
-      <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl {palette.icon}" aria-hidden="true">
+      <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl {palette.icon} transition-transform duration-200 group-hover:scale-105" aria-hidden="true">
         {#if icon === "users" || icon === "user-plus"}
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
@@ -104,12 +105,6 @@
 </article>
 
 <style>
-  .kpi-card.has-link:hover {
-    transform: translateY(-2px);
-    border-color: hsl(var(--border-hover));
-    box-shadow: 0 18px 45px rgb(0 0 0 / 0.18);
-  }
-
   .kpi-card.has-link:has(a:focus-visible) {
     outline: 2px solid hsl(var(--ring));
     outline-offset: 3px;

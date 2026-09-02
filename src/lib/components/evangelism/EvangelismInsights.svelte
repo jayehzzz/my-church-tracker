@@ -1,6 +1,6 @@
 <script>
-  import MonthlyContactsBar from "$lib/components/charts/MonthlyContactsBar.svelte";
-  import ConversionFunnel from "$lib/components/charts/ConversionFunnel.svelte";
+  import OutreachTrend from "$lib/components/charts/OutreachTrend.svelte";
+  import EvangelismOutcomes from "$lib/components/evangelism/EvangelismOutcomes.svelte";
 
   let {
     metrics = { reached: 0, saved: 0, visited: 0, joined: 0 },
@@ -61,9 +61,19 @@
       <p class="mx-auto mt-2 max-w-md text-sm text-muted-foreground">Your full contact directory is still available in Contacts. Change the period above to review earlier outreach.</p>
     </section>
   {:else}
-    <div class="grid grid-cols-1 gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-      <MonthlyContactsBar data={monthlyData} title="Contacts by month" />
-      <ConversionFunnel data={{ contacts: metrics.reached, attended: metrics.visited, saved: metrics.saved, joined: metrics.joined }} title="Outreach journey" />
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+      <OutreachTrend
+        data={monthlyData}
+        title="Outreach and outcomes over time"
+        subtitle="Compare contacts reached with the outcomes recorded each month."
+        {periodLabel}
+        comparisonOptions={[
+          { key: "saved", label: "Salvation decisions", color: "warning" },
+          { key: "visited", label: "First visits", color: "info" },
+          { key: "joined", label: "Joined church", color: "success" },
+        ]}
+      />
+      <EvangelismOutcomes {metrics} {periodLabel} />
     </div>
 
     <section class="card-base overflow-hidden" aria-labelledby="top-inviters-title">

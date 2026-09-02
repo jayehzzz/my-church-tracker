@@ -141,11 +141,15 @@ export function isWithinDateRange(value, range) {
 }
 
 export function outreachMetrics(rows = []) {
+  const savedRows = rows.filter((row) => row.salvation_decision);
+  const visitedRows = rows.filter((row) => row.attended_church || row.first_visit_date || row.converted);
+  const joinedRows = rows.filter((row) => row.converted || row.status === "member" || row.member_status === "member");
   return {
     reached: rows.length,
-    saved: rows.filter((row) => row.salvation_decision).length,
-    visited: rows.filter((row) => row.attended_church || row.first_visit_date || row.converted).length,
-    joined: rows.filter((row) => row.converted || row.status === "member" || row.member_status === "member").length,
+    saved: savedRows.length,
+    visited: visitedRows.length,
+    engaged: rows.filter((row) => row.salvation_decision && (row.attended_church || row.first_visit_date || row.converted)).length,
+    joined: joinedRows.length,
   };
 }
 
@@ -156,8 +160,18 @@ export function monthlyOutreach(rows = [], limit = 12) {
     const date = new Date(`${row.contact_date}T00:00:00`);
     if (Number.isNaN(date.getTime())) return;
     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-    const item = months.get(key) || { month: String(date.getMonth() + 1), year: date.getFullYear(), count: 0 };
+    const item = months.get(key) || {
+      month: String(date.getMonth() + 1),
+      year: date.getFullYear(),
+      count: 0,
+      saved: 0,
+      visited: 0,
+      joined: 0,
+    };
     item.count += 1;
+    if (row.salvation_decision) item.saved += 1;
+    if (row.attended_church || row.first_visit_date || row.converted) item.visited += 1;
+    if (row.converted || row.status === "member" || row.member_status === "member") item.joined += 1;
     months.set(key, item);
   });
   return [...months.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, value]) => value).slice(-limit);

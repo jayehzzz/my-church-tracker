@@ -635,6 +635,44 @@
         />
       </div>
 
+      <section class="mt-6 rounded-2xl border border-primary/20 bg-primary/[0.04] p-5" aria-labelledby="quick-record-title">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 id="quick-record-title" class="text-lg font-semibold text-foreground">Quick record</h2>
+            <p class="mt-1 text-sm text-muted-foreground">Start with a regular programme or record a one-off gathering.</p>
+          </div>
+          <span class="text-xs font-medium uppercase tracking-wider text-primary">Add attendance</span>
+        </div>
+        <div class="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {#each programs as program}
+            <button
+              type="button"
+              onclick={() => openNewMeeting(program.id)}
+              class="flex items-center justify-between rounded-xl border border-border bg-card p-3 text-left transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:bg-primary/5 hover:shadow-md"
+            >
+              <span>
+                <span class="block text-sm font-medium text-foreground">{program.name}</span>
+                <span class="mt-0.5 block text-xs text-muted-foreground">
+                  {formatFormat(program.default_format)}{program.default_day ? ` · ${formatDay(program.default_day)}` : ""}
+                </span>
+              </span>
+              <span class="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-lg leading-none text-primary">+</span>
+            </button>
+          {/each}
+          <button
+            type="button"
+            onclick={openOneOffMeeting}
+            class="flex items-center justify-between rounded-xl border border-dashed border-border bg-card p-3 text-left transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:bg-primary/5 hover:shadow-md"
+          >
+            <span>
+              <span class="block text-sm font-medium text-foreground">One-off / special event</span>
+              <span class="mt-0.5 block text-xs text-muted-foreground">Evangelism, training, fellowship or another rare meeting</span>
+            </span>
+            <span class="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-lg leading-none text-primary">+</span>
+          </button>
+        </div>
+      </section>
+
       {#if needsAttendance.length > 0}
         <section class="mt-6 rounded-2xl border border-warning/30 bg-warning/5 p-5">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -792,40 +830,6 @@
           {/if}
         </section>
 
-        <section class="rounded-2xl border border-border bg-card p-5">
-          <div>
-            <h2 class="text-lg font-semibold text-foreground">Quick record</h2>
-            <p class="mt-1 text-sm text-muted-foreground">Choose the meeting that took place</p>
-          </div>
-          <div class="mt-4 space-y-2">
-            {#each programs as program}
-              <button
-                type="button"
-                onclick={() => openNewMeeting(program.id)}
-                class="flex w-full items-center justify-between rounded-xl border border-border p-3 text-left hover:border-primary/40 hover:bg-primary/5"
-              >
-                <span>
-                  <span class="block text-sm font-medium text-foreground">{program.name}</span>
-                  <span class="mt-0.5 block text-xs text-muted-foreground">
-                    {formatFormat(program.default_format)}{program.default_day ? ` · ${formatDay(program.default_day)}` : ""}
-                  </span>
-                </span>
-                <span class="text-primary">+</span>
-              </button>
-            {/each}
-            <button
-              type="button"
-              onclick={openOneOffMeeting}
-              class="flex w-full items-center justify-between rounded-xl border border-dashed border-border p-3 text-left hover:border-primary/40 hover:bg-primary/5"
-            >
-              <span>
-                <span class="block text-sm font-medium text-foreground">One-off / special event</span>
-                <span class="mt-0.5 block text-xs text-muted-foreground">Evangelism, training, fellowship or another rare meeting</span>
-              </span>
-              <span class="text-primary">+</span>
-            </button>
-          </div>
-        </section>
       </div>
     {:else if activeTab === "attendance"}
       <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
