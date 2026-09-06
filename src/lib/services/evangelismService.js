@@ -1,12 +1,12 @@
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api.js";
 import { mockEvangelismContacts, getContactsByInviter as getMockContactsByInviter } from "../data/mockData.js";
+import { getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
 
 function getClient() {
-  const convexUrl = import.meta.env?.VITE_CONVEX_URL;
-  if (!convexUrl) return null;
-  return new ConvexHttpClient(convexUrl);
+  return getConvexHttpClient();
 }
+
+const unavailable = () => ({ data: null, error: unavailableError() });
 
 function isConvexId(id) {
   if (!id || typeof id !== "string") return false;
@@ -32,20 +32,21 @@ function mapDoc(doc) {
 export async function getAll() {
   const client = getClient();
   if (!client) {
-    return { data: mockEvangelismContacts.map(mapDoc), error: null };
+    return isDemoMode() ? { data: mockEvangelismContacts.map(mapDoc), error: null } : unavailable();
   }
 
   try {
     const data = await withTimeout(client.query(api.evangelism.getAll), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    return { data: mockEvangelismContacts.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }
 
 export async function getById(id) {
   const client = getClient();
   if (!client || !isConvexId(id)) {
+    if (!isDemoMode()) return unavailable();
     const mock = mockEvangelismContacts.find(c => String(c.id) === String(id));
     return { data: mock ? mapDoc(mock) : null, error: null };
   }
@@ -54,8 +55,6 @@ export async function getById(id) {
     const data = await withTimeout(client.query(api.evangelism.getById, { id }), 2500);
     return { data: mapDoc(data), error: null };
   } catch (error) {
-    const mock = mockEvangelismContacts.find(c => String(c.id) === String(id));
-    if (mock) return { data: mapDoc(mock), error: null };
     return { data: null, error };
   }
 }
@@ -63,6 +62,7 @@ export async function getById(id) {
 export async function create(contactData) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const newContact = { ...contactData, id: `mock-${Date.now()}` };
     mockEvangelismContacts.unshift(newContact);
     const crmService = await import("./followUpCrmService.js");
@@ -81,6 +81,7 @@ export async function create(contactData) {
 export async function update(id, contactData) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const index = mockEvangelismContacts.findIndex(c => c.id === id);
     if (index !== -1) {
       mockEvangelismContacts[index] = { ...mockEvangelismContacts[index], ...contactData };
@@ -102,6 +103,7 @@ export async function update(id, contactData) {
 export async function remove(id) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return { error: unavailableError() };
     const index = mockEvangelismContacts.findIndex(c => c.id === id);
     if (index !== -1) mockEvangelismContacts.splice(index, 1);
     return { error: null };
@@ -118,6 +120,7 @@ export async function remove(id) {
 export async function getByResponse(response) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const filtered = mockEvangelismContacts.filter(c => c.response === response);
     return { data: filtered.map(mapDoc), error: null };
   }
@@ -126,14 +129,14 @@ export async function getByResponse(response) {
     const data = await withTimeout(client.query(api.evangelism.getByResponse, { response }), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    const filtered = mockEvangelismContacts.filter(c => c.response === response);
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }
 
 export async function getRequiringFollowUp() {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const filtered = mockEvangelismContacts.filter(c => c.follow_up_required || c.response === 'responsive' || c.response === 'events_only');
     return { data: filtered.map(mapDoc), error: null };
   }
@@ -142,14 +145,14 @@ export async function getRequiringFollowUp() {
     const data = await withTimeout(client.query(api.evangelism.getRequiringFollowUp), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    const filtered = mockEvangelismContacts.filter(c => c.follow_up_required || c.response === 'responsive' || c.response === 'events_only');
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }
 
 export async function getConverted() {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const filtered = mockEvangelismContacts.filter(c => c.converted || c.response === 'converted');
     return { data: filtered.map(mapDoc), error: null };
   }
@@ -158,14 +161,14 @@ export async function getConverted() {
     const data = await withTimeout(client.query(api.evangelism.getConverted), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    const filtered = mockEvangelismContacts.filter(c => c.converted || c.response === 'converted');
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }
 
 export async function getByDateRange(startDate, endDate) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const filtered = mockEvangelismContacts.filter(c => c.contact_date >= startDate && c.contact_date <= endDate);
     return { data: filtered.map(mapDoc), error: null };
   }
@@ -174,14 +177,14 @@ export async function getByDateRange(startDate, endDate) {
     const data = await withTimeout(client.query(api.evangelism.getByDateRange, { startDate, endDate }), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    const filtered = mockEvangelismContacts.filter(c => c.contact_date >= startDate && c.contact_date <= endDate);
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }
 
 export async function markAsConverted(id, addToPeople = false) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const contact = mockEvangelismContacts.find(c => c.id === id);
     if (contact) {
       contact.converted = true;
@@ -202,6 +205,7 @@ export async function markAsConverted(id, addToPeople = false) {
 export async function getByInviter(personId) {
   const client = getClient();
   if (!client || !isConvexId(personId)) {
+    if (!isDemoMode()) return unavailable();
     const filtered = getMockContactsByInviter(personId);
     return { data: filtered.map(mapDoc), error: null };
   }
@@ -210,7 +214,6 @@ export async function getByInviter(personId) {
     const data = await withTimeout(client.query(api.evangelism.getByInviter, { personId }), 2500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    const filtered = getMockContactsByInviter(personId);
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }

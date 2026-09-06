@@ -1,5 +1,12 @@
 <script>
     import { Card, Badge, Button } from "$lib/components/ui";
+    import {
+        CHURCH_SCHOOL_OPTIONS,
+        formatChurchRole,
+        formatChurchSchool,
+        formatDegreeStatus,
+        normalizeCompletedSchools,
+    } from "$lib/utils/personMetrics.js";
 
     let { person, currentAge, isGuest, outreachContacts, visitations } =
         $props();
@@ -82,6 +89,10 @@
         return map[status?.toLowerCase()] || "secondary";
     }
 
+    let completedSchools = $derived(
+        normalizeCompletedSchools(person?.completed_schools || []),
+    );
+
     function formatStatus(status) {
         if (!status || status === "guest" || status === "visitor") return "Guest";
         return status.charAt(0).toUpperCase() + status.slice(1);
@@ -102,7 +113,7 @@
 
     // Notes editing state
     let editingNotes = $state(false);
-    let notesValue = $state(person?.notes || "");
+    let notesValue = $state("");
     let savingNotes = $state(false);
 
     // Update notesValue when person changes
@@ -174,11 +185,17 @@
                         {formatMaritalStatus(person.marital_status)}
                     </p>
                 </div>
-                <div class="col-span-2">
+                <div>
                     <span class="text-xs text-muted-foreground">Employment</span
                     >
                     <p class="text-sm font-medium text-foreground">
                         {formatEmploymentStatus(person.employment_status)}
+                    </p>
+                </div>
+                <div>
+                    <span class="text-xs text-muted-foreground">Degree</span>
+                    <p class="text-sm font-medium text-foreground">
+                        {formatDegreeStatus(person.degree_status)}
                     </p>
                 </div>
             </div>
@@ -219,6 +236,22 @@
                 <div
                     class="flex justify-between items-center py-2 border-b border-border/50"
                 >
+                    <span class="text-muted-foreground">Church Role</span>
+                    <Badge variant={person.church_role === "basonta" ? "default" : "secondary"}>
+                        {formatChurchRole(person.church_role)}
+                    </Badge>
+                </div>
+                {#if person.role && person.role !== "no_role"}
+                    <div
+                        class="flex justify-between items-center py-2 border-b border-border/50"
+                    >
+                        <span class="text-muted-foreground">Leadership Role</span>
+                        <Badge variant="success">{formatRole(person.role)}</Badge>
+                    </div>
+                {/if}
+                <div
+                    class="flex justify-between items-center py-2 border-b border-border/50"
+                >
                     <span class="text-muted-foreground">Membership Date</span>
                     <span class="font-medium text-foreground"
                         >{formatShortDate(person.membership_date)}</span
@@ -239,7 +272,7 @@
                 >
                     <span class="text-muted-foreground">Tithing</span>
                     <Badge variant={person.is_tither ? "success" : "secondary"}>
-                        {person.is_tither ? "Active" : "Inactive"}
+                        {person.is_tither ? "Yes" : "No"}
                     </Badge>
                 </div>
                 {#if person.basontas && person.basontas.length > 0}
@@ -259,6 +292,39 @@
             </div>
         </div>
     </Card>
+
+    <div class="lg:col-span-2">
+        <Card>
+            <div class="p-6">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <h3 class="text-lg font-semibold text-foreground">Church Schools Completed</h3>
+                        <p class="mt-1 text-sm text-muted-foreground">
+                            Church classes and examinations completed by {person.first_name}.
+                        </p>
+                    </div>
+                    <Badge variant={completedSchools.length > 0 ? "success" : "secondary"}>
+                        {completedSchools.length} of {CHURCH_SCHOOL_OPTIONS.length}
+                    </Badge>
+                </div>
+
+                {#if completedSchools.length > 0}
+                    <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        {#each completedSchools as school}
+                            <div class="flex items-center gap-3 rounded-lg border border-success/25 bg-success/5 px-4 py-3">
+                                <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-success text-xs font-bold text-success-foreground">✓</span>
+                                <span class="text-sm font-medium text-foreground">{formatChurchSchool(school)}</span>
+                            </div>
+                        {/each}
+                    </div>
+                {:else}
+                    <div class="mt-5 rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                        No completed church schools recorded yet.
+                    </div>
+                {/if}
+            </div>
+        </Card>
+    </div>
 
     <!-- Guest Info (Conditional) -->
     {#if isGuest}

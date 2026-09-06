@@ -13,6 +13,7 @@
   } = $props();
 
   let saving = $state(false);
+  let requestId = $state(crypto.randomUUID());
   let errors = $state({});
   let formData = $state({
     person_id: "",
@@ -84,6 +85,7 @@
 
   $effect(() => {
     if (!isOpen) return;
+    requestId = crypto.randomUUID();
     const existing = visitation;
     formData = {
       person_id: existing?.person_id || task?.person_id || initialPersonId || "",
@@ -114,6 +116,7 @@
   }
 
   async function handleSubmit() {
+    if (saving) return;
     if (!validate()) return;
     saving = true;
     errors = {};
@@ -122,6 +125,7 @@
       const person = people.find((candidate) => String(recordId(candidate)) === String(formData.person_id));
       const visitor = people.find((candidate) => String(recordId(candidate)) === String(formData.visited_by_id));
       const payload = {
+        ...(mode === "create" ? { request_id: requestId } : {}),
         person_id: formData.person_id,
         person_visited_name: fullName(person || selectedPerson),
         visited_by_id: formData.visited_by_id,
@@ -132,7 +136,7 @@
         outcome: formData.outcome,
         follow_up_required: formData.follow_up_required,
         follow_up_date: formData.follow_up_required ? formData.follow_up_date : undefined,
-        notes: formData.notes.trim() || undefined,
+        notes: formData.notes.trim(),
         ...(mode === "create" && task ? { source_task_id: task._id || task.id } : {}),
       };
       const result = mode === "edit"
@@ -248,7 +252,7 @@
           <input
             type="checkbox"
             bind:checked={formData.follow_up_required}
-            disabled={saving || mode === "edit"}
+            disabled={saving || (mode === "edit" && visitation?.next_task?.status && visitation.next_task.status !== "open")}
             class="h-4 w-4 rounded border-border bg-input text-primary focus:ring-primary"
           />
           <span>
@@ -262,13 +266,13 @@
             type="date"
             bind:value={formData.follow_up_date}
             error={errors.follow_up_date}
-            disabled={saving || mode === "edit"}
+            disabled={saving || (mode === "edit" && visitation?.next_task?.status && visitation.next_task.status !== "open")}
           />
         {/if}
       </div>
       {#if mode === "edit"}
         <p class="mt-3 text-xs text-muted-foreground">
-          Next actions are managed as shared tasks from the Pastoral Care or Follow-Up CRM workspace.
+          Corrections update open next actions. Completed or cancelled tasks stay closed; use a new care task for additional work.
         </p>
       {/if}
     </div>
@@ -284,7 +288,7 @@
         placeholder="Record the essential outcome, concerns and agreed next step."
       ></textarea>
       <p class="mt-1.5 text-xs text-muted-foreground">
-        Keep sensitive safeguarding details outside general notes until role-based access is enabled.
+        Care notes are restricted to accounts with confidential care access.
       </p>
     </div>
   </form>

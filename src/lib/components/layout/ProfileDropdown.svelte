@@ -6,12 +6,12 @@
 <script>
   import { goto } from "$app/navigation";
   import { fade, scale } from "svelte/transition";
-  import { mockPeople } from "$lib/data/mockData";
+  import { session, signOut } from "$lib/auth/session.js";
+  import { isDemoMode } from "$lib/convex.js";
 
   let { isOpen = false, onclose, onOpenShortcuts } = $props();
 
   let dropdownRef = $state(null);
-  let isExporting = $state(false);
   let statusMessage = $state("");
 
   // Dismiss dropdown when clicking anywhere in the empty space outside
@@ -44,47 +44,11 @@
   }
 
   function handleExportData() {
-    isExporting = true;
-    try {
-      const backupData = {
-        church: "Grace Community Church",
-        campus: "Central Campus (Luton)",
-        exportedAt: new Date().toISOString(),
-        version: "3.0.0",
-        totalMembersCount: mockPeople.length,
-        peopleSummary: mockPeople.map((p) => ({
-          id: p.id,
-          name: `${p.first_name} ${p.last_name}`,
-          role: p.role,
-          status: p.member_status,
-          phone: p.phone,
-          email: p.email,
-        })),
-      };
-
-      const dataStr =
-        "data:text/json;charset=utf-8," +
-        encodeURIComponent(JSON.stringify(backupData, null, 2));
-      const downloadAnchor = document.createElement("a");
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute(
-        "download",
-        `church-tracker-backup-${new Date().toISOString().split("T")[0]}.json`
-      );
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-
-      statusMessage = "Backup downloaded successfully!";
-      setTimeout(() => {
-        statusMessage = "";
-      }, 3000);
-    } catch (err) {
-      console.error("Export failed:", err);
-      statusMessage = "Export failed. Please try again.";
-    } finally {
-      isExporting = false;
-    }
+    // Convex backups include all tables and selected file storage. They are
+    // deliberately initiated in the provider console, not serialized in the
+    // browser where a partial JSON file could be mistaken for recovery media.
+    window.open("https://dashboard.convex.dev/", "_blank", "noopener,noreferrer");
+    statusMessage = "Open Backup & Restore for the intended deployment; include file storage.";
   }
 
   function handleShortcutsClick() {
@@ -92,12 +56,9 @@
     onOpenShortcuts?.();
   }
 
-  function handleSignOut() {
-    statusMessage = "Signing out session...";
-    setTimeout(() => {
-      onclose?.();
-      goto("/");
-    }, 800);
+  async function handleSignOut() {
+    onclose?.();
+    await signOut();
   }
 
   function handleKeydown(e) {
@@ -120,18 +81,18 @@
     <div class="p-4 bg-secondary/40 border-b border-border/60">
       <div class="flex items-center space-x-3">
         <div class="w-11 h-11 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold text-base shadow-md shadow-primary/20">
-          PJ
+          {($session.user?.name || "?").split(" ").map(part => part[0]).slice(0, 2).join("")}
         </div>
         <div class="flex-1 min-w-0">
           <h3 class="font-bold text-foreground text-sm leading-tight truncate">
-            Pastor John Doe
+            {$session.user?.name || "Signed out"}
           </h3>
           <p class="text-xs text-muted-foreground truncate">
-            pastor.john@churchtracker.app
+            {$session.user?.email || ""}
           </p>
           <div class="mt-1 flex items-center gap-1.5">
             <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-primary/15 text-primary border border-primary/20">
-              Senior Pastor & Admin
+              {$session.user?.role || "Role unavailable"}
             </span>
           </div>
         </div>
@@ -150,9 +111,9 @@
         <svg class="w-3.5 h-3.5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
         </svg>
-        <span class="font-medium text-foreground">Grace Community Church</span>
+        <span class="font-medium text-foreground">{isDemoMode() ? "Demo organization" : "Organization profile"}</span>
       </div>
-      <span class="text-[10px] text-muted-foreground">Luton Campus</span>
+      <span class="text-[10px] text-muted-foreground">{isDemoMode() ? "Demo campus" : "Not configured"}</span>
     </div>
 
     <!-- Action Links -->
@@ -181,6 +142,18 @@
         <span class="flex-1">Growth Reports & Analytics</span>
       </button>
 
+      {#if $session.user?.role === 'owner'}
+        <button
+          onclick={() => handleAction('/access')}
+          class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg hover:bg-secondary text-left text-xs font-medium text-foreground transition-colors group"
+        >
+          <div class="w-6 h-6 rounded-md bg-secondary text-muted-foreground flex items-center justify-center group-hover:text-primary group-hover:bg-primary/10 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-7a2 2 0 00-2-2h-1V7a5 5 0 00-10 0v3H6a2 2 0 00-2 2v7a2 2 0 002 2z" /></svg>
+          </div>
+          <span class="flex-1">Manage access</span>
+        </button>
+      {/if}
+
       <button
         onclick={handleShortcutsClick}
         class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg hover:bg-secondary text-left text-xs font-medium text-foreground transition-colors group"
@@ -196,7 +169,7 @@
 
       <button
         onclick={handleExportData}
-        disabled={isExporting}
+        disabled={!(["owner", "admin"].includes($session.user?.role))}
         class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg hover:bg-secondary text-left text-xs font-medium text-foreground transition-colors group"
       >
         <div class="w-6 h-6 rounded-md bg-secondary text-muted-foreground flex items-center justify-center group-hover:text-primary group-hover:bg-primary/10 transition-colors">
@@ -205,7 +178,7 @@
           </svg>
         </div>
         <span class="flex-1">
-          {isExporting ? 'Exporting...' : 'Export Church Backup (JSON)'}
+          Open recovery backup console
         </span>
       </button>
     </div>

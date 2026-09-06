@@ -1,5 +1,7 @@
-import { query, mutation } from "./_generated/server";
+import { queryFor, mutationFor } from "./lib/security";
+
 import { v } from "convex/values";
+import { normalizeEmail, validatePersonInput } from "./peopleValidation";
 
 /**
  * REFACTORED: Now queries the Unified `people` table for guests/contacts.
@@ -26,7 +28,7 @@ const mapToContact = (person: any, inviter: any = null) => {
         // Mapped fields
         response: person.contact_category,
         status: person.member_status,
-        converted: person.member_status === "member",
+        converted: ["member", "leader"].includes(person.member_status),
 
         // Inviter info
         invited_by_name: inviter ? `${inviter.first_name || ''} ${inviter.last_name || ''}`.trim() : null,
@@ -48,13 +50,11 @@ const mapToContact = (person: any, inviter: any = null) => {
 };
 
 
-export const getAll = query({
+export const getAll = queryFor("evangelism:getAll")({
     args: {},
     handler: async (ctx) => {
-        const contacts = await ctx.db
-            .query("people")
-            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
-            .collect();
+        const people = await ctx.db.query("people").collect();
+        const contacts = people.filter((person) => person.contact_date || person.entry_point === "evangelism");
 
         const results = await Promise.all(
             contacts.map(async (contact) => {
@@ -76,7 +76,7 @@ export const getAll = query({
     },
 });
 
-export const getById = query({
+export const getById = queryFor("evangelism:getById")({
     args: { id: v.id("people") },
     handler: async (ctx, args) => {
         const contact = await ctx.db.get(args.id);
@@ -90,7 +90,7 @@ export const getById = query({
     },
 });
 
-export const create = mutation({
+export const create = mutationFor("evangelism:create")({
     args: {
         first_name: v.string(),
         last_name: v.optional(v.string()),
@@ -107,29 +107,43 @@ export const create = mutation({
         contact_method: v.optional(v.string()),
         follow_up_date: v.optional(v.string()),
         attended_church: v.optional(v.boolean()),
+        first_visit_date: v.optional(v.string()),
         salvation_decision: v.optional(v.boolean()),
         converted: v.optional(v.boolean()),
         conversion_date: v.optional(v.string()),
         notes: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
+        validatePersonInput({
+            first_name: args.first_name,
+            ...(args.last_name ? { last_name: args.last_name } : {}),
+            ...(args.email ? { email: args.email } : {}),
+            contact_date: args.contact_date,
+            contact_category: args.response,
+            ...(args.contact_method ? { contact_method: args.contact_method } : {}),
+            ...(args.first_visit_date ? { first_visit_date: args.first_visit_date } : {}),
+            ...(args.conversion_date ? { membership_date: args.conversion_date } : {}),
+        });
         const now = new Date().toISOString();
 
         // If 'converted' is true, set status to member
         const status = args.converted ? "member" : "guest";
 
         const id = await ctx.db.insert("people", {
-            first_name: args.first_name,
-            last_name: args.last_name || "",
-            email: args.email,
-            phone: args.phone,
-            address: args.address,
+            first_name: args.first_name.trim(),
+            last_name: args.last_name?.trim() || "",
+            email: normalizeEmail(args.email),
+            phone: args.phone?.trim() || undefined,
+            address: args.address?.trim() || undefined,
 
             member_status: status,
             contact_category: args.response,
             contact_date: args.contact_date,
+            contact_method: args.contact_method,
             invited_by_id: args.invited_by_id,
             salvation_decision: args.salvation_decision,
+            first_visit_date: args.first_visit_date || (args.attended_church ? args.contact_date : undefined),
+            notes: args.notes,
 
             // New unified fields for attendance/spiritual tracking
             membership_date: args.conversion_date,
@@ -180,7 +194,7 @@ export const create = mutation({
     },
 });
 
-export const update = mutation({
+export const update = mutationFor("evangelism:update")({
     args: {
         id: v.id("people"),
         first_name: v.optional(v.string()),
@@ -196,6 +210,7 @@ export const update = mutation({
         contact_method: v.optional(v.string()),
         follow_up_date: v.optional(v.string()),
         attended_church: v.optional(v.boolean()),
+        first_visit_date: v.optional(v.string()),
         salvation_decision: v.optional(v.boolean()),
         converted: v.optional(v.boolean()),
         conversion_date: v.optional(v.string()),
@@ -203,6 +218,11 @@ export const update = mutation({
     },
     handler: async (ctx, args) => {
         const { id, response, converted, conversion_date, attended_church, ...rest } = args;
+        validatePersonInput({
+            ...rest,
+            ...(response ? { contact_category: response } : {}),
+            ...(conversion_date ? { membership_date: conversion_date } : {}),
+        });
         const existingPerson = await ctx.db.get(id);
         if (!existingPerson) throw new Error("Contact not found");
         const nextCategory = response ?? existingPerson.contact_category;
@@ -218,6 +238,12 @@ export const update = mutation({
             ...rest,
             updated_at: new Date().toISOString(),
         };
+
+        if (updates.first_name !== undefined) updates.first_name = updates.first_name.trim();
+        if (updates.last_name !== undefined) updates.last_name = updates.last_name.trim();
+        if (updates.email !== undefined) updates.email = normalizeEmail(updates.email);
+        if (updates.phone !== undefined) updates.phone = updates.phone.trim() || undefined;
+        if (updates.address !== undefined) updates.address = updates.address.trim() || undefined;
 
         if (response) updates.contact_category = response;
         if (converted !== undefined) {
@@ -242,32 +268,8 @@ export const update = mutation({
             }
         }
 
-        // Clean up fields not in people schema
-        delete updates.contact_method;
+        // follow_up_date creates a task during contact creation; it is not a person field.
         delete updates.follow_up_date;
-        // delete updates.notes; // Notes ARE in schema (line 140 of schema.ts has it? No, wait)
-
-        // Let's check schema for notes. 
-        // Schema line 13: address, 14: birthday... 47 updated_at.
-        // It does NOT have notes in people schema? 
-        // Wait, EvangelismContactForm uses notes. 
-        // Checking schema.ts: It DOES NOT have notes in 'people'. 
-        // It has 'visitations' notes, 'meetings' notes.
-        // But 'PersonForm' uses notes too?
-        // PersonForm line 46: notes: "".
-        // If PersonForm uses it, and backend deletes it (in evangelism), then it's lost.
-        // But people.ts update doesn't delete it?
-        // Wait, schema.ts line 6-51 does NOT list notes.
-        // So 'notes' is effectively lost or creating schema error if inserted?
-        // Convex allows flexible schema if not strict? defineTable usually enforces strictness if v arguments are provided?
-        // Yes, defineTable IS strict.
-
-        // So notes field is broken globally for people if not in schema.
-        // I should stick to just fixing attended_church for now.
-
-        delete updates.notes; // Explicitly delete if not in schema
-
-        // We deleted attended_church from destructuring so it's not in 'rest'
 
         await ctx.db.patch(id, updates);
         if (reintroduced) {
@@ -301,7 +303,7 @@ export const update = mutation({
     },
 });
 
-export const remove = mutation({
+export const remove = mutationFor("evangelism:remove")({
     args: { id: v.id("people") },
     handler: async (ctx, args) => {
         await ctx.db.delete(args.id);
@@ -309,7 +311,7 @@ export const remove = mutation({
     },
 });
 
-export const markAsConverted = mutation({
+export const markAsConverted = mutationFor("evangelism:markAsConverted")({
     args: {
         id: v.id("people"),
         addToPeople: v.optional(v.boolean()), // Legacy, ignored
@@ -328,13 +330,11 @@ export const markAsConverted = mutation({
     },
 });
 
-export const getByResponse = query({
+export const getByResponse = queryFor("evangelism:getByResponse")({
     args: { response: v.string() },
     handler: async (ctx, args) => {
-        const contacts = await ctx.db
-            .query("people")
-            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
-            .collect();
+        const people = await ctx.db.query("people").collect();
+        const contacts = people.filter((person) => person.contact_date || person.entry_point === "evangelism");
 
         const filtered = contacts.filter(c => c.contact_category === args.response);
 
@@ -346,7 +346,7 @@ export const getByResponse = query({
     },
 });
 
-export const getRequiringFollowUp = query({
+export const getRequiringFollowUp = queryFor("evangelism:getRequiringFollowUp")({
     args: {},
     handler: async (ctx) => {
         // Get all guests with responsive status who need follow-up:
@@ -384,13 +384,11 @@ export const getRequiringFollowUp = query({
 });
 
 
-export const getConverted = query({
+export const getConverted = queryFor("evangelism:getConverted")({
     args: {},
     handler: async (ctx) => {
-        const members = await ctx.db
-            .query("people")
-            .withIndex("by_member_status", (q) => q.eq("member_status", "member"))
-            .collect();
+        const people = await ctx.db.query("people").collect();
+        const members = people.filter((person) => ["member", "leader"].includes(person.member_status));
 
         // Filter those who came from evangelism (have contact_date)
         const convertedContacts = members.filter(m => m.contact_date != null);
@@ -403,13 +401,11 @@ export const getConverted = query({
     },
 });
 
-export const getByDateRange = query({
+export const getByDateRange = queryFor("evangelism:getByDateRange")({
     args: { startDate: v.string(), endDate: v.string() },
     handler: async (ctx, args) => {
-        const contacts = await ctx.db
-            .query("people")
-            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
-            .collect();
+        const people = await ctx.db.query("people").collect();
+        const contacts = people.filter((person) => person.contact_date || person.entry_point === "evangelism");
 
         const filtered = contacts.filter(c => {
             if (!c.contact_date) return false;
@@ -424,13 +420,12 @@ export const getByDateRange = query({
     },
 });
 
-export const getByInviter = query({
+export const getByInviter = queryFor("evangelism:getByInviter")({
     args: { personId: v.id("people") },
     handler: async (ctx, args) => {
         const contacts = await ctx.db
             .query("people")
-            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
-            .filter(q => q.eq(q.field("invited_by_id"), args.personId))
+            .withIndex("by_invited_by", (q) => q.eq("invited_by_id", args.personId))
             .collect();
 
         return await Promise.all(contacts.map(async (c) => {

@@ -1,5 +1,9 @@
 const CLOSED_RESPONSES = new Set(["do_not_contact", "has_church"]);
 
+function hasJoined(contact) {
+  return Boolean(contact.converted || ["member", "leader"].includes(contact.status) || ["member", "leader"].includes(contact.member_status));
+}
+
 export function contactId(contact) {
   return contact?._id || contact?.id;
 }
@@ -17,8 +21,9 @@ export function formatOutreachDate(value) {
 
 export function formatResponse(value) {
   const labels = {
-    responsive: "Responsive",
-    non_responsive: "Non-responsive",
+    not_assessed: "Not assessed",
+    responsive: "Open to follow-up",
+    non_responsive: "Not responding",
     has_church: "Has another church",
     events_only: "Events only",
     big_events_only: "Big events only",
@@ -37,7 +42,7 @@ function daysSince(value, today) {
 }
 
 function journeyFor(contact) {
-  const member = Boolean(contact.converted || contact.status === "member" || contact.member_status === "member");
+  const member = hasJoined(contact);
   if (member) return { key: "joined", label: "Joined church" };
 
   const saved = Boolean(contact.salvation_decision);
@@ -143,7 +148,7 @@ export function isWithinDateRange(value, range) {
 export function outreachMetrics(rows = []) {
   const savedRows = rows.filter((row) => row.salvation_decision);
   const visitedRows = rows.filter((row) => row.attended_church || row.first_visit_date || row.converted);
-  const joinedRows = rows.filter((row) => row.converted || row.status === "member" || row.member_status === "member");
+  const joinedRows = rows.filter(hasJoined);
   return {
     reached: rows.length,
     saved: savedRows.length,
@@ -171,7 +176,7 @@ export function monthlyOutreach(rows = [], limit = 12) {
     item.count += 1;
     if (row.salvation_decision) item.saved += 1;
     if (row.attended_church || row.first_visit_date || row.converted) item.visited += 1;
-    if (row.converted || row.status === "member" || row.member_status === "member") item.joined += 1;
+    if (hasJoined(row)) item.joined += 1;
     months.set(key, item);
   });
   return [...months.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, value]) => value).slice(-limit);
@@ -183,7 +188,7 @@ export function topInviters(rows = [], people = [], limit = 5) {
     if (!row.invited_by_id) return;
     const current = counts.get(row.invited_by_id) || { id: row.invited_by_id, count: 0, joined: 0 };
     current.count += 1;
-    if (row.converted || row.status === "member" || row.member_status === "member") current.joined += 1;
+    if (hasJoined(row)) current.joined += 1;
     counts.set(row.invited_by_id, current);
   });
   return [...counts.values()].map((item) => ({

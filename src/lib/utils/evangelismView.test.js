@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildEvangelismRows,
   filterEvangelismRows,
+  formatResponse,
   isWithinDateRange,
   monthlyOutreach,
   outreachMetrics,
@@ -73,5 +74,9 @@ describe("evangelism view model", () => {
       { id: "p1", name: "Samuel Owusu", count: 2, joined: 1 },
       { id: "p2", name: "Grace Mensah", count: 1, joined: 0 },
     ]);
+  });
+
+  it("uses neutral follow-up wording before a posture is assessed", () => {
+    expect(formatResponse("not_assessed")).toBe("Not assessed");
   });
 });

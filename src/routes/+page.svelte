@@ -48,7 +48,7 @@
       },
       byId.guests && {
         ...byId.guests,
-        title: "New guests",
+        title: "Guest attendances",
       },
       {
         id: "followups",

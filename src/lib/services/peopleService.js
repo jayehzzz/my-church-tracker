@@ -1,14 +1,14 @@
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api.js";
 import { mockPeople, mockEvangelismContacts, getPersonById as getMockPersonById } from "../data/mockData.js";
+import { getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
 
 export { getMockPersonById };
 
 function getClient() {
-  const convexUrl = import.meta.env?.VITE_CONVEX_URL;
-  if (!convexUrl) return null;
-  return new ConvexHttpClient(convexUrl);
+  return getConvexHttpClient();
 }
+
+const unavailable = () => ({ data: null, error: unavailableError() });
 
 function isConvexId(id) {
   if (!id || typeof id !== "string") return false;
@@ -48,21 +48,21 @@ function matchesStatus(person, status) {
 export async function getAll() {
   const client = getClient();
   if (!client) {
-    return { data: mockPeople.map(mapDoc), error: null };
+    return isDemoMode() ? { data: mockPeople.map(mapDoc), error: null } : unavailable();
   }
 
   try {
     const data = await withTimeout(client.query(api.people.getAll), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    console.warn("Convex query failed, falling back to mock data:", error);
-    return { data: mockPeople.map(mapDoc), error: null };
+    return isDemoMode() ? { data: mockPeople.map(mapDoc), error: null } : { data: null, error };
   }
 }
 
 export async function getById(id) {
   const client = getClient();
   if (!client || !isConvexId(id)) {
+    if (!isDemoMode()) return unavailable();
     const mock = getMockPersonById(id);
     return { data: mock ? mapDoc(mock) : null, error: null };
   }
@@ -71,29 +71,48 @@ export async function getById(id) {
     const data = await withTimeout(client.query(api.people.getById, { id }), 2500);
     return { data: mapDoc(data), error: null };
   } catch (error) {
-    const mock = getMockPersonById(id);
-    if (mock) return { data: mapDoc(mock), error: null };
     return { data: null, error };
   }
 }
 
-// Helper to remove null/undefined values - Convex expects undefined (absent) not null
-function cleanData(obj) {
-  return Object.fromEntries(
-    Object.entries(obj).filter(([_, v]) => v !== null && v !== undefined && v !== '')
-  );
+// Empty optional fields mean "clear this saved value" on updates. Convex does
+// not preserve `undefined` across a network request, so send explicit intent.
+const CLEARABLE_FIELDS = new Set([
+  "email", "phone", "address", "city", "state", "zip_code", "preferred_name",
+  "birthday", "date_of_birth", "gender", "marital_status", "employment_status",
+  "degree_status", "basontas", "church_role", "role", "activity_status", "leader_id",
+  "contact_category", "contact_date", "contact_method", "invited_by_id", "entry_point",
+  "notes", "first_visit_date", "membership_date", "is_baptised", "is_tither",
+  "completed_schools", "lat", "lng", "avatar_url",
+]);
+
+export function preparePersonPayload(obj, { forUpdate = false } = {}) {
+  const payload = {};
+  const clearFields = [];
+  for (const [rawKey, rawValue] of Object.entries(obj || {})) {
+    const key = rawKey === "date_of_birth" ? "birthday" : rawKey;
+    const value = typeof rawValue === "string" ? rawValue.trim() : rawValue;
+    if (value === null || value === undefined || value === "") {
+      if (forUpdate && CLEARABLE_FIELDS.has(rawKey)) clearFields.push(key);
+      continue;
+    }
+    payload[key] = value;
+  }
+  if (forUpdate && clearFields.length) payload.clear_fields = [...new Set(clearFields)];
+  return payload;
 }
 
 export async function create(personData) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const newPerson = { ...personData, id: `mock-${Date.now()}` };
     mockPeople.push(newPerson);
     return { data: mapDoc(newPerson), error: null };
   }
 
   try {
-    const data = await withTimeout(client.mutation(api.people.create, cleanData(personData)), 5000);
+    const data = await withTimeout(client.mutation(api.people.create, preparePersonPayload(personData)), 5000);
     return { data: mapDoc(data), error: null };
   } catch (error) {
     return { data: null, error };
@@ -102,22 +121,30 @@ export async function create(personData) {
 
 export async function update(id, personData) {
   const client = getClient();
+  const payload = preparePersonPayload(personData, { forUpdate: true });
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const index = mockPeople.findIndex(p => String(p.id) === String(id));
     if (index !== -1) {
-      mockPeople[index] = { ...mockPeople[index], ...personData };
+      const next = { ...mockPeople[index], ...payload };
+      for (const field of payload.clear_fields || []) delete next[field];
+      delete next.clear_fields;
+      mockPeople[index] = next;
       return { data: mapDoc(mockPeople[index]), error: null };
     }
     const cIndex = mockEvangelismContacts.findIndex(c => String(c.id) === String(id));
     if (cIndex !== -1) {
-      mockEvangelismContacts[cIndex] = { ...mockEvangelismContacts[cIndex], ...personData };
+      const next = { ...mockEvangelismContacts[cIndex], ...payload };
+      for (const field of payload.clear_fields || []) delete next[field];
+      delete next.clear_fields;
+      mockEvangelismContacts[cIndex] = next;
       return { data: getMockPersonById(id), error: null };
     }
     return { data: null, error: new Error('Person not found in mock data') };
   }
 
   try {
-    const data = await withTimeout(client.mutation(api.people.update, { id, ...cleanData(personData) }), 5000);
+    const data = await withTimeout(client.mutation(api.people.update, { id, ...payload }), 5000);
     return { data: mapDoc(data), error: null };
   } catch (error) {
     return { data: null, error };
@@ -127,6 +154,7 @@ export async function update(id, personData) {
 export async function remove(id) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return { error: unavailableError() };
     const index = mockPeople.findIndex(p => String(p.id) === String(id));
     if (index !== -1) mockPeople.splice(index, 1);
     const cIndex = mockEvangelismContacts.findIndex(c => String(c.id) === String(id));
@@ -142,9 +170,59 @@ export async function remove(id) {
   }
 }
 
+export async function archive(id) {
+  const client = getClient();
+  if (!client) return update(id, { member_status: "archived" });
+  try {
+    const data = await withTimeout(client.mutation(api.people.archive, { id }), 5000);
+    return { data: mapDoc(data), error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+export async function findDuplicates({ email, phone, excludeId } = {}) {
+  const client = getClient();
+  if (!client) return { data: [], error: null };
+  try {
+    const data = await withTimeout(client.query(api.people.findDuplicates, { email, phone, excludeId }), 3500);
+    return { data: data || [], error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+export async function getMergePreview(sourceId, targetId) {
+  const client = getClient();
+  if (!client) return { data: null, error: new Error("Merging requires a connected church database") };
+  try {
+    const data = await withTimeout(client.query(api.people.getMergePreview, { sourceId, targetId }), 5000);
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+export async function mergeReviewed(preview) {
+  const client = getClient();
+  if (!client) return { data: null, error: new Error("Merging requires a connected church database") };
+  try {
+    const data = await withTimeout(client.mutation(api.people.mergeReviewed, {
+      sourceId: preview.source.id,
+      targetId: preview.target.id,
+      sourceUpdatedAt: preview.sourceUpdatedAt,
+      targetUpdatedAt: preview.targetUpdatedAt,
+    }), 8000);
+    return { data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
 export async function getByStatus(status) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const filtered = mockPeople.filter((person) => matchesStatus(person, status));
     return { data: filtered.map(mapDoc), error: null };
   }
@@ -153,14 +231,14 @@ export async function getByStatus(status) {
     const data = await withTimeout(client.query(api.people.getByStatus, { status }), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    const filtered = mockPeople.filter((person) => matchesStatus(person, status));
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }
 
 export async function search(searchTerm) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const term = (searchTerm || '').toLowerCase();
     const filtered = mockPeople.filter(p =>
       `${p.first_name || ''} ${p.last_name || ''} ${p.email || ''}`.toLowerCase().includes(term)

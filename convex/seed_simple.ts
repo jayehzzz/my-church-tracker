@@ -1,8 +1,11 @@
-import { mutation } from "./_generated/server";
+import { v } from "convex/values";
+import { requireDisposable } from "./lib/maintenance";
+import { internalMutation } from "./_generated/server";
 
-export const seed = mutation({
-    args: {},
-    handler: async (ctx) => {
+export const seed = internalMutation({
+    args: { confirmation: v.string() },
+    handler: async (ctx, args) => {
+        requireDisposable(args.confirmation);
         // 1. Create a person with 'basontas' (Ministry Groups) - Verifies new field support
         const leaderId = await ctx.db.insert("people", {
             first_name: "Test",
@@ -26,7 +29,6 @@ export const seed = mutation({
             membership_date: new Date().toISOString().split("T")[0],
             salvation_decision: true,
             // Note: 'converted' field was removed as it doesn't exist in schema
-            intended_use: "evangelism", // Or whatever flag distinguishes them if any
             contact_category: "responsive",
             invited_by_id: leaderId,
             created_at: new Date().toISOString(),

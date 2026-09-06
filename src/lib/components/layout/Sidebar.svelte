@@ -191,8 +191,4 @@
     background-color: hsl(var(--card));
   }
 
-  /* Tooltip styles for collapsed sidebar */
-  .group:hover .group-hover\:opacity-100 {
-    opacity: 1;
-  }
 </style>

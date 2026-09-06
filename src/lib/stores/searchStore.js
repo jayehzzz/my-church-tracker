@@ -1,4 +1,6 @@
 import { writable, derived } from 'svelte/store';
+import { api } from '../../../convex/_generated/api.js';
+import { getConvexHttpClient, isDemoMode } from '$lib/convex.js';
 
 // Search UI state stores
 export const isSearchOpen = writable(false);
@@ -20,7 +22,8 @@ export function closeSearch() {
     searchResults.set([]);
 }
 
-// Mock data for search (in production this would search actual data/API)
+// Search examples are available only in explicit local demo mode. A live
+// search index is a backend requirement and must not invent records.
 const mockSearchData = [
     { id: 1, type: 'person', title: 'Sarah Johnson', subtitle: 'Active Member', icon: 'user', href: '/people' },
     { id: 2, type: 'person', title: 'Michael Chen', subtitle: 'Volunteer', icon: 'user', href: '/people' },
@@ -35,10 +38,12 @@ const mockSearchData = [
 
 // Debounce timer
 let searchTimeout;
+let searchRequest = 0;
 
 // Perform search with debounce
 export function performSearch(query) {
     searchQuery.set(query);
+    const request = ++searchRequest;
 
     // Clear previous timeout
     if (searchTimeout) {
@@ -56,7 +61,27 @@ export function performSearch(query) {
     _isSearching.set(true);
 
     // Debounced search (300ms delay)
-    searchTimeout = setTimeout(() => {
+    searchTimeout = setTimeout(async () => {
+        if (!isDemoMode()) {
+            const client = getConvexHttpClient();
+            if (!client) {
+                if (request === searchRequest) {
+                    searchResults.set([]);
+                    _isSearching.set(false);
+                }
+                return;
+            }
+            try {
+                const results = await client.query(api.search.people, { query });
+                if (request === searchRequest) searchResults.set(results);
+            } catch {
+                // Search must never substitute invented results for an outage.
+                if (request === searchRequest) searchResults.set([]);
+            } finally {
+                if (request === searchRequest) _isSearching.set(false);
+            }
+            return;
+        }
         const lowerQuery = query.toLowerCase();
 
         // Filter mock data based on query
@@ -65,7 +90,9 @@ export function performSearch(query) {
             item.subtitle.toLowerCase().includes(lowerQuery)
         );
 
-        searchResults.set(results);
-        _isSearching.set(false);
+        if (request === searchRequest) {
+            searchResults.set(results);
+            _isSearching.set(false);
+        }
     }, 300);
 }

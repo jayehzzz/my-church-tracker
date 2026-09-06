@@ -7,6 +7,7 @@
         onUpdateStatus,
         onUpdateActivity,
         onEdit,
+        onMerge,
         updatingStatus,
         statusUpdateError,
     } = $props();
@@ -136,6 +137,12 @@
         Back to Directory
     </Button>
 
+    <div class="flex items-center gap-2">
+    {#if onMerge}
+    <Button variant="secondary" onclick={onMerge} class="gap-2">
+        Merge duplicate
+    </Button>
+    {/if}
     <Button variant="outline" onclick={onEdit} class="gap-2">
         <svg
             class="w-4 h-4"
@@ -152,6 +159,7 @@
         </svg>
         Edit Profile
     </Button>
+    </div>
 </div>
 
 <!-- Profile Header Card -->
@@ -271,8 +279,8 @@
                         {#if showStatusDropdown}
                             <div
                                 class="absolute top-full left-0 mt-2 z-50 w-48 rounded-xl border border-border/60 bg-card/95 backdrop-blur-sm p-1 shadow-xl ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-200"
-                                onclick={(e) => e.stopPropagation()}
                                 role="menu"
+                                tabindex="-1"
                             >
                                 <div
                                     class="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider"

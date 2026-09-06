@@ -5,6 +5,8 @@ let mockPeople;
 
 beforeAll(async () => {
   vi.stubEnv("VITE_CONVEX_URL", "");
+  vi.stubEnv("VITE_APP_ENV", "development");
+  vi.stubEnv("VITE_APP_MODE", "demo");
   meetingsService = await import("./meetingsService.js");
   ({ mockPeople } = await import("../data/mockData.js"));
 });

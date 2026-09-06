@@ -1,4 +1,5 @@
-import { mutation, query } from "./_generated/server";
+import { queryFor, mutationFor } from "./lib/security";
+
 import { v } from "convex/values";
 
 const DEFAULT_PROGRAMS = [
@@ -80,7 +81,7 @@ async function hydrateProgram(ctx: any, program: any) {
     };
 }
 
-export const ensureDefaults = mutation({
+export const ensureDefaults = mutationFor("meetingPrograms:ensureDefaults")({
     args: {},
     handler: async (ctx) => {
         const now = new Date().toISOString();
@@ -106,7 +107,7 @@ export const ensureDefaults = mutation({
     },
 });
 
-export const getAll = query({
+export const getAll = queryFor("meetingPrograms:getAll")({
     args: { includeArchived: v.optional(v.boolean()) },
     handler: async (ctx, args) => {
         const programs = await ctx.db.query("meeting_programs").collect();
@@ -124,7 +125,7 @@ export const getAll = query({
     },
 });
 
-export const create = mutation({
+export const create = mutationFor("meetingPrograms:create")({
     args: {
         code: v.string(),
         name: v.string(),
@@ -180,7 +181,7 @@ export const create = mutation({
     },
 });
 
-export const update = mutation({
+export const update = mutationFor("meetingPrograms:update")({
     args: {
         id: v.id("meeting_programs"),
         name: v.optional(v.string()),
@@ -205,7 +206,7 @@ export const update = mutation({
     },
 });
 
-export const syncPeople = mutation({
+export const syncPeople = mutationFor("meetingPrograms:syncPeople")({
     args: {
         programId: v.id("meeting_programs"),
         leaderIds: v.array(v.id("people")),
@@ -253,7 +254,7 @@ export const syncPeople = mutation({
     },
 });
 
-export const archive = mutation({
+export const archive = mutationFor("meetingPrograms:archive")({
     args: { id: v.id("meeting_programs") },
     handler: async (ctx, args) => {
         await ctx.db.patch(args.id, {

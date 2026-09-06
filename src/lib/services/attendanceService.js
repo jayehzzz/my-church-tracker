@@ -1,16 +1,16 @@
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api.js";
 import {
   mockAttendance,
   getAttendanceByService as getMockAttendanceByService,
   getAttendanceByPerson as getMockAttendanceByPerson
 } from "../data/mockData.js";
+import { getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
 
 function getClient() {
-  const convexUrl = import.meta.env?.VITE_CONVEX_URL;
-  if (!convexUrl) return null;
-  return new ConvexHttpClient(convexUrl);
+  return getConvexHttpClient();
 }
+
+const unavailable = () => ({ data: null, error: unavailableError() });
 
 function isConvexId(id) {
   if (!id || typeof id !== "string") return false;
@@ -36,20 +36,21 @@ function mapDoc(doc) {
 export async function getAll() {
   const client = getClient();
   if (!client) {
-    return { data: mockAttendance.map(mapDoc), error: null };
+    return isDemoMode() ? { data: mockAttendance.map(mapDoc), error: null } : unavailable();
   }
 
   try {
     const data = await withTimeout(client.query(api.attendance.getAll), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    return { data: mockAttendance.map(mapDoc), error: null };
+    return isDemoMode() ? { data: mockAttendance.map(mapDoc), error: null } : { data: null, error };
   }
 }
 
 export async function getById(id) {
   const client = getClient();
   if (!client || !isConvexId(id)) {
+    if (!isDemoMode()) return unavailable();
     const mock = mockAttendance.find(a => String(a.id) === String(id));
     return { data: mock ? mapDoc(mock) : null, error: null };
   }
@@ -58,8 +59,6 @@ export async function getById(id) {
     const data = await withTimeout(client.query(api.attendance.getById, { id }), 2500);
     return { data: mapDoc(data), error: null };
   } catch (error) {
-    const mock = mockAttendance.find(a => String(a.id) === String(id));
-    if (mock) return { data: mapDoc(mock), error: null };
     return { data: null, error };
   }
 }
@@ -67,6 +66,7 @@ export async function getById(id) {
 export async function create(attendanceData) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const newRecord = { ...attendanceData, id: `mock-${Date.now()}` };
     mockAttendance.unshift(newRecord);
     return { data: newRecord, error: null };
@@ -83,6 +83,7 @@ export async function create(attendanceData) {
 export async function update(id, attendanceData) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const index = mockAttendance.findIndex(a => a.id === id);
     if (index !== -1) {
       mockAttendance[index] = { ...mockAttendance[index], ...attendanceData };
@@ -102,6 +103,7 @@ export async function update(id, attendanceData) {
 export async function remove(id) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return { error: unavailableError() };
     const index = mockAttendance.findIndex(a => a.id === id);
     if (index !== -1) mockAttendance.splice(index, 1);
     return { error: null };
@@ -118,6 +120,7 @@ export async function remove(id) {
 export async function getByService(serviceId) {
   const client = getClient();
   if (!client || !isConvexId(serviceId)) {
+    if (!isDemoMode()) return unavailable();
     const filtered = getMockAttendanceByService(serviceId);
     return { data: filtered.map(mapDoc), error: null };
   }
@@ -126,14 +129,14 @@ export async function getByService(serviceId) {
     const data = await withTimeout(client.query(api.attendance.getByService, { serviceId }), 2500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    const filtered = getMockAttendanceByService(serviceId);
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }
 
 export async function getByPerson(personId) {
   const client = getClient();
   if (!client || !isConvexId(personId)) {
+    if (!isDemoMode()) return unavailable();
     const filtered = getMockAttendanceByPerson(personId);
     return { data: filtered.map(mapDoc), error: null };
   }
@@ -142,14 +145,14 @@ export async function getByPerson(personId) {
     const data = await withTimeout(client.query(api.attendance.getByPerson, { personId }), 2500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    const filtered = getMockAttendanceByPerson(personId);
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }
 
 export async function bulkCreate(records) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const created = records.map((r, i) => ({ ...r, id: `mock-${Date.now()}-${i}` }));
     mockAttendance.push(...created);
     return { data: created, error: null };
@@ -166,6 +169,7 @@ export async function bulkCreate(records) {
 export async function syncAttendance(serviceId, attendanceData) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return { error: unavailableError() };
     return { error: null };
   }
 
@@ -177,20 +181,19 @@ export async function syncAttendance(serviceId, attendanceData) {
   }
 }
 
-export async function getAttendanceHistory(personIds) {
+export async function getAttendanceHistory(personIds, beforeDate) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const ids = new Set(personIds);
     const filtered = mockAttendance.filter(a => ids.has(a.person_id));
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: Object.fromEntries(personIds.map(id => [id, filtered.some(r => r.person_id === id)])), error: null };
   }
 
   try {
-    const data = await withTimeout(client.query(api.attendance.getAttendanceHistory, { personIds }), 3500);
-    return { data: data ? data.map(mapDoc) : [], error: null };
+    const data = await withTimeout(client.query(api.attendance.getAttendanceHistory, { personIds, ...(beforeDate ? { beforeDate } : {}) }), 3500);
+    return { data: data || {}, error: null };
   } catch (error) {
-    const ids = new Set(personIds);
-    const filtered = mockAttendance.filter(a => ids.has(a.person_id));
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }

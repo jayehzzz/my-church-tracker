@@ -1,6 +1,6 @@
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api.js";
 import { mockPeople } from "$lib/data/mockData.js";
+import { getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
 
 const mockLeaders = mockPeople.filter((person) => person.member_status === "leader");
 const mockMembers = mockPeople.filter(
@@ -84,9 +84,10 @@ export const mockMeetingPrograms = [
 ];
 
 function getClient() {
-  const convexUrl = import.meta.env?.VITE_CONVEX_URL;
-  return convexUrl ? new ConvexHttpClient(convexUrl) : null;
+  return getConvexHttpClient();
 }
+
+const unavailable = () => ({ data: null, error: unavailableError() });
 
 function isConvexId(id) {
   return Boolean(id && !String(id).startsWith("mp-") && String(id).length >= 15);
@@ -123,10 +124,9 @@ function slugify(name) {
 
 export async function initialize() {
   const client = getClient();
-  if (!client) return { data: mockMeetingPrograms, error: null };
+  if (!client) return isDemoMode() ? { data: mockMeetingPrograms, error: null } : unavailable();
   try {
     await withTimeout(client.mutation(api.meetingPrograms.ensureDefaults), 6000);
-    await withTimeout(client.mutation(api.meetings.migrateLegacyMeetings), 6000);
     return { data: true, error: null };
   } catch (error) {
     return { data: null, error };
@@ -136,6 +136,7 @@ export async function initialize() {
 export async function getAll({ includeArchived = false } = {}) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const programs = includeArchived
       ? mockMeetingPrograms
       : mockMeetingPrograms.filter((program) => program.active);
@@ -147,7 +148,7 @@ export async function getAll({ includeArchived = false } = {}) {
     );
     return { data: (data || []).map(mapDoc), error: null };
   } catch (error) {
-    return { data: mockMeetingPrograms.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }
 
@@ -158,6 +159,7 @@ export async function create(programData) {
     code: programData.code || `${slugify(programData.name)}-${Date.now()}`,
   };
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const program = { ...data, id: `mp-${Date.now()}`, active: true };
     program.leaders = mockPeople.filter((person) =>
       (program.leader_ids || []).includes(person.id),
@@ -183,6 +185,7 @@ export async function update(id, programData) {
   const client = getClient();
   const { leader_ids = [], member_ids = [], ...details } = programData;
   if (!client || !isConvexId(id)) {
+    if (!isDemoMode()) return unavailable();
     const index = mockMeetingPrograms.findIndex(
       (program) => String(program.id) === String(id),
     );
@@ -219,6 +222,7 @@ export async function update(id, programData) {
 export async function archive(id) {
   const client = getClient();
   if (!client || !isConvexId(id)) {
+    if (!isDemoMode()) return { error: unavailableError() };
     const program = mockMeetingPrograms.find(
       (item) => String(item.id) === String(id),
     );

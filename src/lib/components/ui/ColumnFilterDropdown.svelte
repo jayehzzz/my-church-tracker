@@ -63,6 +63,7 @@
         onclick={() => (isOpen = !isOpen)}
         aria-haspopup="true"
         aria-expanded={isOpen}
+        aria-label="Show or hide service columns"
         title="Toggle columns"
     >
         <svg

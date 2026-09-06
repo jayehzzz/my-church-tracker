@@ -21,6 +21,13 @@
     import { dateRange } from "$lib/stores/filterStore";
     import { exportToCSV, exportColumns } from "$lib/utils/exportUtils";
     import {
+        completedCareCount,
+        isCompletedService,
+        isHeldMeeting,
+        isWithinReportingRange,
+        prayerHours,
+    } from "$lib/utils/reportingMetrics";
+    import {
         mockPeople,
         mockEvangelismContacts,
         mockServices,
@@ -39,37 +46,26 @@
     // Active report tab
     let activeTab = $state("overview");
 
-    // Helper function to check if a date is within the filter range
-    function isWithinDateRange(dateStr, range) {
-        if (!dateStr || !range?.startDate || !range?.endDate) return true;
-        const date = new Date(dateStr);
-        const start = new Date(range.startDate);
-        const end = new Date(range.endDate);
-        start.setHours(0, 0, 0, 0);
-        end.setHours(23, 59, 59, 999);
-        return date >= start && date <= end;
-    }
-
     // Filtered data based on date range
     const filteredContacts = $derived(() => {
         const range = $dateRange;
-        return contacts.filter((c) => isWithinDateRange(c.contact_date, range));
+        return contacts.filter((c) => isWithinReportingRange(c.contact_date, range));
     });
 
     const filteredServices = $derived(() => {
         const range = $dateRange;
-        return services.filter((s) => isWithinDateRange(s.service_date, range));
+        return services.filter((s) => isWithinReportingRange(s.service_date, range) && isCompletedService(s));
     });
 
     const filteredMeetings = $derived(() => {
         const range = $dateRange;
-        return meetings.filter((m) => isWithinDateRange(m.meeting_date, range));
+        return meetings.filter((m) => isWithinReportingRange(m.meeting_date, range) && isHeldMeeting(m));
     });
 
     const filteredVisitations = $derived(() => {
         const range = $dateRange;
         return visitations.filter((v) =>
-            isWithinDateRange(v.visit_date, range),
+            isWithinReportingRange(v.visit_date, range),
         );
     });
 
@@ -97,16 +93,8 @@
                 (sum, s) => sum + (s.salvation_decisions || 0),
                 0,
             ),
-            prayerHours:
-                Math.round(
-                    (fMeetings.reduce(
-                        (sum, m) => sum + (m.duration_minutes || 0),
-                        0,
-                    ) /
-                        60) *
-                        10,
-                ) / 10,
-            visitsCompleted: fVisitations.length,
+            prayerHours: prayerHours(fMeetings),
+            visitsCompleted: completedCareCount(fVisitations),
             followUpsNeeded: fVisitations.filter(hasOpenCareFollowUp)
                 .length,
         };
@@ -488,7 +476,7 @@
                     </Button>
                 </div>
                 <p class="text-sm text-muted-foreground mb-4">
-                    {people.length} total people in directory
+                    {people.length} total people in directory (not filtered by reporting period)
                 </p>
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <div class="p-3 bg-secondary/30 rounded-lg">
@@ -618,7 +606,7 @@
                     </Button>
                 </div>
                 <p class="text-sm text-muted-foreground mb-4">
-                    {filteredServices().length} services in selected period
+                    {filteredServices().length} completed services in selected period
                 </p>
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <div class="p-3 bg-secondary/30 rounded-lg">
@@ -699,7 +687,7 @@
                     </Button>
                 </div>
                 <p class="text-sm text-muted-foreground mb-4">
-                    {filteredMeetings().length} meetings in selected period
+                    {filteredMeetings().length} held meetings in selected period
                 </p>
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <div class="p-3 bg-secondary/30 rounded-lg">
@@ -707,14 +695,7 @@
                             Prayer Hours
                         </p>
                         <p class="text-xl font-semibold text-foreground">
-                            {Math.round(
-                                (filteredMeetings().reduce(
-                                    (sum, m) => sum + (m.duration_minutes || 0),
-                                    0,
-                                ) /
-                                    60) *
-                                    10,
-                            ) / 10}
+                            {prayerHours(filteredMeetings())}
                         </p>
                     </div>
                     <div class="p-3 bg-secondary/30 rounded-lg">
@@ -784,7 +765,7 @@
                     </Button>
                 </div>
                 <p class="text-sm text-muted-foreground mb-4">
-                    {filteredVisitations().length} visits in selected period
+                    {filteredVisitations().length} care records in selected period
                 </p>
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <div class="p-3 bg-secondary/30 rounded-lg">
@@ -792,7 +773,7 @@
                             Visits Completed
                         </p>
                         <p class="text-xl font-semibold text-success">
-                            {filteredVisitations().length}
+                            {completedCareCount(filteredVisitations())}
                         </p>
                     </div>
                     <div class="p-3 bg-secondary/30 rounded-lg">

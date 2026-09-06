@@ -14,10 +14,15 @@
     Modal,
     Button,
     Input,
-    Select,
     SearchableSelect,
   } from "$lib/components/ui";
   import * as peopleService from "$lib/services/peopleService";
+  import {
+    CHURCH_ROLE_OPTIONS,
+    CHURCH_SCHOOL_OPTIONS,
+    DEGREE_STATUS_OPTIONS,
+    normalizeCompletedSchools,
+  } from "$lib/utils/personMetrics.js";
 
   let {
     isOpen = $bindable(false),
@@ -40,18 +45,27 @@
     gender: "",
     marital_status: "",
     employment_status: "",
+    degree_status: "",
     basontas: [],
     member_status: "guest",
     membership_date: "",
     entry_point: "",
+    church_role: "no_role",
     role: "no_role",
+    is_baptised: false,
+    is_tither: false,
+    completed_schools: [],
   });
 
   let saving = $state(false);
   let errors = $state({});
+  let duplicateCandidates = $state([]);
+  let duplicateAcknowledged = $state(false);
+  let checkingDuplicates = $state(false);
+  let initialFormSnapshot = $state("");
 
   // Mode: 'create' or 'edit'
-  const mode = $derived(person?.id ? "edit" : "create");
+  const mode = $derived(person?.id || person?._id ? "edit" : "create");
   const modalTitle = $derived(
     mode === "edit" ? "Edit Person" : "Add New Person",
   );
@@ -115,6 +129,16 @@
     { value: "bacenta_leader", label: "Bacenta Leader" },
   ];
 
+  const churchRoleOptions = [
+    { value: "", label: "Select..." },
+    ...CHURCH_ROLE_OPTIONS,
+  ];
+
+  const degreeStatusOptions = [
+    { value: "", label: "Select..." },
+    ...DEGREE_STATUS_OPTIONS,
+  ];
+
   // Legacy visitor records are treated as guests until they are saved again.
   const isGuestStatus = $derived(
     formData.member_status === "guest" || formData.member_status === "visitor",
@@ -140,6 +164,7 @@
           gender: person.gender || "",
           marital_status: person.marital_status || "",
           employment_status: person.employment_status || "",
+          degree_status: person.degree_status || "",
           basontas: person.basontas || [],
           member_status:
             person.member_status === "visitor"
@@ -147,7 +172,13 @@
               : person.member_status || "guest",
           membership_date: person.membership_date || "",
           entry_point: person.entry_point || "",
+          church_role: person.church_role || "no_role",
           role: person.role || "no_role",
+          is_baptised: person.is_baptised ?? false,
+          is_tither: person.is_tither ?? false,
+          completed_schools: normalizeCompletedSchools(
+            person.completed_schools || [],
+          ),
         };
       } else {
         formData = {
@@ -163,14 +194,22 @@
           gender: "",
           marital_status: "",
           employment_status: "",
+          degree_status: "",
           basontas: [],
           member_status: "guest",
           membership_date: "",
           entry_point: "",
+          church_role: "no_role",
           role: "no_role",
+          is_baptised: false,
+          is_tither: false,
+          completed_schools: [],
         };
       }
       errors = {};
+      duplicateCandidates = [];
+      duplicateAcknowledged = false;
+      initialFormSnapshot = JSON.stringify(formData);
     }
   });
 
@@ -197,24 +236,34 @@
   // Handle form submission
   async function handleSubmit() {
     if (!validate()) return;
-
-    saving = true;
     errors = {};
 
-    try {
-      // Clean up empty strings to null
-      const cleanData = { ...formData };
-      Object.keys(cleanData).forEach((key) => {
-        if (cleanData[key] === "") {
-          cleanData[key] = null;
-        }
+    if (!duplicateAcknowledged) {
+      checkingDuplicates = true;
+      const duplicateResult = await peopleService.findDuplicates({
+        email: formData.email,
+        phone: formData.phone,
+        excludeId: person?.id || person?._id,
       });
+      checkingDuplicates = false;
+      if (duplicateResult.error) {
+        errors.submit = "We could not check for duplicate contact details. Please try again.";
+        return;
+      }
+      if (duplicateResult.data?.length) {
+        duplicateCandidates = duplicateResult.data;
+        return;
+      }
+    }
 
+    saving = true;
+
+    try {
       let result;
       if (mode === "edit") {
-        result = await peopleService.update(person.id, cleanData);
+        result = await peopleService.update(person.id || person._id, formData);
       } else {
-        result = await peopleService.create(cleanData);
+        result = await peopleService.create(formData);
       }
 
       if (result.error) {
@@ -233,11 +282,12 @@
 
   // Handle close
   function handleClose() {
+    if (JSON.stringify(formData) !== initialFormSnapshot && !window.confirm("Discard unsaved person changes?")) return;
     isOpen = false;
   }
 </script>
 
-<Modal bind:isOpen title={modalTitle} size="lg" {...restProps}>
+<Modal bind:isOpen title={modalTitle} size="lg" closable={false} closeOnBackdrop={false} closeOnEscape={false} {...restProps}>
   <form
     onsubmit={(e) => {
       e.preventDefault();
@@ -252,6 +302,52 @@
       >
         {errors.submit}
       </div>
+    {/if}
+
+    {#if duplicateCandidates.length > 0}
+      <section
+        class="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm"
+        aria-live="polite"
+      >
+        <h3 class="font-semibold text-foreground">Possible duplicate record</h3>
+        <p class="mt-1 text-muted-foreground">
+          A matching email address or phone number already belongs to:
+        </p>
+        <ul class="mt-2 space-y-1 text-foreground">
+          {#each duplicateCandidates as candidate}
+            <li>
+              <a class="underline hover:text-primary" href={`/people/${candidate.id}`}>
+                {candidate.first_name} {candidate.last_name}
+              </a>
+              <span class="text-muted-foreground"> — matching {candidate.matching_fields.join(" and ")}</span>
+            </li>
+          {/each}
+        </ul>
+        <p class="mt-3 text-muted-foreground">
+          Review the existing record before saving. Records are never merged automatically.
+        </p>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            onclick={() => {
+              duplicateCandidates = [];
+              duplicateAcknowledged = false;
+            }}
+            disabled={saving}
+          >
+            Edit details
+          </Button>
+          <Button
+            onclick={() => {
+              duplicateAcknowledged = true;
+              handleSubmit();
+            }}
+            disabled={saving}
+          >
+            Save as separate person
+          </Button>
+        </div>
+      </section>
     {/if}
 
     <!-- Personal Information Section -->
@@ -301,6 +397,15 @@
           label="Marital Status"
           bind:value={formData.marital_status}
           options={maritalStatusOptions}
+          disabled={saving}
+        />
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <SearchableSelect
+          label="Degree Status"
+          bind:value={formData.degree_status}
+          options={degreeStatusOptions}
           disabled={saving}
         />
       </div>
@@ -369,6 +474,23 @@
         />
       </div>
 
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <SearchableSelect
+          label="Church Role"
+          bind:value={formData.church_role}
+          options={churchRoleOptions}
+          disabled={saving}
+        />
+        {#if isLeaderStatus}
+          <SearchableSelect
+            label="Leadership Role"
+            bind:value={formData.role}
+            options={roleOptions}
+            disabled={saving}
+          />
+        {/if}
+      </div>
+
       {#if isGuestStatus}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <SearchableSelect
@@ -380,26 +502,16 @@
         </div>
       {/if}
 
-      {#if isLeaderStatus}
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <SearchableSelect
-            label="Leadership Role"
-            bind:value={formData.role}
-            options={roleOptions}
-            disabled={saving}
-          />
-        </div>
-      {/if}
-
       <!-- Basontas (Ministry Groups) -->
-      <div class="space-y-2">
-        <label class="block text-sm font-medium text-muted-foreground">
+      <fieldset class="space-y-2">
+        <legend class="block text-sm font-medium text-muted-foreground">
           Basontas (Ministry Groups)
-        </label>
+        </legend>
         <div class="flex flex-wrap gap-2">
           {#each basontasOptions as option}
             <button
               type="button"
+              aria-pressed={formData.basontas.includes(option.value)}
               onclick={() => {
                 if (formData.basontas.includes(option.value)) {
                   formData.basontas = formData.basontas.filter(
@@ -425,15 +537,95 @@
             {formData.basontas.length} selected
           </p>
         {/if}
+      </fieldset>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label
+          class="flex cursor-pointer items-center justify-between gap-4 rounded-lg border border-border/60 bg-secondary/20 p-4"
+        >
+          <span>
+            <span class="block text-sm font-medium text-foreground">Baptised</span>
+            <span class="block text-xs text-muted-foreground">Has completed water baptism</span>
+          </span>
+          <input
+            type="checkbox"
+            bind:checked={formData.is_baptised}
+            disabled={saving}
+            class="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+          />
+        </label>
+        <label
+          class="flex cursor-pointer items-center justify-between gap-4 rounded-lg border border-border/60 bg-secondary/20 p-4"
+        >
+          <span>
+            <span class="block text-sm font-medium text-foreground">Tithe Payer</span>
+            <span class="block text-xs text-muted-foreground">Restricted stewardship information</span>
+          </span>
+          <input
+            type="checkbox"
+            bind:checked={formData.is_tither}
+            disabled={saving}
+            class="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+          />
+        </label>
       </div>
     </div>
+
+    <hr class="border-border" />
+
+    <fieldset class="space-y-4">
+      <legend class="text-lg font-medium text-foreground">Church Schools Completed</legend>
+      <p class="text-sm text-muted-foreground">
+        Select each church class or exam this person has completed.
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {#each CHURCH_SCHOOL_OPTIONS as school}
+          <button
+            type="button"
+            aria-pressed={formData.completed_schools.includes(school.value)}
+            onclick={() => {
+              if (formData.completed_schools.includes(school.value)) {
+                formData.completed_schools = formData.completed_schools.filter(
+                  (value) => value !== school.value,
+                );
+              } else {
+                formData.completed_schools = [
+                  ...formData.completed_schools,
+                  school.value,
+                ];
+              }
+            }}
+            disabled={saving}
+            class="flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left text-sm transition-colors
+                   {formData.completed_schools.includes(school.value)
+              ? 'border-primary/60 bg-primary/10 text-foreground'
+              : 'border-border/60 bg-card text-muted-foreground hover:bg-secondary/40 hover:text-foreground'}
+                   disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span class="font-medium">{school.label}</span>
+            <span
+              class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border
+                     {formData.completed_schools.includes(school.value)
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-border'}"
+              aria-hidden="true"
+            >
+              {#if formData.completed_schools.includes(school.value)}✓{/if}
+            </span>
+          </button>
+        {/each}
+      </div>
+      <p class="text-xs text-muted-foreground">
+        {formData.completed_schools.length} of {CHURCH_SCHOOL_OPTIONS.length} completed
+      </p>
+    </fieldset>
   </form>
 
   {#snippet footer()}
     <Button variant="secondary" onclick={handleClose} disabled={saving}>
       Cancel
     </Button>
-    <Button onclick={handleSubmit} disabled={saving}>
+    <Button onclick={handleSubmit} disabled={saving || checkingDuplicates}>
       {#if saving}
         <svg
           class="animate-spin -ml-1 mr-2 h-4 w-4"
@@ -455,6 +647,8 @@
           />
         </svg>
         Saving...
+      {:else if checkingDuplicates}
+        Checking contact details...
       {:else}
         {mode === "edit" ? "Save Changes" : "Add Person"}
       {/if}

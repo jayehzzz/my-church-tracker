@@ -12,7 +12,8 @@ Chart components live in `src/lib/components/charts/` and provide interactive vi
 
 | Component | Type | Shows |
 |-----------|------|-------|
-| `AttendanceTrend.svelte` | Line Chart | Attendance over time |
+| `AttendanceTrend.svelte` | Line / Bar Chart | Attendance over time |
+| `OutreachTrend.svelte` | Line / Bar Chart | Outreach contacts & outcomes over time |
 | `CategoryDonut.svelte` | Donut Chart | Category distribution |
 | `ContactsByMonthTimeline.svelte` | Timeline | Monthly contacts |
 | `ConversionFunnel.svelte` | Funnel | Contact → Member journey |
@@ -26,6 +27,46 @@ Chart components live in `src/lib/components/charts/` and provide interactive vi
 | `SalvationTimeline.svelte` | Timeline | Salvations over time |
 | `Sparkline.svelte` | Mini Line | Trend indicator |
 | `VisitationCalendar.svelte` | Calendar | Visit days |
+
+---
+
+## 📐 Chart Design System & Standards
+
+All dashboard charts adhere to the shared visual and technical standard defined in `src/lib/utils/chartUtils.js`:
+
+### 1. Coordinate System & Aspect Ratio
+- **Fixed 1:1 Pixel Coordinates**: Use a standardized coordinate system, typically `viewBox="0 0 540 240"` (`DEFAULT_CHART_DIMENSIONS`).
+- **Never use `preserveAspectRatio="none"`**: Avoid non-uniform stretching that squashes or deforms fonts, circle dots, and stroke dashes. Let SVG scale uniformly with `w-full h-auto` or default meet aspect ratio.
+
+### 2. Y-Axis Scale & Headroom
+- **Always use `getNiceYScale(maxValue)`**: Ensures the Y-axis has clean, human-friendly tick values (e.g., 0, 5, 10, 15, 20 or 0, 25, 50, 75, 100).
+- **Headroom**: Automatically calculates ~15–25% headroom above the peak data value. Bars and line peaks must **never** hit the upper card boundary, ensuring value labels float cleanly above them without clipping.
+
+### 3. Categorical Centering
+- **Always use `getBandCoordinates(count, innerWidth, paddingLeft)`**: For categorical time series (months, weeks, meetings), columns are centered at `paddingLeft + (index + 0.5) * bandWidth`.
+- **No Edge Cramming**: Prevents the first item from being slammed to 0% and the last item from being slammed to 100% against the card borders.
+
+### 4. Line Chart Aesthetics
+- **Smooth Bézier Curves**: Generated with `makeSmoothCurve(points, yKey)` to create elegant, flowing lines rather than harsh jagged spikes.
+- **Area Fill Gradient**: Generated with `makeAreaPath(points, yKey, baseline)` using a vertical gradient fading from 28% opacity at the peak to 0% at the baseline.
+- **Data Markers**: Multi-ring circular dots (`r="4"` with card background fill and 2.5px primary stroke, expanding with an active pulse halo on hover).
+
+### 5. Bar Chart Aesthetics
+- **Proportional Width**: Clamped to tasteful bounds (`Math.min(48, Math.max(20, bandWidth * 0.42))`).
+- **Rounded Corners**: Sleek `rx="6" ry="6"` rounded top corners.
+- **Dual Series (Comparison)**: Clustered side-by-side with clear spacing and distinct semantic colors.
+
+### 6. Semantic Colors & Design Tokens
+- Primary series: `hsl(var(--primary))` (Cyan)
+- Salvations: `hsl(var(--warning))` (Amber)
+- First Visits / Guests: `hsl(var(--info))` (Sky Blue)
+- Joined / Members: `hsl(var(--success))` (Emerald)
+
+### 7. Interactive Hover & Accessibility
+- Hover band tracking with subtle background column highlight (`fill-opacity="0.05"`).
+- Non-colliding labels: offset above bars (`y - 8`) and points (`y - 10`).
+- Floating glassmorphism tooltips with percentage coordinates (`style="left: clamp(90px, {percentX}%, calc(100% - 90px));"`).
+- Keyboard accessible triggers with `tabindex="0"`, `role="button"`, and informative `aria-label`.
 
 ---
 

@@ -6,7 +6,9 @@
 
 ## 🎯 What is My Church Tracker?
 
-**My Church Tracker** is a modern, data-driven church management dashboard designed to help church leaders visualize and manage their community data. Built with SvelteKit and powered by Convex backend, it provides real-time insights into every aspect of church life.
+**My Church Tracker** is a SvelteKit/Svelte 5 church management dashboard backed
+by Convex. Live mode displays only records returned by the configured, authenticated
+deployment; explicit development demo mode uses browser-local example data.
 
 ### Core Capabilities
 
@@ -58,6 +60,7 @@
 | [**Filter System**](./13-filter-system.md) | How the global filtering system works |
 | [**Glossary**](./14-glossary.md) | Key terms and concepts explained |
 | [**Meetings & Attendance**](./15-meetings-attendance.md) | Programme setup, rosters, meeting occurrences, and attendance tracking |
+| [**Recovery**](./recovery.md) | Convex backups, isolated restore rehearsals, and service-photo recovery |
 
 ---
 
@@ -73,7 +76,7 @@ my-church-tracker/
 │   ├── evangelism.ts      # Outreach operations
 │   ├── meetings.ts        # Meetings operations
 │   ├── visitations.ts     # Visitation operations
-│   └── seed.ts            # Test data generator
+│   └── seed.ts            # Restricted maintenance/test utility
 │
 ├── src/
 │   ├── lib/
@@ -89,7 +92,7 @@ my-church-tracker/
 │   │   ├── services/      # Data fetching layer
 │   │   ├── stores/        # Global state
 │   │   ├── utils/         # Helper functions
-│   │   └── data/          # Mock/sample data
+│   │   └── data/          # Demo-only sample data
 │   │
 │   └── routes/            # Application pages
 │       ├── +page.svelte   # Dashboard home
@@ -148,15 +151,21 @@ Almost all data views in the application respect a global time filter. Users can
    - Pages (`/routes`) display data
    - Components (`/lib/components`) handle UI
    - Services (`/lib/services`) fetch data
-   - Convex (`/convex`) manages the database
+   - Convex (`/convex`) manages the authenticated database and file storage
 
-2. **Common tasks**:
+2. **Environment and checks**:
+   - Follow [the environment workflow](../.agent/workflows/environments.md) for
+     development demo/live mode, isolated preview, release, and recovery.
+   - Run `npm run test:unit` and `npm run build`; backend changes additionally
+     require `npm run test:backend` and `npm run check:backend`.
+
+3. **Common tasks**:
    - Adding a new data field → Start with `convex/schema.ts`
    - Adding a new page → Create in `/src/routes`
    - Adding a new chart → Create in `/lib/components/charts`
    - Modifying forms → Edit `/lib/components/forms`
 
-3. **Key files to understand**:
+4. **Key files to understand**:
    - `convex/schema.ts` - Database structure
    - `src/lib/stores/filterStore.js` - Global filtering
    - `src/lib/utils/dataService.js` - Data processing

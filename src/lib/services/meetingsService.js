@@ -1,7 +1,7 @@
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api.js";
 import { mockMeetings, mockPeople } from "../data/mockData.js";
 import { mockMeetingPrograms } from "./meetingProgramsService.js";
+import { getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
 
 const TYPE_ALIASES = {
   flow_prayer: "flow_service",
@@ -19,13 +19,14 @@ const PROGRAM_CODES = {
 };
 
 function getClient() {
-  const convexUrl = import.meta.env?.VITE_CONVEX_URL;
-  return convexUrl ? new ConvexHttpClient(convexUrl) : null;
+  return getConvexHttpClient();
 }
+
+const unavailable = () => ({ data: null, error: unavailableError() });
 
 function isConvexId(id) {
   if (!id || typeof id !== "string") return false;
-  if (id.startsWith("mock-") || id.startsWith("m") || id.length < 15) return false;
+  if (id.startsWith("mock-") || id.length < 15) return false;
   return /^[0-9a-z_-]{15,}$/i.test(id);
 }
 
@@ -105,20 +106,20 @@ function normalizeMockMeeting(meeting) {
 export async function getAll() {
   const client = getClient();
   if (!client) {
-    return { data: mockMeetings.map(normalizeMockMeeting), error: null };
+    return isDemoMode() ? { data: mockMeetings.map(normalizeMockMeeting), error: null } : unavailable();
   }
   try {
     const data = await withTimeout(client.query(api.meetings.getAll));
     return { data: (data || []).map(mapDoc), error: null };
   } catch (error) {
-    console.warn("Meeting data unavailable; using local demo data.", error);
-    return { data: mockMeetings.map(normalizeMockMeeting), error: null };
+    return { data: null, error };
   }
 }
 
 export async function getById(id) {
   const client = getClient();
   if (!client || !isConvexId(id)) {
+    if (!isDemoMode()) return unavailable();
     const meeting = mockMeetings.find((item) => String(item.id) === String(id));
     return { data: meeting ? normalizeMockMeeting(meeting) : null, error: null };
   }
@@ -135,6 +136,7 @@ export async function getById(id) {
 export async function create(meetingData) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const meeting = {
       ...meetingData,
       id: `mock-${Date.now()}-${mockMeetings.length}`,
@@ -158,6 +160,7 @@ export async function create(meetingData) {
 export async function update(id, meetingData) {
   const client = getClient();
   if (!client || !isConvexId(id)) {
+    if (!isDemoMode()) return unavailable();
     const index = mockMeetings.findIndex((item) => String(item.id) === String(id));
     if (index < 0) return { data: null, error: new Error("Meeting not found") };
     mockMeetings[index] = { ...mockMeetings[index], ...meetingData };
@@ -177,6 +180,7 @@ export async function update(id, meetingData) {
 export async function remove(id) {
   const client = getClient();
   if (!client || !isConvexId(id)) {
+    if (!isDemoMode()) return { error: unavailableError() };
     const index = mockMeetings.findIndex((item) => String(item.id) === String(id));
     if (index >= 0) mockMeetings.splice(index, 1);
     return { error: null };
@@ -197,6 +201,7 @@ export async function syncAttendance(
 ) {
   const client = getClient();
   if (!client || !isConvexId(meetingId)) {
+    if (!isDemoMode()) return unavailable();
     const meeting = mockMeetings.find(
       (item) => String(item.id) === String(meetingId),
     );
@@ -272,6 +277,7 @@ export async function syncAttendance(
 export async function getAttendees(meetingId) {
   const client = getClient();
   if (!client || !isConvexId(meetingId)) {
+    if (!isDemoMode()) return unavailable();
     const meeting = mockMeetings.find(
       (item) => String(item.id) === String(meetingId),
     );
@@ -308,6 +314,7 @@ export async function getAttendees(meetingId) {
 export async function getByPerson(personId) {
   const client = getClient();
   if (!client || !isConvexId(personId)) {
+    if (!isDemoMode()) return unavailable();
     const data = mockMeetings.flatMap((meeting) => {
       const normalizedMeeting = normalizeMockMeeting(meeting);
       const record = normalizedMeeting.attendance_records.find(
@@ -368,4 +375,13 @@ export async function addAttendee(meetingId, personId) {
     attendanceData.push({ person_id: personId, status: "present" });
   }
   return await syncAttendance(meetingId, attendanceData, 0, true);
+}
+
+export async function record(recordData) {
+  const client = getClient();
+  if (!client) return { data: null, error: new Error("Connected attendance recording requires the live backend. Demo gathering records are read-only.") };
+  try {
+    const data = await client.mutation(api.meetings.record, cleanData(recordData));
+    return { data: mapDoc(data), error: null };
+  } catch (error) { return { data: null, error }; }
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyNoShowRule,
   buildAttendanceForecast,
+  deriveCandidateSignals,
   deriveTeamStats,
   isFresh,
   nextTaskPlanForOutcome,
@@ -26,9 +27,9 @@ describe('follow-up CRM date and task rules', () => {
 
   it('schedules low-intent outcomes later unless a leader supplies another date', () => {
     expect(nextTaskPlanForOutcome('not_serious_now', '2026-08-27')).toMatchObject({
-      due_date: '2026-09-26',
+      due_date: '2026-11-25',
       task_type: 'reengagement',
-      days: 30,
+      days: 90,
     });
     expect(nextTaskPlanForOutcome('no_response', '2026-08-27')).toMatchObject({
       due_date: '2026-09-03',
@@ -80,6 +81,42 @@ describe('follow-up CRM date and task rules', () => {
       'done'
     ]);
     expect(tasks[0].id).toBe('later'); // does not mutate caller data
+  });
+});
+
+describe('candidate seriousness signals', () => {
+  it('recommends Later after three consecutive unanswered attempts', () => {
+    const result = deriveCandidateSignals({
+      contact: { id: 'guest', follow_up_status: 'active', contact_category: 'responsive' },
+      followUps: [
+        { contact_id: 'guest', follow_up_date: '2026-08-01', outcome: 'positive_conversation' },
+        { contact_id: 'guest', follow_up_date: '2026-08-02', outcome: 'no_response' },
+        { contact_id: 'guest', follow_up_date: '2026-08-03', outcome: 'no_response' },
+        { contact_id: 'guest', follow_up_date: '2026-08-04', outcome: 'no_response' },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      unanswered_attempts: 3,
+      should_move_to_later: true,
+      is_serious: false,
+      recommendation_reason: '3 unanswered attempts',
+    });
+  });
+
+  it('resets the unanswered streak after a real conversation', () => {
+    const result = deriveCandidateSignals({
+      contact: { id: 'guest', follow_up_status: 'active' },
+      followUps: [
+        { contact_id: 'guest', follow_up_date: '2026-08-01', outcome: 'no_response' },
+        { contact_id: 'guest', follow_up_date: '2026-08-02', outcome: 'no_response' },
+        { contact_id: 'guest', follow_up_date: '2026-08-03', outcome: 'positive_conversation' },
+      ],
+    });
+
+    expect(result.unanswered_attempts).toBe(0);
+    expect(result.should_move_to_later).toBe(false);
+    expect(result.is_serious).toBe(true);
   });
 });
 
@@ -228,7 +265,7 @@ describe('confirmed no-show rule', () => {
 
     expect(result.confirmed_no_shows).toBe(2);
     expect(result.follow_up_status).toBe('active');
-    expect(result.recommended_next_action_days).toBe(30);
+    expect(result.recommended_next_action_days).toBe(90);
     expect(result.recommended_next_task_type).toBe('reengagement');
     expect(result.no_show_rule_applied).toBe(true);
   });

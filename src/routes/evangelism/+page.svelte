@@ -56,8 +56,9 @@
   let converting = $state(false);
 
   const responseOptions = [
-    { value: "responsive", label: "Responsive" },
-    { value: "non_responsive", label: "Non-responsive" },
+    { value: "not_assessed", label: "Not assessed" },
+    { value: "responsive", label: "Open to follow-up" },
+    { value: "non_responsive", label: "Not responding" },
     { value: "events_only", label: "Events only" },
     { value: "big_events_only", label: "Big events only" },
     { value: "bacenta_mainly", label: "Bacenta mainly" },
@@ -88,7 +89,7 @@
   const columns = [
     { key: "full_name", label: "Person", sortable: true, width: "190px" },
     { key: "contact_date_label", label: "Contacted", sortable: true, width: "145px" },
-    { key: "response_label", label: "Response", sortable: true, width: "160px" },
+    { key: "response_label", label: "Follow-up posture", sortable: true, width: "170px" },
     { key: "invited_by_name", label: "Invited by", sortable: true, width: "160px" },
     { key: "journey_label", label: "Journey", sortable: true, width: "150px" },
     { key: "follow_up_label", label: "Follow-up", sortable: true, width: "190px" },
@@ -285,7 +286,7 @@
         </div>
         <dl class="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-border pt-4 text-center sm:grid-cols-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
           <div><dt class="text-xs text-muted-foreground">People reached</dt><dd class="mt-1 text-xl font-semibold text-foreground">{outreachRows.length}</dd></div>
-          <div><dt class="text-xs text-muted-foreground">Responsive</dt><dd class="mt-1 text-xl font-semibold text-primary">{responsiveCount}</dd></div>
+          <div><dt class="text-xs text-muted-foreground">Open to follow-up</dt><dd class="mt-1 text-xl font-semibold text-primary">{responsiveCount}</dd></div>
           <div><dt class="text-xs text-muted-foreground">Needs follow-up</dt><dd class="mt-1 text-xl font-semibold {needsFollowUpCount ? 'text-warning' : 'text-success'}">{needsFollowUpCount}</dd></div>
           <div><dt class="text-xs text-muted-foreground">Joined church</dt><dd class="mt-1 text-xl font-semibold text-success">{allMetrics.joined}</dd></div>
         </dl>
@@ -294,7 +295,7 @@
 
     <div class="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
       <div class="flex flex-wrap items-start gap-3">
-        <MultiSelectFilter label="Response" options={responseOptions} bind:selected={responseFilter} placeholder="Search responses..." />
+        <MultiSelectFilter label="Posture" options={responseOptions} bind:selected={responseFilter} placeholder="Search follow-up postures..." />
         <MultiSelectFilter label="Journey" options={journeyOptions} bind:selected={journeyFilter} placeholder="Search milestones..." />
         <MultiSelectFilter label="Follow-up" options={followUpOptions} bind:selected={followUpFilter} placeholder="Search follow-up states..." />
       </div>
@@ -337,11 +338,13 @@
 </DashboardLayout>
 
 <InviterProfilePopup
-  open={isInviterPopupOpen}
+  bind:isOpen={isInviterPopupOpen}
   person={selectedInviter}
-  {contacts}
+  contacts={insightRows}
+  periodLabel={$dateRange.label}
   onClose={() => { isInviterPopupOpen = false; selectedInviter = null; }}
   onViewProfile={(person) => { isInviterPopupOpen = false; goto(`/people/${contactId(person)}`); }}
+  onViewContact={(contact) => { isInviterPopupOpen = false; void handleViewContact(contact); }}
 />
 
 <EvangelismContactForm bind:isOpen={isFormOpen} contact={selectedContact} onsave={handleSave} />

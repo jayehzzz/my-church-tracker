@@ -1,10 +1,20 @@
 <!--
   Attendance Trend Chart
   Shows attendance over time with interactive line and bar views.
+  Adheres to the church dashboard standardized chart design system.
 -->
 
 <script>
   import ChartViewToggle from "./ChartViewToggle.svelte";
+  import {
+    DEFAULT_CHART_DIMENSIONS,
+    getNiceYScale,
+    getBandCoordinates,
+    makeSmoothCurve,
+    makeAreaPath,
+    formatChartDate,
+    getChartColor,
+  } from "$lib/utils/chartUtils.js";
 
   /** @type {{ date: string, total: number, members?: number, guests?: number, id?: string, topic?: string }[]} */
   let {
@@ -22,39 +32,63 @@
   let chartType = $state("line");
   let comparisonKey = $state("");
 
-  const chartWidth = 100;
-  const chartHeight = 60;
-  const padding = { top: 8, right: 8, bottom: 15, left: 8 };
+  const { width: chartWidth, height: chartHeight, padding } = DEFAULT_CHART_DIMENSIONS;
+  const innerWidth = chartWidth - padding.left - padding.right;
   const chartBottom = chartHeight - padding.bottom;
+  const innerHeight = chartBottom - padding.top;
 
   const chartData = $derived(() => {
-    if (data.length === 0) return { points: [], maxValue: 0 };
+    if (data.length === 0) {
+      return {
+        points: [],
+        maxValue: 0,
+        yScale: getNiceYScale(0),
+        bandWidth: innerWidth,
+      };
+    }
 
-    const maxValue = Math.max(...data.map((d) => Number(d.total) || 0), 1);
     const selectedComparison = comparisonOptions.find((option) => option.key === comparisonKey);
-    const comparisonMax = selectedComparison
-      ? Math.max(...data.map((d) => Number(d[selectedComparison.key]) || 0), 1)
-      : 1;
-    const chartInnerWidth = chartWidth - padding.left - padding.right;
-    const chartInnerHeight = chartBottom - padding.top;
-    const points = data.map((d, i) => ({
-      ...d,
-      x: padding.left + (i / Math.max(data.length - 1, 1)) * chartInnerWidth,
-      y: padding.top + chartInnerHeight - ((Number(d.total) || 0) / maxValue) * chartInnerHeight,
-      comparison: selectedComparison ? Number(d[selectedComparison.key]) || 0 : 0,
-      comparisonY: selectedComparison
-        ? padding.top + chartInnerHeight - ((Number(d[selectedComparison.key]) || 0) / comparisonMax) * chartInnerHeight
-        : chartBottom,
-      total: Number(d.total) || 0,
-      guests: Number(d.guests) || 0,
-      members: Number(d.members) || (Number(d.total) || 0) - (Number(d.guests) || 0),
-      date: d.date,
-      id: d.id,
-      topic: d.topic || "",
-      index: i,
-    }));
+    const maxPrimary = Math.max(...data.map((d) => Number(d.total) || 0), 0);
+    const maxComparison = selectedComparison
+      ? Math.max(...data.map((d) => Number(d[selectedComparison.key]) || 0), 0)
+      : 0;
+    const overallMax = Math.max(maxPrimary, maxComparison, 1);
+    const yScale = getNiceYScale(overallMax);
 
-    return { points, maxValue, comparisonMax };
+    const { bandWidth, getCenterX } = getBandCoordinates(data.length, innerWidth, padding.left);
+
+    const points = data.map((d, i) => {
+      const x = getCenterX(i);
+      const y = padding.top + innerHeight - ((Number(d.total) || 0) / yScale.max) * innerHeight;
+      const compVal = selectedComparison ? Number(d[selectedComparison.key]) || 0 : 0;
+      const compY = selectedComparison
+        ? padding.top + innerHeight - (compVal / yScale.max) * innerHeight
+        : chartBottom;
+
+      return {
+        ...d,
+        x,
+        y,
+        comparison: compVal,
+        comparisonY: compY,
+        total: Number(d.total) || 0,
+        guests: Number(d.guests) || 0,
+        members: Number(d.members) || (Number(d.total) || 0) - (Number(d.guests) || 0),
+        date: d.date,
+        id: d.id,
+        topic: d.topic || "",
+        index: i,
+        bandWidth,
+      };
+    });
+
+    return {
+      points,
+      maxValue: maxPrimary,
+      selectedComparison,
+      yScale,
+      bandWidth,
+    };
   });
 
   $effect(() => {
@@ -62,64 +96,8 @@
     if (!comparisonOptions.some((option) => option.key === comparisonKey)) comparisonKey = "";
   });
 
-  const linePath = $derived(() => {
-    const { points } = chartData();
-    if (points.length === 0) return "";
-    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
-
-    let path = `M ${points[0].x} ${points[0].y}`;
-    for (let i = 1; i < points.length; i += 1) {
-      const prev = points[i - 1];
-      const curr = points[i];
-      const cpx = (prev.x + curr.x) / 2;
-      path += ` C ${cpx} ${prev.y}, ${cpx} ${curr.y}, ${curr.x} ${curr.y}`;
-    }
-    return path;
-  });
-
-  const areaPath = $derived(() => {
-    const { points } = chartData();
-    if (points.length === 0 || !linePath()) return "";
-    return `${linePath()} L ${points[points.length - 1].x} ${chartBottom} L ${points[0].x} ${chartBottom} Z`;
-  });
-
-  const comparisonPath = $derived(() => {
-    const points = chartData().points;
-    if (!points.length || !comparisonKey) return "";
-    if (points.length === 1) return `M ${points[0].x} ${points[0].comparisonY}`;
-
-    let path = `M ${points[0].x} ${points[0].comparisonY}`;
-    for (let i = 1; i < points.length; i += 1) {
-      const prev = points[i - 1];
-      const curr = points[i];
-      const cpx = (prev.x + curr.x) / 2;
-      path += ` C ${cpx} ${prev.comparisonY}, ${cpx} ${curr.comparisonY}, ${curr.x} ${curr.comparisonY}`;
-    }
-    return path;
-  });
-
   const selectedComparison = $derived(comparisonOptions.find((option) => option.key === comparisonKey));
-  const comparisonColor = $derived(selectedComparison?.color || "warning");
-  const comparisonColorValue = $derived.by(() => {
-    const supportedColors = new Set(["primary", "success", "warning", "destructive"]);
-    const color = supportedColors.has(comparisonColor) ? comparisonColor : "warning";
-    return `hsl(var(--${color}))`;
-  });
-
-  const barWidth = $derived(() => {
-    const count = chartData().points.length;
-    return Math.max(2.5, Math.min(10, ((chartWidth - padding.left - padding.right) / Math.max(count, 1)) * 0.58));
-  });
-
-  function formatDate(dateStr) {
-    if (!dateStr) return "";
-    return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  }
-
-  function formatFullDate(dateStr) {
-    if (!dateStr) return "";
-    return new Date(dateStr).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-  }
+  const comparisonColorValue = $derived(getChartColor(selectedComparison?.color || "warning"));
 
   function handlePointClick(point, event) {
     event.stopPropagation();
@@ -129,107 +107,464 @@
   const isClickable = $derived(() => !!onPointClick);
 </script>
 
-<div class="card-base overflow-visible p-4">
-  <div class="mb-4 flex items-start justify-between gap-3 pr-12">
-    <h3 class="text-sm font-medium text-muted-foreground">{title}</h3>
+<div class="card-base overflow-visible p-5" aria-labelledby="attendance-trend-title">
+  <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div>
+      <h3 id="attendance-trend-title" class="text-base font-semibold text-foreground">{title}</h3>
+      {#if data.length > 0}
+        <p class="mt-0.5 text-xs text-muted-foreground">{data.length} {itemLabel} recorded</p>
+      {/if}
+    </div>
     <div class="flex flex-wrap items-center justify-end gap-2">
-      {#if data.length > 0}<span class="text-xs text-muted-foreground">{data.length} {itemLabel}</span>{/if}
       {#if comparisonOptions.length}
         <label class="sr-only" for="{title.replace(/\W+/g, '-').toLowerCase()}-comparison">Compare attendance with</label>
         <div class="flex items-center gap-1.5 rounded-xl border border-border/80 bg-secondary/30 px-2 py-1.5">
           <span class="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Compare with</span>
-          <select id="{title.replace(/\W+/g, '-').toLowerCase()}-comparison" bind:value={comparisonKey} class="min-w-24 max-w-40 border-0 bg-transparent px-1 py-0.5 text-[11px] font-semibold text-foreground outline-none focus:ring-1 focus:ring-primary" aria-label="Compare attendance with">
+          <select
+            id="{title.replace(/\W+/g, '-').toLowerCase()}-comparison"
+            bind:value={comparisonKey}
+            class="min-w-24 max-w-40 border-0 bg-transparent px-1 py-0.5 text-[11px] font-semibold text-foreground outline-none focus:ring-1 focus:ring-primary"
+            aria-label="Compare attendance with"
+          >
             <option value="">None</option>
-          {#each comparisonOptions as option}<option value={option.key}>{option.label}</option>{/each}
+            {#each comparisonOptions as option}
+              <option value={option.key}>{option.label}</option>
+            {/each}
           </select>
         </div>
       {/if}
-      <ChartViewToggle value={chartType} onChange={(next) => (chartType = next)} />
+      <ChartViewToggle value={chartType} onChange={(next) => (chartType = next)} label="Attendance chart view" />
       {#if onFilterClick}
-        <button type="button" onclick={() => onFilterClick(title)} class="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground" aria-label={`Filter ${title}`}>
-          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-width="2" d="M3 4h18l-7 9v6l-4 2v-8L3 4z" /></svg>
+        <button
+          type="button"
+          onclick={() => onFilterClick(title)}
+          class="flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+          aria-label={`Filter ${title}`}
+        >
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h18l-7 9v6l-4 2v-8L3 4z" />
+          </svg>
           Filter
-          {#if activeFilterCount > 0}<span class="rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none text-primary-foreground">{activeFilterCount}</span>{/if}
+          {#if activeFilterCount > 0}
+            <span class="rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none text-primary-foreground">{activeFilterCount}</span>
+          {/if}
         </button>
       {/if}
     </div>
   </div>
 
+  {#if selectedComparison}
+    <div class="mb-3 flex items-center justify-center gap-5 text-xs">
+      <div class="flex items-center gap-1.5">
+        <span class="h-2.5 w-2.5 rounded-full bg-primary shadow-sm shadow-primary/40"></span>
+        <span class="font-medium text-foreground">Total attendance</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="h-2.5 w-2.5 rounded-full shadow-sm" style="background-color: {comparisonColorValue};"></span>
+        <span class="font-medium text-foreground">{selectedComparison.label}</span>
+      </div>
+    </div>
+  {/if}
+
   {#if data.length > 0}
-    <div class="relative">
-      <svg viewBox="0 0 {chartWidth} {chartHeight}" class="chart-svg h-44 w-full overflow-visible" preserveAspectRatio="none" role="img" aria-label={`${title} ${chartType} chart`}>
-        <title>{title} {chartType} view</title>
+    <div class="relative w-full">
+      <svg
+        viewBox="0 0 {chartWidth} {chartHeight}"
+        class="w-full h-auto overflow-visible"
+        style="height: {chartHeight}px;"
+        role="img"
+        aria-label={`${title} ${chartType} chart`}
+      >
+        <title>{`${title} ${chartType} view`}</title>
         <defs>
-          <linearGradient id="attendanceAreaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" style="stop-color: hsl(var(--primary)); stop-opacity: 0.4" />
-            <stop offset="100%" style="stop-color: hsl(var(--primary)); stop-opacity: 0.05" />
+          <linearGradient id="attendanceAreaGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="hsl(var(--primary))" stop-opacity="0.28" />
+            <stop offset="85%" stop-color="hsl(var(--primary))" stop-opacity="0.03" />
+            <stop offset="100%" stop-color="hsl(var(--primary))" stop-opacity="0.0" />
           </linearGradient>
-          <linearGradient id="attendanceLineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" style="stop-color: hsl(var(--primary)); stop-opacity: 0.8" />
-            <stop offset="100%" style="stop-color: hsl(var(--primary)); stop-opacity: 1" />
+
+          <linearGradient id="attendanceBarGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="hsl(var(--primary))" stop-opacity="0.98" />
+            <stop offset="100%" stop-color="hsl(var(--primary))" stop-opacity="0.75" />
           </linearGradient>
         </defs>
 
-        {#each [0.25, 0.5, 0.75] as ratio}
-          <line x1={padding.left} y1={padding.top + (chartBottom - padding.top) * (1 - ratio)} x2={chartWidth - padding.right} y2={padding.top + (chartBottom - padding.top) * (1 - ratio)} stroke="currentColor" stroke-opacity="0.1" stroke-dasharray="1 2" />
+        <!-- Horizontal Grid Lines and Y-Axis Ticks -->
+        {#each chartData().yScale.ticks as tick}
+          {@const yPos = padding.top + innerHeight - (tick / chartData().yScale.max) * innerHeight}
+          <line
+            x1={padding.left}
+            y1={yPos}
+            x2={chartWidth - padding.right}
+            y2={yPos}
+            stroke="hsl(var(--border))"
+            stroke-opacity={tick === 0 ? "0.65" : "0.35"}
+            stroke-dasharray={tick === 0 ? "none" : "3 4"}
+          />
+          <text
+            x={padding.left - 8}
+            y={yPos + 4}
+            text-anchor="end"
+            class="fill-muted-foreground/75 text-[11px] font-medium select-none pointer-events-none"
+          >
+            {tick}
+          </text>
         {/each}
 
+        <!-- Hover background band -->
+        {#if hoveredIndex !== null}
+          {@const activePoint = chartData().points[hoveredIndex]}
+          <rect
+            x={activePoint.x - activePoint.bandWidth * 0.44}
+            y={padding.top}
+            width={activePoint.bandWidth * 0.88}
+            height={innerHeight}
+            fill="hsl(var(--muted-foreground))"
+            fill-opacity="0.05"
+            rx="8"
+            class="pointer-events-none transition-all duration-150"
+          />
+          {#if chartType === "line"}
+            <line
+              x1={activePoint.x}
+              y1={padding.top}
+              x2={activePoint.x}
+              y2={chartBottom}
+              stroke="hsl(var(--primary))"
+              stroke-opacity="0.3"
+              stroke-dasharray="2 3"
+              class="pointer-events-none"
+            />
+          {/if}
+        {/if}
+
         {#if chartType === "line"}
-          <path d={areaPath()} fill="url(#attendanceAreaGradient)" />
-          <path d={linePath()} fill="none" stroke="url(#attendanceLineGradient)" stroke-width="0.6" stroke-linecap="round" stroke-linejoin="round" />
-          {#if selectedComparison}<path d={comparisonPath()} fill="none" stroke={comparisonColorValue} stroke-width="0.55" stroke-dasharray="1.2 0.8" stroke-linecap="round" stroke-linejoin="round" />{/if}
+          <!-- Gradient Area -->
+          <path
+            d={makeAreaPath(chartData().points, "y", chartBottom)}
+            fill="url(#attendanceAreaGradient)"
+            class="transition-opacity duration-300"
+          />
+
+          <!-- Primary Curve -->
+          <path
+            d={makeSmoothCurve(chartData().points, "y")}
+            fill="none"
+            stroke="hsl(var(--primary))"
+            stroke-width="2.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="transition-all duration-300"
+          />
+
+          <!-- Comparison Curve (if active) -->
+          {#if selectedComparison}
+            <path
+              d={makeSmoothCurve(chartData().points, "comparisonY")}
+              fill="none"
+              stroke={comparisonColorValue}
+              stroke-width="2.25"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-dasharray="5 4"
+              class="transition-all duration-300"
+            />
+          {/if}
+
+          <!-- Data Points and Values -->
           {#each chartData().points as point, i}
+            {@const isHovered = hoveredIndex === i}
+            {@const valuesClose = selectedComparison && Math.abs(point.y - point.comparisonY) < 22}
+
+            <!-- Primary Data Dot -->
+            {#if isHovered}
+              <circle
+                cx={point.x}
+                cy={point.y}
+                r="13"
+                fill="hsl(var(--primary))"
+                fill-opacity="0.18"
+                class="pointer-events-none animate-pulse"
+              />
+            {/if}
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r={isHovered ? 5.5 : 4}
+              fill="hsl(var(--card))"
+              stroke="hsl(var(--primary))"
+              stroke-width={isHovered ? 3 : 2.5}
+              class="pointer-events-none transition-all duration-200"
+            />
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r="2"
+              fill="hsl(var(--primary))"
+              class="pointer-events-none"
+            />
+
+            <!-- Comparison Data Dot -->
+            {#if selectedComparison}
+              <circle
+                cx={point.x}
+                cy={point.comparisonY}
+                r={isHovered ? 4.5 : 3.5}
+                fill="hsl(var(--card))"
+                stroke={comparisonColorValue}
+                stroke-width="2"
+                class="pointer-events-none transition-all duration-200"
+              />
+              <circle
+                cx={point.x}
+                cy={point.comparisonY}
+                r="1.5"
+                fill={comparisonColorValue}
+                class="pointer-events-none"
+              />
+            {/if}
+
+            <!-- Primary Value Label -->
+            <text
+              x={point.x}
+              y={valuesClose && point.y > point.comparisonY ? point.y + 16 : point.y - 10}
+              text-anchor="middle"
+              class="fill-foreground text-xs font-semibold pointer-events-none select-none transition-colors duration-150 {isHovered ? 'fill-primary font-bold text-[13px]' : ''}"
+            >
+              {point.total}
+            </text>
+
+            <!-- Comparison Value Label -->
+            {#if selectedComparison}
+              <text
+                x={point.x}
+                y={valuesClose && point.comparisonY > point.y ? point.comparisonY + 16 : point.comparisonY - 10}
+                text-anchor="middle"
+                fill={comparisonColorValue}
+                class="text-[11px] font-semibold pointer-events-none select-none transition-all duration-150"
+              >
+                {point.comparison}
+              </text>
+            {/if}
+
+            <!-- Interactive Trigger -->
             <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-            <circle cx={point.x} cy={point.y} r="3" fill="transparent" class={isClickable() ? "cursor-pointer" : ""} role={isClickable() ? "button" : "presentation"} tabindex={isClickable() ? 0 : -1} aria-label={isClickable() ? `View ${itemLabel.replace(/s$/, "")} on ${point.date}` : undefined} onmouseenter={() => (hoveredIndex = i)} onmouseleave={() => (hoveredIndex = null)} onfocus={() => (hoveredIndex = i)} onblur={() => (hoveredIndex = null)} onclick={(event) => handlePointClick(point, event)} onkeydown={(event) => event.key === "Enter" && handlePointClick(point, event)} />
-            <circle cx={point.x} cy={point.y} r={hoveredIndex === i ? 1.8 : 1} class="fill-primary pointer-events-none" />
-            {#if selectedComparison}<circle cx={point.x} cy={point.comparisonY} r="1" fill={comparisonColorValue} class="pointer-events-none" />{/if}
-            <text x={point.x - (selectedComparison ? 1.5 : 0)} y={Math.max(padding.top + 2, point.y - 2)} text-anchor="middle" fill="hsl(var(--foreground))" stroke="hsl(var(--card))" stroke-width="0.9" paint-order="stroke" font-size="2.7" font-weight="600">{point.total}</text>
-            {#if selectedComparison}<text x={point.x + 1.5} y={Math.max(padding.top + 2, point.comparisonY - 2)} text-anchor="middle" fill={comparisonColorValue} stroke="hsl(var(--card))" stroke-width="0.9" paint-order="stroke" font-size="2.5" font-weight="700">{point.comparison}</text>{/if}
-            {#if hoveredIndex === i}<circle cx={point.x} cy={point.y} r="3" class="fill-primary/30 animate-pulse pointer-events-none" />{/if}
+            <rect
+              x={point.x - point.bandWidth / 2}
+              y={padding.top}
+              width={point.bandWidth}
+              height={innerHeight}
+              fill="transparent"
+              class={isClickable() ? "cursor-pointer" : ""}
+              role={isClickable() ? "button" : "presentation"}
+              tabindex={isClickable() ? 0 : -1}
+              aria-label={isClickable() ? `View ${itemLabel.replace(/s$/, "")} on ${point.date}` : undefined}
+              onmouseenter={() => (hoveredIndex = i)}
+              onmouseleave={() => (hoveredIndex = null)}
+              onfocus={() => (hoveredIndex = i)}
+              onblur={() => (hoveredIndex = null)}
+              onclick={(event) => handlePointClick(point, event)}
+              onkeydown={(event) => (event.key === "Enter" || event.key === " ") && handlePointClick(point, event)}
+            />
           {/each}
         {:else}
+          {@const hasComparison = Boolean(selectedComparison)}
+          {@const primaryWidth = hasComparison
+            ? Math.min(26, Math.max(14, chartData().bandWidth * 0.28))
+            : Math.min(48, Math.max(20, chartData().bandWidth * 0.42))}
+          {@const barGap = 4}
+
           {#each chartData().points as point, i}
-            {@const width = barWidth()}
-            <rect x={point.x - (selectedComparison ? width * 0.58 : width / 2)} y={point.y} width={selectedComparison ? width * 0.8 : width} height={Math.max(0, chartBottom - point.y)} rx="1.2" class="fill-primary/85 transition-all duration-200 {hoveredIndex === i ? 'brightness-125' : ''}" />
-            {#if selectedComparison}<rect x={point.x + width * 0.05} y={point.comparisonY} width={width * 0.8} height={Math.max(0, chartBottom - point.comparisonY)} rx="1.2" fill={comparisonColorValue} fill-opacity="0.82" />{/if}
-            <text x={point.x - (selectedComparison ? width * 0.58 : 0)} y={Math.max(padding.top + 2, point.y - 1.5)} text-anchor="middle" fill="hsl(var(--foreground))" stroke="hsl(var(--card))" stroke-width="0.9" paint-order="stroke" font-size="2.7" font-weight="600">{point.total}</text>
-            {#if selectedComparison}<text x={point.x + width * 0.45} y={Math.max(padding.top + 2, point.comparisonY - 1.5)} text-anchor="middle" fill={comparisonColorValue} stroke="hsl(var(--card))" stroke-width="0.9" paint-order="stroke" font-size="2.5" font-weight="700">{point.comparison}</text>{/if}
+            {@const isHovered = hoveredIndex === i}
+            {@const primaryHeight = Math.max(point.total > 0 ? 5 : 0, chartBottom - point.y)}
+
+            {#if !hasComparison}
+              <!-- Single Bar Mode -->
+              {@const barX = point.x - primaryWidth / 2}
+              <rect
+                x={barX}
+                y={point.y}
+                width={primaryWidth}
+                height={primaryHeight}
+                rx="6"
+                ry="6"
+                fill="url(#attendanceBarGradient)"
+                class="transition-all duration-200 {isHovered ? 'brightness-125 filter drop-shadow-[0_4px_12px_rgba(6,182,212,0.35)]' : 'brightness-100'}"
+              />
+
+              <!-- Value label above bar -->
+              <text
+                x={point.x}
+                y={point.y - 8}
+                text-anchor="middle"
+                class="fill-foreground text-xs font-semibold select-none pointer-events-none transition-all {isHovered ? 'fill-primary font-bold' : ''}"
+              >
+                {point.total}
+              </text>
+            {:else}
+              <!-- Clustered Two-Bar Mode -->
+              {@const barXPrimary = point.x - primaryWidth - barGap / 2}
+              {@const barXComparison = point.x + barGap / 2}
+              {@const comparisonHeight = Math.max(point.comparison > 0 ? 5 : 0, chartBottom - point.comparisonY)}
+
+              <rect
+                x={barXPrimary}
+                y={point.y}
+                width={primaryWidth}
+                height={primaryHeight}
+                rx="5"
+                ry="5"
+                fill="url(#attendanceBarGradient)"
+                class="transition-all duration-200 {isHovered ? 'brightness-125 filter drop-shadow-[0_3px_10px_rgba(6,182,212,0.3)]' : 'brightness-100'}"
+              />
+
+              <rect
+                x={barXComparison}
+                y={point.comparisonY}
+                width={primaryWidth}
+                height={comparisonHeight}
+                rx="5"
+                ry="5"
+                fill={comparisonColorValue}
+                fill-opacity="0.88"
+                class="transition-all duration-200 {isHovered ? 'brightness-125 filter drop-shadow-[0_3px_10px_rgba(245,158,11,0.25)]' : 'brightness-100'}"
+              />
+
+              <text
+                x={barXPrimary + primaryWidth / 2}
+                y={point.y - 7}
+                text-anchor="middle"
+                class="fill-primary text-[11px] font-semibold select-none pointer-events-none"
+              >
+                {point.total}
+              </text>
+
+              <text
+                x={barXComparison + primaryWidth / 2}
+                y={point.comparisonY - 7}
+                text-anchor="middle"
+                fill={comparisonColorValue}
+                class="text-[11px] font-semibold select-none pointer-events-none"
+              >
+                {point.comparison}
+              </text>
+            {/if}
+
+            <!-- Interactive Trigger -->
             <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-            <rect x={point.x - Math.max(width, 3)} y={padding.top} width={Math.max(width * 2, 6)} height={chartBottom - padding.top} fill="transparent" class={isClickable() ? "cursor-pointer" : ""} role={isClickable() ? "button" : "presentation"} tabindex={isClickable() ? 0 : -1} aria-label={isClickable() ? `View ${itemLabel.replace(/s$/, "")} on ${point.date}` : undefined} onmouseenter={() => (hoveredIndex = i)} onmouseleave={() => (hoveredIndex = null)} onfocus={() => (hoveredIndex = i)} onblur={() => (hoveredIndex = null)} onclick={(event) => handlePointClick(point, event)} onkeydown={(event) => (event.key === "Enter" || event.key === " ") && handlePointClick(point, event)} />
+            <rect
+              x={point.x - point.bandWidth / 2}
+              y={padding.top}
+              width={point.bandWidth}
+              height={innerHeight}
+              fill="transparent"
+              class={isClickable() ? "cursor-pointer" : ""}
+              role={isClickable() ? "button" : "presentation"}
+              tabindex={isClickable() ? 0 : -1}
+              aria-label={isClickable() ? `View ${itemLabel.replace(/s$/, "")} on ${point.date}` : undefined}
+              onmouseenter={() => (hoveredIndex = i)}
+              onmouseleave={() => (hoveredIndex = null)}
+              onfocus={() => (hoveredIndex = i)}
+              onblur={() => (hoveredIndex = null)}
+              onclick={(event) => handlePointClick(point, event)}
+              onkeydown={(event) => (event.key === "Enter" || event.key === " ") && handlePointClick(point, event)}
+            />
           {/each}
         {/if}
+
+        <!-- X-Axis Baseline -->
+        <line
+          x1={padding.left}
+          y1={chartBottom}
+          x2={chartWidth - padding.right}
+          y2={chartBottom}
+          stroke="hsl(var(--border))"
+          stroke-opacity="0.75"
+          stroke-width="1"
+        />
+
+        <!-- X-Axis Date Labels -->
+        {#each chartData().points as point, i}
+          {@const isHovered = hoveredIndex === i}
+          <text
+            x={point.x}
+            y={chartBottom + 18}
+            text-anchor="middle"
+            class="text-xs transition-colors duration-150 select-none pointer-events-none {isHovered ? 'fill-foreground font-semibold' : 'fill-muted-foreground font-medium'}"
+          >
+            {formatChartDate(point.date, 'short')}
+          </text>
+        {/each}
       </svg>
 
+      <!-- Floating Hover Tooltip -->
       {#if hoveredIndex !== null}
         {@const point = chartData().points[hoveredIndex]}
-        <div class="pointer-events-none absolute z-50 min-w-[160px] -translate-x-1/2 -translate-y-full transform rounded-lg border border-border bg-card p-3 shadow-xl" style={`left: ${(point.x / chartWidth) * 100}%; top: -10px;`}>
-          <div class="mb-1 text-xs font-medium text-foreground">{formatFullDate(point.date)}</div>
-          {#if point.topic}<div class="mb-2 line-clamp-1 text-xs text-muted-foreground">{point.topic}</div>{/if}
-          <div class="flex items-center gap-3">
-            <div><div class="text-lg font-bold text-primary">{point.total}</div><div class="text-[10px] text-muted-foreground">Total</div></div>
-            <div class="h-6 w-px bg-border"></div>
-            <div><div class="text-sm font-medium text-info">{point.guests}</div><div class="text-[10px] text-muted-foreground">{secondaryLabel}</div></div>
+        {@const percentX = ((point.x / chartWidth) * 100).toFixed(1)}
+        <div
+          class="pointer-events-none absolute z-30 min-w-[170px] -translate-x-1/2 -translate-y-full transform rounded-xl border border-border/90 bg-card/95 p-3 shadow-2xl backdrop-blur-md transition-all duration-100"
+          style="left: clamp(90px, {percentX}%, calc(100% - 90px)); top: -8px;"
+        >
+          <div class="mb-1 text-xs font-semibold text-foreground">{formatChartDate(point.date, 'full')}</div>
+          {#if point.topic}
+            <div class="mb-2 line-clamp-1 text-xs text-muted-foreground">{point.topic}</div>
+          {/if}
+          <div class="mt-2 space-y-1.5 border-t border-border/50 pt-2">
+            <div class="flex items-center justify-between gap-3 text-xs">
+              <span class="flex items-center gap-1.5 text-muted-foreground">
+                <span class="h-2 w-2 rounded-full bg-primary"></span>
+                Total attendance:
+              </span>
+              <span class="font-bold text-foreground">{point.total}</span>
+            </div>
+            <div class="flex items-center justify-between gap-3 text-xs">
+              <span class="flex items-center gap-1.5 text-muted-foreground">
+                <span class="h-2 w-2 rounded-full bg-info"></span>
+                {secondaryLabel}:
+              </span>
+              <span class="font-bold text-info">{point.guests}</span>
+            </div>
+            {#if selectedComparison}
+              <div class="flex items-center justify-between gap-3 text-xs">
+                <span class="flex items-center gap-1.5 text-muted-foreground">
+                  <span class="h-2 w-2 rounded-full" style="background-color: {comparisonColorValue};"></span>
+                  {selectedComparison.label}:
+                </span>
+                <span class="font-bold" style="color: {comparisonColorValue};">{point.comparison}</span>
+              </div>
+            {/if}
           </div>
-          {#if isClickable() && point.id}<div class="mt-2 border-t border-border pt-2 text-center text-[10px] text-muted-foreground">Click to view details</div>{/if}
+          {#if isClickable() && point.id}
+            <div class="mt-2 border-t border-border/50 pt-2 text-center text-[10px] text-muted-foreground">
+              Click to view details
+            </div>
+          {/if}
         </div>
-      {/if}
-
-      <div class="mt-2 flex justify-between px-1">
-        <span class="text-[10px] text-muted-foreground">{formatDate(chartData().points[0]?.date)}</span>
-        {#if chartData().points.length > 2}<span class="text-[10px] text-muted-foreground">{formatDate(chartData().points[Math.floor(chartData().points.length / 2)]?.date)}</span>{/if}
-        <span class="text-[10px] text-muted-foreground">{formatDate(chartData().points[chartData().points.length - 1]?.date)}</span>
-      </div>
-      {#if selectedComparison}
-        <p class="mt-2 text-center text-[10px] text-muted-foreground">Compared with {selectedComparison.label}; labels show actual values.</p>
       {/if}
     </div>
 
     <div class="mt-4 flex items-center justify-center gap-6 border-t border-border pt-4">
-      <div class="text-center"><div class="text-lg font-bold text-foreground">{data[data.length - 1].total}</div><div class="text-xs text-muted-foreground">Latest</div></div>
-      <div class="text-center"><div class="text-lg font-bold text-foreground">{Math.round(data.reduce((sum, item) => sum + (Number(item.total) || 0), 0) / data.length)}</div><div class="text-xs text-muted-foreground">Average</div></div>
-      <div class="text-center"><div class="text-lg font-bold text-foreground">{Math.max(...data.map((item) => Number(item.total) || 0), 0)}</div><div class="text-xs text-muted-foreground">Peak</div></div>
+      <div class="text-center">
+        <div class="text-lg font-bold text-foreground">{data[data.length - 1].total}</div>
+        <div class="text-xs text-muted-foreground">Latest</div>
+      </div>
+      <div class="text-center">
+        <div class="text-lg font-bold text-foreground">
+          {Math.round(data.reduce((sum, item) => sum + (Number(item.total) || 0), 0) / data.length)}
+        </div>
+        <div class="text-xs text-muted-foreground">Average</div>
+      </div>
+      <div class="text-center">
+        <div class="text-lg font-bold text-primary">
+          {Math.max(...data.map((item) => Number(item.total) || 0), 0)}
+        </div>
+        <div class="text-xs text-muted-foreground">Peak</div>
+      </div>
     </div>
   {:else}
-    <div class="flex h-44 items-center justify-center"><p class="text-sm italic text-muted-foreground">No attendance data available</p></div>
+    <div class="flex h-52 items-center justify-center">
+      <p class="text-sm italic text-muted-foreground">No attendance data available</p>
+    </div>
   {/if}
 </div>
+

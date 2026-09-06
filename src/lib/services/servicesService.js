@@ -1,12 +1,12 @@
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api.js";
 import { mockServices, mockAttendance, mockPeople, getServiceById as getMockServiceById } from "../data/mockData.js";
+import { getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
 
 function getClient() {
-  const convexUrl = import.meta.env?.VITE_CONVEX_URL;
-  if (!convexUrl) return null;
-  return new ConvexHttpClient(convexUrl);
+  return getConvexHttpClient();
 }
+
+const unavailable = () => ({ data: null, error: unavailableError() });
 
 function isConvexId(id) {
   if (!id || typeof id !== "string") return false;
@@ -39,20 +39,21 @@ function cleanData(obj) {
 export async function getAll() {
   const client = getClient();
   if (!client) {
-    return { data: mockServices.map(mapDoc), error: null };
+    return isDemoMode() ? { data: mockServices.map(mapDoc), error: null } : unavailable();
   }
 
   try {
     const data = await withTimeout(client.query(api.services.getAll), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    return { data: mockServices.map(mapDoc), error: null };
+    return isDemoMode() ? { data: mockServices.map(mapDoc), error: null } : { data: null, error };
   }
 }
 
 export async function getById(id) {
   const client = getClient();
   if (!client || !isConvexId(id)) {
+    if (!isDemoMode()) return unavailable();
     const mock = getMockServiceById(id);
     return { data: mock ? mapDoc(mock) : null, error: null };
   }
@@ -61,8 +62,6 @@ export async function getById(id) {
     const data = await withTimeout(client.query(api.services.getById, { id }), 2500);
     return { data: mapDoc(data), error: null };
   } catch (error) {
-    const mock = getMockServiceById(id);
-    if (mock) return { data: mapDoc(mock), error: null };
     return { data: null, error };
   }
 }
@@ -70,6 +69,7 @@ export async function getById(id) {
 export async function create(serviceData) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const newService = { ...serviceData, id: `mock-${Date.now()}` };
     mockServices.unshift(newService);
     return { data: newService, error: null };
@@ -86,6 +86,7 @@ export async function create(serviceData) {
 export async function update(id, serviceData) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const index = mockServices.findIndex(s => s.id === id);
     if (index !== -1) {
       mockServices[index] = { ...mockServices[index], ...serviceData };
@@ -103,10 +104,12 @@ export async function update(id, serviceData) {
 }
 
 export async function record(recordData) {
+  if (isDemoMode()) return { data: null, error: new Error("Connected attendance and care recording requires the live backend. Demo records are read-only.") };
   const { id, attendanceData = [], ...serviceData } = recordData;
   const client = getClient();
 
   if (!client || (id && !isConvexId(id))) {
+    if (!isDemoMode()) return unavailable();
     const serviceId = id || `mock-${Date.now()}`;
     const individuals = attendanceData
       .map((record) => mockPeople.find((person) => String(person.id || person._id) === String(record.person_id)))
@@ -139,6 +142,7 @@ export async function record(recordData) {
 export async function remove(id) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return { error: unavailableError() };
     const index = mockServices.findIndex(s => s.id === id);
     if (index !== -1) mockServices.splice(index, 1);
     return { error: null };
@@ -155,6 +159,7 @@ export async function remove(id) {
 export async function getByDateRange(startDate, endDate) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const filtered = mockServices.filter(s => s.service_date >= startDate && s.service_date <= endDate);
     return { data: filtered.map(mapDoc), error: null };
   }
@@ -163,7 +168,6 @@ export async function getByDateRange(startDate, endDate) {
     const data = await withTimeout(client.query(api.services.getByDateRange, { startDate, endDate }), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    const filtered = mockServices.filter(s => s.service_date >= startDate && s.service_date <= endDate);
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }

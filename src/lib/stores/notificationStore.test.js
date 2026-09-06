@@ -11,9 +11,9 @@ describe("Notification Store", () => {
     notificationStore.resetNotifications();
   });
 
-  it("initializes with default notifications and calculated unread count", () => {
+  it("starts empty in live mode and calculates unread count", () => {
     const list = get(notifications);
-    expect(list.length).toBeGreaterThan(0);
+    expect(list).toEqual([]);
 
     const count = get(unreadCount);
     const expectedUnread = list.filter((n) => !n.read).length;
@@ -21,6 +21,7 @@ describe("Notification Store", () => {
   });
 
   it("marks a notification as read and decrements unreadCount", () => {
+    notificationStore.addNotification({ title: "Live alert", description: "A real event" });
     const initialUnread = get(unreadCount);
     const unreadItem = get(notifications).find((n) => !n.read);
     expect(unreadItem).toBeDefined();

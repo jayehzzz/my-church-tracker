@@ -1,4 +1,5 @@
-import { mutation } from "./_generated/server";
+import { requireDisposable, resetApplicationData } from "./lib/maintenance";
+import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
@@ -1292,34 +1293,21 @@ const MEETING_TYPES = ["bacenta", "flow_prayer", "farley_prayer", "all_night_pra
 const VISITATION_OUTCOMES = ["welcomed_encouraged", "prayer_request_received", "not_home", "concerns_shared", "invited_to_service"];
 
 // --- MAIN SEED MUTATION ---
-export const seed = mutation({
+export const seed = internalMutation({
     args: {
         clearFirst: v.optional(v.boolean()),
+        confirmation: v.string(),
     },
     handler: async (ctx, args) => {
-        // 🚨 SAFETY CHECK: Prevent seeding production database
-        // This checks if we're running against a production deployment
-        const deploymentUrl = process.env.CONVEX_CLOUD_URL || '';
-        if (deploymentUrl.includes('prod') || deploymentUrl.includes('production')) {
-            throw new Error(
-                '🚨 SAFETY BLOCK: Cannot seed production database! ' +
-                'This script is only for development/test environments.'
-            );
-        }
-        log('✅ Safety check passed - running in development environment');
-
-        const shouldClear = args.clearFirst ?? true;
+        requireDisposable(args.confirmation);
+        const shouldClear = args.clearFirst ?? false;
         const now = new Date();
         const oneYearAgo = subDays(now, 365);
 
         // 1. CLEAR EXISTING DATA
         if (shouldClear) {
             log("Clearing existing data...");
-            const tables = ["people", "services", "attendance", "meetings", "meeting_attendance", "visitations", "activities"];
-            for (const table of tables) {
-                const records = await ctx.db.query(table as any).collect();
-                for (const r of records) await ctx.db.delete(r._id);
-            }
+            await resetApplicationData(ctx);
             log("Cleared all tables.");
         }
 

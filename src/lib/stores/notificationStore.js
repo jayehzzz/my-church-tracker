@@ -4,8 +4,10 @@
  */
 import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
+import { api } from '../../../convex/_generated/api.js';
+import { getConvexHttpClient, isDemoMode } from '$lib/convex.js';
 
-// Default initial notifications generated for Church Tracker
+// These examples are available only in explicit local demo mode.
 const DEFAULT_NOTIFICATIONS = [
   {
     id: 'notif-1',
@@ -70,19 +72,23 @@ const DEFAULT_NOTIFICATIONS = [
 ];
 
 function getStoredNotifications() {
-  if (!browser || typeof localStorage === 'undefined') return DEFAULT_NOTIFICATIONS;
+  if (!browser || typeof localStorage === 'undefined') return isDemoMode() ? DEFAULT_NOTIFICATIONS : [];
   try {
     const raw = localStorage.getItem('church_tracker_notifications');
-    if (!raw) return DEFAULT_NOTIFICATIONS;
+    if (!raw) return isDemoMode() ? DEFAULT_NOTIFICATIONS : [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_NOTIFICATIONS;
+    return Array.isArray(parsed) ? parsed : (isDemoMode() ? DEFAULT_NOTIFICATIONS : []);
   } catch (e) {
     console.error('Failed to load notifications from storage', e);
-    return DEFAULT_NOTIFICATIONS;
+    return isDemoMode() ? DEFAULT_NOTIFICATIONS : [];
   }
 }
 
 export const notifications = writable(getStoredNotifications());
+
+// Live feed state is separate from the items so the UI can distinguish an
+// in-flight request, a valid empty feed, and an unavailable feed.
+export const liveNotificationState = writable('idle');
 
 // Derived count of unread notifications
 export const unreadCount = derived(notifications, ($notifs) => {
@@ -102,6 +108,13 @@ function save(items) {
 
 export const notificationStore = {
   subscribe: notifications.subscribe,
+
+  clearSession: () => {
+    notifications.set([]);
+    try {
+      if (browser) localStorage.removeItem('church_tracker_notifications');
+    } catch { /* Storage restrictions must never prevent sign-out. */ }
+  },
 
   markAsRead: (id) => {
     notifications.update((items) => {
@@ -167,7 +180,36 @@ export const notificationStore = {
   },
 
   resetNotifications: () => {
-    notifications.set(DEFAULT_NOTIFICATIONS);
-    save(DEFAULT_NOTIFICATIONS);
+    const next = isDemoMode() ? DEFAULT_NOTIFICATIONS : [];
+    notifications.set(next);
+    save(next);
   }
 };
+
+export async function refreshLiveNotifications() {
+  if (isDemoMode()) return;
+  const client = getConvexHttpClient();
+  if (!client) {
+    liveNotificationState.set('error');
+    notifications.set([]);
+    return;
+  }
+  liveNotificationState.set('loading');
+  try {
+    const feed = await client.query(api.notifications.getFeed, {});
+    notifications.update((existing) => {
+      const existingById = new Map(existing.map((item) => [item.id, item]));
+      const next = feed.map((item) => ({
+        ...item,
+        read: existingById.get(item.id)?.read ?? false,
+      }));
+      save(next);
+      return next;
+    });
+    liveNotificationState.set('ready');
+  } catch {
+    // Do not leave stale alerts on screen when the current feed is unavailable.
+    notifications.set([]);
+    liveNotificationState.set('error');
+  }
+}

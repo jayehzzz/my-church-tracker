@@ -1,4 +1,6 @@
-import { mutation } from "./_generated/server";
+import { v } from "convex/values";
+import { requireDisposable, requireMaintenance } from "./lib/maintenance";
+import { internalMutation } from "./_generated/server";
 
 /**
  * MIGRATION: Remove basonta_worker role
@@ -10,9 +12,10 @@ import { mutation } from "./_generated/server";
  * is tracked via the basontas[] array instead.
  */
 
-export const removeBasontaWorkerRole = mutation({
+export const removeBasontaWorkerRole = internalMutation({
     args: {},
     handler: async (ctx) => {
+        requireMaintenance();
         // Get all people with role = "basonta_worker"
         const peopleToUpdate = await ctx.db
             .query("people")
@@ -202,9 +205,10 @@ const EVANGELISM_CONTACTS = [
     },
 ];
 
-export const seedEvangelismContacts = mutation({
-    args: {},
-    handler: async (ctx) => {
+export const seedEvangelismContacts = internalMutation({
+    args: { confirmation: v.string() },
+    handler: async (ctx, args) => {
+        requireDisposable(args.confirmation);
         const now = new Date().toISOString();
 
         // Get existing members to use as invited_by references

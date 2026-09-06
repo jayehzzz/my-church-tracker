@@ -1,4 +1,8 @@
-import { mutation, query, type MutationCtx } from "./_generated/server";
+import { candidates, selectGathering, setActualAttendance, reconcilePerson } from "./lib/attendanceWorkflow";
+import { canFollowUp, requireFollowUpAllowed } from "./lib/contactPolicy";
+import { managesAttendance } from "./lib/security";
+import { queryFor, mutationFor } from "./lib/security";
+import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 
@@ -157,6 +161,7 @@ async function insertTask(
         gatheringDate?: string;
     },
 ) {
+    requireFollowUpAllowed(await requirePerson(ctx, args.personId));
     const now = isoNow();
     return await ctx.db.insert("follow_up_tasks", {
         person_id: args.personId,
@@ -185,6 +190,7 @@ async function upsertCommitment(
         response: AttendanceResponse;
     },
 ) {
+    requireFollowUpAllowed(await requirePerson(ctx, args.personId));
     const now = isoNow();
     const matching = await ctx.db
         .query("gathering_commitments")
@@ -256,7 +262,7 @@ async function putContactOnLaterList(
     });
 }
 
-export const getLeaders = query({
+export const getLeaders = queryFor("crm:getLeaders")({
     args: {},
     handler: async (ctx) => {
         const [leaders, users] = await Promise.all([
@@ -279,37 +285,34 @@ export const getLeaders = query({
     },
 });
 
-export const syncQuarterlyReengagement = mutation({
-    args: { asOfDate: v.optional(v.string()) },
-    handler: async (ctx, args) => {
-        const asOfDate = args.asOfDate ?? today();
+// This is deliberately shared by the administrator-only backfill endpoint and
+// the scheduled job below.  A dashboard query must never be responsible for
+// creating work merely because somebody opened it.
+async function synchronizeQuarterlyReengagement(ctx: MutationCtx, asOfDate = today()) {
         const thresholdDate = addUtcDays(asOfDate, -90);
-        const [allPeople, allAssignments, allTasks, allFollowUps] = await Promise.all([
-            ctx.db.query("people").collect(),
-            ctx.db.query("follow_up_assignments").collect(),
-            ctx.db.query("follow_up_tasks").collect(),
-            ctx.db.query("follow_ups").collect(),
+        // The scheduler works only over contact statuses and open CRM work.
+        // `last_follow_up_date` is maintained atomically by the write paths, so
+        // the job does not need to scan every historical interaction.
+        const [guests, newBelievers, legacyVisitors, activeAssignments, openTasks] = await Promise.all([
+            ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", "guest")).collect(),
+            ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", "new_believer")).collect(),
+            ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", "visitor")).collect(),
+            ctx.db.query("follow_up_assignments").withIndex("by_status", (q) => q.eq("status", "active")).collect(),
+            ctx.db.query("follow_up_tasks").withIndex("by_status_due_date", (q) => q.eq("status", "open")).collect(),
         ]);
+        const allPeople = [...guests, ...newBelievers, ...legacyVisitors];
         const ownerByPerson = new Map<Id<"people">, Id<"people">>();
-        allAssignments
-            .filter((assignment) => assignment.status === "active")
+        activeAssignments
             .sort((a, b) => a.assigned_at.localeCompare(b.assigned_at))
             .forEach((assignment) => ownerByPerson.set(assignment.person_id, assignment.assigned_leader_id));
         const peopleWithOpenTasks = new Set(
-            allTasks.filter((task) => task.status === "open").map((task) => task.person_id),
+            openTasks.map((task) => task.person_id),
         );
-        const latestFollowUpByPerson = new Map<Id<"people">, string>();
-        for (const followUp of allFollowUps) {
-            const existing = latestFollowUpByPerson.get(followUp.contact_id);
-            if (!existing || followUp.follow_up_date > existing) {
-                latestFollowUpByPerson.set(followUp.contact_id, followUp.follow_up_date);
-            }
-        }
 
         const createdTaskIds: Array<Id<"follow_up_tasks">> = [];
         const activeQuarterlyByLeader = new Map<Id<"people">, number>();
-        allTasks
-            .filter((task) => task.status === "open" && task.automation_key === "quarterly_reengagement")
+        openTasks
+            .filter((task) => task.automation_key === "quarterly_reengagement")
             .forEach((task) => {
                 activeQuarterlyByLeader.set(
                     task.assigned_leader_id,
@@ -318,16 +321,43 @@ export const syncQuarterlyReengagement = mutation({
             });
         let waiting = 0;
         for (const person of allPeople) {
+            if (person.contact_category === "do_not_contact" || person.member_status === "archived") continue;
             const ownerId = ownerByPerson.get(person._id);
-            const lastContactDate = latestFollowUpByPerson.get(person._id)
-                ?? person.last_follow_up_date
+            if (person.is_paused === true) {
+                if (
+                    person.resume_date
+                    && person.resume_date <= asOfDate
+                    && ownerId
+                    && !peopleWithOpenTasks.has(person._id)
+                ) {
+                    await ctx.db.patch(person._id, {
+                        is_paused: false,
+                        pause_reason: undefined,
+                        resume_date: undefined,
+                        pipeline_stage: "review",
+                        updated_at: isoNow(),
+                    });
+                    const taskId = await insertTask(ctx, {
+                        personId: person._id,
+                        assignedLeaderId: ownerId,
+                        dueDate: asOfDate,
+                        taskType: "reengagement",
+                        priority: "normal",
+                        reason: "90-day review — decide whether to restart follow-up",
+                        automationKey: "later_review",
+                    });
+                    createdTaskIds.push(taskId);
+                    peopleWithOpenTasks.add(person._id);
+                }
+                continue;
+            }
+            const lastContactDate = person.last_follow_up_date
                 ?? person.contact_date
                 ?? person.created_at.slice(0, 10);
             if (
                 !isEvangelismContact(person)
                 || !ownerId
                 || peopleWithOpenTasks.has(person._id)
-                || person.is_paused === true
                 || ["do_not_contact", "wrong_number", "has_church"].includes(person.contact_category ?? "")
                 || lastContactDate > thresholdDate
             ) {
@@ -357,34 +387,78 @@ export const syncQuarterlyReengagement = mutation({
             active_limit: QUARTERLY_ACTIVE_LIMIT_PER_LEADER,
             task_ids: createdTaskIds,
         };
-    },
+}
+
+// This remains an administrator-only operational backfill. It is not called
+// from any page read; scheduled work uses the internal entry point below.
+export const syncQuarterlyReengagement = mutationFor("crm:syncQuarterlyReengagement")({
+    args: { asOfDate: v.optional(v.string()) },
+    handler: async (ctx, args) => synchronizeQuarterlyReengagement(ctx as MutationCtx, args.asOfDate),
 });
 
-export const getDashboard = query({
+export const runQuarterlyReengagement = internalMutation({
+    args: { asOfDate: v.optional(v.string()) },
+    handler: async (ctx, args) => synchronizeQuarterlyReengagement(ctx, args.asOfDate),
+});
+
+export const getDashboard = queryFor("crm:getDashboard")({
     args: {
         leaderId: v.optional(v.id("people")),
         serviceDate: v.optional(v.string()),
+        periodStart: v.optional(v.string()),
+        periodEnd: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         const serviceDate = args.serviceDate ?? nextSunday();
         const todayDate = today();
+        const todayValue = new Date(`${todayDate}T00:00:00.000Z`);
+        const mondayOffset = todayValue.getUTCDay() === 0 ? -6 : 1 - todayValue.getUTCDay();
+        const periodStart = args.periodStart ?? addUtcDays(todayDate, mondayOffset);
+        const periodEnd = args.periodEnd ?? todayDate;
         const freshSince = addUtcDays(todayDate, -14);
-        const [allPeople, allAssignments, allTasks, allCommitments, attendancePlans, allFollowUps, allVisitations] = await Promise.all([
-            ctx.db.query("people").collect(),
-            ctx.db.query("follow_up_assignments").collect(),
-            ctx.db.query("follow_up_tasks").collect(),
-            ctx.db.query("gathering_commitments").collect(),
-            ctx.db
-                .query("attendance_plans")
-                .withIndex("by_service_date", (q) => q.eq("service_date", serviceDate))
-                .collect(),
-            ctx.db.query("follow_ups").collect(),
-            ctx.db.query("visitations").collect(),
-        ]);
-        const sundayCommitments = allCommitments.filter((commitment) =>
-            commitment.gathering_type === "sunday_service"
-            && commitment.gathering_date === serviceDate,
+        // The CRM only needs members, leaders and contact statuses. Keep the
+        // dashboard on indexed slices rather than reading unrelated archived
+        // or historical records on every subscription update.
+        const peopleByStatus = await Promise.all(
+            ["leader", "member", "guest", "new_believer", "visitor"].map((status) =>
+                ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", status)).collect(),
+            ),
         );
+        const allPeople = peopleByStatus.flat();
+        const contactPeople = allPeople.filter(isEvangelismContact);
+        const completedSince = `${freshSince}T00:00:00.000Z`;
+        const [allAssignments, openTasks, completedTasks, sundayCommitments, upcomingCommitmentRows, attendancePlans, allVisitations, recentSundayResults] = await Promise.all([
+            ctx.db.query("follow_up_assignments").withIndex("by_status", (q) => q.eq("status", "active")).collect(),
+            ctx.db.query("follow_up_tasks").withIndex("by_status_due_date", (q) => q.eq("status", "open")).collect(),
+            ctx.db.query("follow_up_tasks").withIndex("by_status_completed_at", (q) => q.eq("status", "completed").gte("completed_at", completedSince)).collect(),
+            ctx.db.query("gathering_commitments").withIndex("by_gathering", (q) => q.eq("gathering_type", "sunday_service").eq("gathering_date", serviceDate)).collect(),
+            ctx.db.query("gathering_commitments").withIndex("by_date", (q) => q.gte("gathering_date", todayDate).lte("gathering_date", addUtcDays(todayDate, 7))).collect(),
+            ctx.db.query("attendance_plans").withIndex("by_service_date", (q) => q.eq("service_date", serviceDate)).collect(),
+            ctx.db.query("visitations").withIndex("by_follow_up", (q) => q.eq("follow_up_required", true)).collect(),
+            ctx.db.query("gathering_commitments").withIndex("by_gathering", (q) => q.eq("gathering_type", "sunday_service")).order("desc").take(40),
+        ]);
+        const allTasks = [...openTasks, ...completedTasks];
+        const [followUpGroups, commitmentGroups] = await Promise.all([
+            Promise.all(contactPeople.map((person) => ctx.db.query("follow_ups").withIndex("by_contact", (q) => q.eq("contact_id", person._id)).collect())),
+            Promise.all(contactPeople.map((person) => ctx.db.query("gathering_commitments").withIndex("by_person", (q) => q.eq("person_id", person._id)).collect())),
+        ]);
+        const allFollowUps = followUpGroups.flat();
+        const allCommitments = [...new Map(
+            [...commitmentGroups.flat(), ...sundayCommitments, ...upcomingCommitmentRows, ...recentSundayResults]
+                .map((commitment) => [commitment._id, commitment]),
+        ).values()];
+        const followUpsByContact = new Map<Id<"people">, typeof allFollowUps>();
+        for (const followUp of allFollowUps) {
+            const values = followUpsByContact.get(followUp.contact_id) ?? [];
+            values.push(followUp);
+            followUpsByContact.set(followUp.contact_id, values);
+        }
+        const commitmentsByPerson = new Map<Id<"people">, typeof allCommitments>();
+        for (const commitment of allCommitments) {
+            const values = commitmentsByPerson.get(commitment.person_id) ?? [];
+            values.push(commitment);
+            commitmentsByPerson.set(commitment.person_id, values);
+        }
 
         const peopleById = new Map(allPeople.map((person) => [person._id, person]));
         const leaders = allPeople.filter((person) => person.member_status === "leader");
@@ -433,17 +507,53 @@ export const getDashboard = query({
                 isEvangelismContact(person)
                 && (!args.leaderId || ownerByPerson.get(person._id) === args.leaderId),
             )
-            .map((person) => ({
-                ...person,
-                assigned_leader_id: ownerByPerson.get(person._id) ?? null,
-                assigned_leader: peopleById.get(ownerByPerson.get(person._id)!) ?? null,
-                next_task: openTaskByPerson.get(person._id) ?? null,
-                is_fresh: Boolean(
-                    person.contact_date
-                    && person.contact_date >= freshSince
-                    && person.contact_date <= todayDate,
-                ),
-            }))
+            .map((person) => {
+                const personFollowUps = (followUpsByContact.get(person._id) ?? [])
+                    .slice()
+                    .sort((a, b) => b.follow_up_date.localeCompare(a.follow_up_date));
+                let unansweredAttempts = 0;
+                for (const followUp of personFollowUps) {
+                    if (followUp.outcome !== "no_response") break;
+                    unansweredAttempts += 1;
+                }
+                const personCommitments = commitmentsByPerson.get(person._id) ?? [];
+                const confirmedNoShows = new Set(
+                    personCommitments
+                        .filter((commitment) => commitment.gathering_type === "sunday_service"
+                            && commitment.response === "yes"
+                            && commitment.resolution === "no_show")
+                        .map((commitment) => commitment.gathering_date),
+                ).size;
+                const positiveSignal = person.contact_category === "responsive"
+                    || ["responding", "invited", "promised", "showed_up"].includes(person.pipeline_stage ?? "")
+                    || personFollowUps.some((followUp) =>
+                        ["positive_conversation", "rescheduled", "came_to_church", "showed_up", "attended"].includes(followUp.outcome))
+                    || personCommitments.some((commitment) => commitment.response === "yes" || commitment.resolution === "attended");
+                return {
+                    ...person,
+                    assigned_leader_id: ownerByPerson.get(person._id) ?? null,
+                    assigned_leader: peopleById.get(ownerByPerson.get(person._id)!) ?? null,
+                    next_task: openTaskByPerson.get(person._id) ?? null,
+                    is_fresh: Boolean(
+                        person.contact_date
+                        && person.contact_date >= freshSince
+                        && person.contact_date <= todayDate,
+                    ),
+                    unanswered_attempts: unansweredAttempts,
+                    confirmed_no_shows: confirmedNoShows,
+                    should_move_to_later: person.is_paused !== true
+                        && (unansweredAttempts >= 3 || confirmedNoShows >= 2),
+                    recommendation_reason: unansweredAttempts >= 3
+                        ? `${unansweredAttempts} unanswered attempts`
+                        : confirmedNoShows >= 2
+                            ? `${confirmedNoShows} Sunday promises missed`
+                            : null,
+                    is_serious: person.is_paused !== true
+                        && positiveSignal
+                        && unansweredAttempts < 3
+                        && confirmedNoShows < 2,
+                };
+            })
             .sort((a, b) =>
                 Number(b.is_fresh) - Number(a.is_fresh)
                 || (b.contact_date || b.created_at).localeCompare(a.contact_date || a.created_at),
@@ -460,6 +570,20 @@ export const getDashboard = query({
             .map((commitment) => ({
                 ...commitment,
                 confirmed: true,
+                person: peopleById.get(commitment.person_id) ?? null,
+                person_name: personName(peopleById.get(commitment.person_id)),
+                leader: peopleById.get(commitment.leader_id) ?? null,
+                leader_name: personName(peopleById.get(commitment.leader_id)),
+            }))
+            .sort((a, b) => a.person_name.localeCompare(b.person_name));
+        const sundayExpectedCommitments = sundayCommitments
+            .filter((commitment) =>
+                commitment.response === "yes"
+                && (!args.leaderId || commitment.leader_id === args.leaderId),
+            )
+            .map((commitment) => ({
+                ...commitment,
+                confirmed: commitment.resolution === "pending",
                 person: peopleById.get(commitment.person_id) ?? null,
                 person_name: personName(peopleById.get(commitment.person_id)),
                 leader: peopleById.get(commitment.leader_id) ?? null,
@@ -539,6 +663,7 @@ export const getDashboard = query({
             );
 
         const memberCareTasks = enrichedTasks.filter((task) => task.task_type === "member_care");
+        const visitationTasks = enrichedTasks.filter((task) => task.task_type === "visitation");
         // Team oversight remains church-wide even when leaderId scopes the
         // operational lists to one leader's work queue.
         const teamStats = leaders.map((leader) => {
@@ -565,6 +690,23 @@ export const getDashboard = query({
                     .map((followUp) => followUp.contact_id),
             );
             const leaderTasks = allTasks.filter((task) => task.assigned_leader_id === leader._id);
+            const assignedPeople = crmContacts.filter((person) => assignedIds.has(person._id));
+            const periodFollowUps = allFollowUps.filter((followUp) =>
+                followUp.leader_id === leader._id
+                && followUp.follow_up_date >= periodStart
+                && followUp.follow_up_date <= periodEnd,
+            );
+            const periodCommitments = allCommitments.filter((commitment) => {
+                const recordedDate = commitment.created_at.slice(0, 10);
+                return commitment.leader_id === leader._id
+                    && recordedDate >= periodStart
+                    && recordedDate <= periodEnd;
+            });
+            const sundayPromises = periodCommitments.filter((commitment) =>
+                commitment.gathering_type === "sunday_service" && commitment.response === "yes");
+            const openPersonIds = new Set(
+                leaderTasks.filter((task) => task.status === "open").map((task) => task.person_id),
+            );
             const completedThisWeek = leaderTasks.filter((task) =>
                 task.status === "completed"
                 && task.completed_at !== undefined
@@ -595,6 +737,15 @@ export const getDashboard = query({
                     (task) => task.status === "open" && task.due_date < todayDate,
                 ).length,
                 completed_this_week: completedThisWeek.length,
+                period_follow_ups: periodFollowUps.length,
+                period_unique_contacts: new Set(periodFollowUps.map((followUp) => followUp.contact_id)).size,
+                meaningful_conversations: periodFollowUps.filter((followUp) =>
+                    !["no_response", "wrong_number"].includes(followUp.outcome)).length,
+                serious_candidates: assignedPeople.filter((person) => person.is_serious).length,
+                sunday_promises: sundayPromises.length,
+                promises_attended: sundayPromises.filter((commitment) => commitment.resolution === "attended").length,
+                promises_missed: sundayPromises.filter((commitment) => commitment.resolution === "no_show").length,
+                people_without_next_action: assignedPeople.filter((person) => !openPersonIds.has(person._id)).length,
                 confirmed_this_sunday: sundayCommitments.filter((commitment) =>
                     commitment.leader_id === leader._id
                     && commitment.response === "yes"
@@ -687,16 +838,28 @@ export const getDashboard = query({
                 .map((leader) => ({ ...leader, name: personName(leader) }))
                 .sort((a, b) => a.name.localeCompare(b.name)),
             active_assignments: enrichedAssignments,
-            tasks: enrichedTasks.filter((task) => task.task_type !== "member_care"),
+            tasks: enrichedTasks.filter((task) => !["member_care", "visitation"].includes(task.task_type)),
             open_tasks: enrichedTasks,
             confirmed_commitments: confirmedCommitments,
+            sunday_commitments: sundayExpectedCommitments,
             upcoming_commitments: upcomingCommitments,
             visitation_follow_ups: visitationFollowUps,
             unassigned_contacts: unassignedContacts,
             later_contacts: laterContacts,
             contacts: crmContacts,
             member_care_tasks: memberCareTasks,
+            visitation_tasks: visitationTasks,
             team_stats: teamStats,
+            recent_sunday_results: recentSundayResults
+                .filter((commitment) => commitment.resolution !== "pending")
+                .filter((commitment) => !args.leaderId || commitment.leader_id === args.leaderId)
+                .map((commitment) => ({
+                    ...commitment,
+                    person: peopleById.get(commitment.person_id) ?? null,
+                    leader: peopleById.get(commitment.leader_id) ?? null,
+                }))
+                .sort((a, b) => b.gathering_date.localeCompare(a.gathering_date))
+                .slice(0, 40),
             attendance_roster: attendanceRoster,
             attendance_forecast: {
                 service_date: serviceDate,
@@ -717,7 +880,7 @@ export const getDashboard = query({
     },
 });
 
-export const getContactProfile = query({
+export const getContactProfile = queryFor("crm:getContactProfile")({
     args: { personId: v.id("people") },
     handler: async (ctx, args) => {
         const person = await ctx.db.get(args.personId);
@@ -808,7 +971,7 @@ export const getContactProfile = query({
     },
 });
 
-export const assignContact = mutation({
+export const assignContact = mutationFor("crm:assignContact")({
     args: {
         personId: v.id("people"),
         assignedLeaderId: v.id("people"),
@@ -867,7 +1030,7 @@ export const assignContact = mutation({
     },
 });
 
-export const createTask = mutation({
+export const createTask = mutationFor("crm:createTask")({
     args: {
         personId: v.id("people"),
         assignedLeaderId: v.id("people"),
@@ -901,7 +1064,7 @@ export const createTask = mutation({
     },
 });
 
-export const completeTask = mutation({
+export const completeTask = mutationFor("crm:completeTask")({
     args: {
         taskId: v.id("follow_up_tasks"),
         completedById: v.optional(v.id("people")),
@@ -918,6 +1081,9 @@ export const completeTask = mutation({
         gatheringDate: v.optional(v.string()),
         attendanceResponse: v.optional(attendanceResponse),
         moveToLater: v.optional(v.boolean()),
+        resumeDate: v.optional(v.string()),
+        closeContact: v.optional(v.boolean()),
+        closeReason: v.optional(v.string()),
         skipAutomaticNextTask: v.optional(v.boolean()),
         nextTask: v.optional(v.object({
             assignedLeaderId: v.optional(v.id("people")),
@@ -939,6 +1105,7 @@ export const completeTask = mutation({
         if (!task) throw new Error("Task not found");
         if (task.status !== "open") throw new Error("Only an open task can be completed");
         const person = await requirePerson(ctx, task.person_id);
+        requireFollowUpAllowed(person);
         const completedById = args.completedById ?? args.leaderId ?? task.assigned_leader_id;
         await requireLeader(ctx, completedById);
         const now = isoNow();
@@ -984,7 +1151,7 @@ export const completeTask = mutation({
         );
 
         let nextTaskId: Id<"follow_up_tasks"> | null = null;
-        if (normalizedNextTask && !args.moveToLater) {
+        if (normalizedNextTask && !args.moveToLater && !args.closeContact) {
             const nextLeaderId = normalizedNextTask.assignedLeaderId ?? task.assigned_leader_id;
             await requireLeader(ctx, nextLeaderId);
             nextTaskId = await insertTask(ctx, {
@@ -1016,6 +1183,8 @@ export const completeTask = mutation({
 
         const followUpId = await ctx.db.insert("follow_ups", {
             contact_id: task.person_id,
+            source_task_id: task._id,
+            commitment_id: commitmentId ?? undefined,
             leader_id: completedById,
             follow_up_date: followUpDate,
             method: args.method ?? "other",
@@ -1049,7 +1218,24 @@ export const completeTask = mutation({
                 ctx,
                 person,
                 args.nextReason ?? args.notes ?? "follow_up_later",
+                args.resumeDate ?? addUtcDays(followUpDate, 90),
             );
+        }
+
+        if (args.closeContact) {
+            const openTasks = await ctx.db
+                .query("follow_up_tasks")
+                .withIndex("by_person_status", (q) => q.eq("person_id", person._id).eq("status", "open"))
+                .collect();
+            for (const openTask of openTasks) {
+                if (openTask._id === args.taskId) continue;
+                await ctx.db.patch(openTask._id, {
+                    status: "cancelled",
+                    outcome: "contact_closed",
+                    completed_at: now,
+                    updated_at: now,
+                });
+            }
         }
 
         const followUps = await ctx.db
@@ -1058,10 +1244,26 @@ export const completeTask = mutation({
             .collect();
         await ctx.db.patch(task.person_id, {
             total_follow_ups: followUps.length,
-            last_follow_up_date: followUpDate,
+            last_follow_up_date: followUps.map(f => f.follow_up_date).sort().at(-1),
             promises_made: becameYes ? (person.promises_made ?? 0) + 1 : person.promises_made,
             ...(args.outcome === "wrong_number"
                 ? { contact_category: "wrong_number", pipeline_stage: "closed" }
+                : args.closeContact
+                ? {
+                    pipeline_stage: "closed",
+                    is_paused: false,
+                    pause_reason: args.closeReason ?? args.nextReason ?? args.notes ?? "Follow-up closed",
+                    resume_date: undefined,
+                    // "settled" is the positive exit: the person now attends regularly and
+                    // moves out of follow-up into normal member care.
+                    ...(args.closeReason === "settled"
+                        ? {
+                            member_status: "member",
+                            activity_status: "regular",
+                            membership_date: person.membership_date ?? followUpDate,
+                        }
+                        : {}),
+                }
                 : {
                     pipeline_stage: args.moveToLater
                         ? "paused"
@@ -1074,6 +1276,7 @@ export const completeTask = mutation({
             updated_at: now,
         });
 
+        if (normalizedCommitment && managesAttendance(ctx)) await reconcilePerson(ctx, task.person_id);
         return {
             task: await ctx.db.get(args.taskId),
             follow_up: await ctx.db.get(followUpId),
@@ -1083,7 +1286,7 @@ export const completeTask = mutation({
     },
 });
 
-export const moveToLater = mutation({
+export const moveToLater = mutationFor("crm:moveToLater")({
     args: {
         personId: v.id("people"),
         movedById: v.optional(v.id("people")),
@@ -1100,33 +1303,14 @@ export const moveToLater = mutation({
             args.resumeDate,
         );
 
-        let reengagementTaskId: Id<"follow_up_tasks"> | null = null;
-        if (args.resumeDate) {
-            const assignments = await getActiveAssignments(ctx, args.personId);
-            const assignment = assignments.sort((a, b) => b.assigned_at.localeCompare(a.assigned_at))[0];
-            if (assignment) {
-                reengagementTaskId = await insertTask(ctx, {
-                    personId: args.personId,
-                    assignedLeaderId: assignment.assigned_leader_id,
-                    createdById: args.movedById,
-                    dueDate: args.resumeDate,
-                    taskType: "reengagement",
-                    priority: "normal",
-                    reason: args.reason ?? "Re-engage this contact",
-                });
-            }
-        }
-
         return {
             person: await ctx.db.get(args.personId),
-            reengagement_task: reengagementTaskId
-                ? await ctx.db.get(reengagementTaskId)
-                : null,
+            reengagement_task: null,
         };
     },
 });
 
-export const reactivateContact = mutation({
+export const reactivateContact = mutationFor("crm:reactivateContact")({
     args: {
         personId: v.id("people"),
         assignedLeaderId: v.optional(v.id("people")),
@@ -1137,6 +1321,7 @@ export const reactivateContact = mutation({
     },
     handler: async (ctx, args) => {
         const person = await requirePerson(ctx, args.personId);
+        if (person.contact_category === "do_not_contact") throw new Error("This person has requested no contact");
         if (args.reactivatedById) await requireLeader(ctx, args.reactivatedById);
         let leaderId = args.assignedLeaderId ?? args.leaderId;
         if (leaderId) {
@@ -1173,7 +1358,7 @@ export const reactivateContact = mutation({
     },
 });
 
-export const recordCommitment = mutation({
+export const recordCommitment = mutationFor("crm:recordCommitment")({
     args: {
         personId: v.id("people"),
         leaderId: v.id("people"),
@@ -1192,13 +1377,16 @@ export const recordCommitment = mutation({
                 updated_at: isoNow(),
             });
         }
+        if (managesAttendance(ctx)) await reconcilePerson(ctx, args.personId);
         return await ctx.db.get(result.id);
     },
 });
 
-export const resolveCommitment = mutation({
+export const resolveCommitment = mutationFor("crm:resolveCommitment")({
     args: {
         commitmentId: v.id("gathering_commitments"),
+        serviceId: v.optional(v.id("services")),
+        meetingId: v.optional(v.id("meetings")),
         resolution: v.union(
             v.literal("attended"),
             v.literal("no_show"),
@@ -1208,111 +1396,38 @@ export const resolveCommitment = mutation({
     handler: async (ctx, args) => {
         const commitment = await ctx.db.get(args.commitmentId);
         if (!commitment) throw new Error("Gathering commitment not found");
-        if (commitment.resolution === args.resolution) return commitment;
-        if (commitment.resolution !== "pending") {
-            throw new Error("This gathering commitment has already been resolved");
-        }
-        if (args.resolution === "no_show" && commitment.response !== "yes") {
-            throw new Error("Only an explicit yes can be resolved as a no-show");
-        }
-
-        const now = isoNow();
-        await ctx.db.patch(args.commitmentId, {
-            resolution: args.resolution,
-            resolved_at: now,
-            updated_at: now,
-        });
-        const person = await requirePerson(ctx, commitment.person_id);
-
-        if (args.resolution === "attended") {
-            await ctx.db.patch(commitment.person_id, {
-                promises_kept: commitment.response === "yes"
-                    ? (person.promises_kept ?? 0) + 1
-                    : person.promises_kept,
-                first_visit_date: person.first_visit_date ?? commitment.gathering_date,
-                pipeline_stage: "showed_up",
-                warmth_score: "hot",
-                updated_at: now,
+        if (args.resolution === "no_show" && commitment.response !== "yes") throw new Error("Only an explicit yes can be resolved as a no-show");
+        if (args.resolution === "attended" || commitment.resolution === "attended") {
+            if (!managesAttendance(ctx)) throw new Error("An administrator must record or correct actual attendance");
+            const gathering = await selectGathering(ctx, commitment.gathering_type, commitment.gathering_date, {
+                serviceId: args.serviceId ?? commitment.service_id,
+                meetingId: args.meetingId ?? commitment.meeting_id,
             });
+            // The explicit link disambiguates reconciliation on a multi-gathering day.
+            await ctx.db.patch(commitment._id, { service_id: "serviceId" in gathering ? gathering.serviceId : undefined, meeting_id: "meetingId" in gathering ? gathering.meetingId : undefined });
+            await setActualAttendance(ctx, commitment.person_id, gathering, args.resolution === "attended");
         }
-
-        let movedToLater = false;
-        let reengagementTaskId: Id<"follow_up_tasks"> | null = null;
-        let confirmedNoShows = 0;
-        if (args.resolution === "no_show" && commitment.response === "yes") {
-            const commitments = await ctx.db
-                .query("gathering_commitments")
-                .withIndex("by_person", (q) => q.eq("person_id", commitment.person_id))
-                .collect();
-            confirmedNoShows = commitments.filter((item) =>
-                item.gathering_type === "sunday_service"
-                && item.response === "yes"
-                && item.resolution === "no_show",
-            ).length;
-
-            if (commitment.gathering_type === "sunday_service"
-                && confirmedNoShows >= 2
-                && isEvangelismContact(person)) {
-                const assignments = await getActiveAssignments(ctx, commitment.person_id);
-                const ownerId = assignments
-                    .sort((a, b) => b.assigned_at.localeCompare(a.assigned_at))[0]
-                    ?.assigned_leader_id ?? commitment.leader_id;
-                const openTasks = await ctx.db
-                    .query("follow_up_tasks")
-                    .withIndex("by_person_status", (q) =>
-                        q.eq("person_id", commitment.person_id).eq("status", "open"),
-                    )
-                    .collect();
-                for (const openTask of openTasks) {
-                    if (openTask.gathering_type === "bacenta" || openTask.gathering_type === "special_event") continue;
-                    await ctx.db.patch(openTask._id, {
-                        status: "cancelled",
-                        outcome: "cooling_off_after_no_shows",
-                        completed_at: now,
-                        updated_at: now,
-                    });
-                }
-                reengagementTaskId = await insertTask(ctx, {
-                    personId: commitment.person_id,
-                    assignedLeaderId: ownerId,
-                    createdById: commitment.leader_id,
-                    dueDate: addUtcDays(today(), 30),
-                    taskType: "reengagement",
-                    priority: "normal",
-                    reason: "Two confirmed Sunday no-shows — reconnect after one month",
-                });
-                await ctx.db.patch(commitment.person_id, {
-                    is_paused: false,
-                    pause_reason: undefined,
-                    resume_date: undefined,
-                    pipeline_stage: "cooling_off",
-                    updated_at: now,
-                });
-            } else {
-                await ctx.db.patch(commitment.person_id, {
-                    pipeline_stage: "no_show",
-                    updated_at: now,
-                });
-            }
+        if (args.resolution !== "attended") {
+            await ctx.db.patch(commitment._id, { resolution: args.resolution, service_id: undefined, meeting_id: undefined, attendance_previous_status: undefined, resolved_at: isoNow(), updated_at: isoNow() });
+            if (managesAttendance(ctx)) await reconcilePerson(ctx, commitment.person_id);
         }
-
-        return {
-            commitment: await ctx.db.get(args.commitmentId),
-            confirmed_sunday_no_shows: confirmedNoShows,
-            moved_to_later: movedToLater,
-            reengagement_task: reengagementTaskId ? await ctx.db.get(reengagementTaskId) : null,
-        };
+        const commitments = await ctx.db.query("gathering_commitments").withIndex("by_person", q => q.eq("person_id", commitment.person_id)).collect();
+        const confirmedNoShows = new Set(commitments.filter(c => c.gathering_type === "sunday_service" && c.response === "yes" && c.resolution === "no_show").map(c => c.gathering_date)).size;
+        return { commitment: await ctx.db.get(commitment._id), confirmed_sunday_no_shows: confirmedNoShows, move_to_later_recommended: confirmedNoShows >= 2 };
     },
 });
 
-export const setAttendancePlan = mutation({
+export const setAttendancePlan = mutationFor("crm:setAttendancePlan")({
     args: {
         personId: v.id("people"),
+        serviceId: v.optional(v.id("services")),
         serviceDate: v.string(),
         status: v.union(
             v.literal("expected"),
             v.literal("away"),
             v.literal("confirmed"),
+            v.literal("attended"),
+            v.literal("absent"),
         ),
         leaderId: v.id("people"),
         notes: v.optional(v.string()),
@@ -1320,35 +1435,34 @@ export const setAttendancePlan = mutation({
     handler: async (ctx, args) => {
         const person = await requirePerson(ctx, args.personId);
         await requireLeader(ctx, args.leaderId);
-        if (!["member", "leader"].includes(person.member_status)) {
-            throw new Error("Attendance plans are for members and leaders");
+        if (!["member", "leader"].includes(person.member_status)) throw new Error("Attendance plans are for members and leaders");
+        const existing = await ctx.db.query("attendance_plans").withIndex("by_person_date", q => q.eq("person_id", args.personId).eq("service_date", args.serviceDate)).collect();
+        let current = existing.sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+        if (args.status === "attended" || current?.status === "attended") {
+            if (!managesAttendance(ctx)) throw new Error("An administrator must record or correct actual attendance");
+            const gathering = await selectGathering(ctx, "sunday_service", args.serviceDate, { serviceId: args.serviceId ?? current?.service_id });
+            await setActualAttendance(ctx, args.personId, gathering, args.status === "attended");
+            current = (await ctx.db.query("attendance_plans").withIndex("by_person_date", q => q.eq("person_id", args.personId).eq("service_date", args.serviceDate)).collect()).sort((a,b) => b.updated_at.localeCompare(a.updated_at))[0];
+            const values = { person_id: args.personId, leader_id: args.leaderId, generated_from_attendance: false, service_date: args.serviceDate, status: args.status, service_id: args.status === "attended" && "serviceId" in gathering ? gathering.serviceId : undefined, attendance_previous_status: args.status === "attended" ? current?.attendance_previous_status ?? (current?.status === "attended" ? "expected" : current?.status ?? "expected") : undefined, notes: args.notes, updated_at: isoNow() };
+            const id = current?._id ?? await ctx.db.insert("attendance_plans", { ...values, created_at: isoNow() });
+            if (current) await ctx.db.patch(id, values);
+            for (const duplicate of existing.filter(p => p._id !== id)) await ctx.db.delete(duplicate._id);
+            await reconcilePerson(ctx, args.personId);
+            return await ctx.db.get(id);
         }
-        const now = isoNow();
-        const existing = await ctx.db
-            .query("attendance_plans")
-            .withIndex("by_person_date", (q) =>
-                q.eq("person_id", args.personId).eq("service_date", args.serviceDate),
-            )
-            .collect();
-        const current = existing.sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
-        if (current) {
-            await ctx.db.patch(current._id, {
-                status: args.status,
-                leader_id: args.leaderId,
-                notes: args.notes,
-                updated_at: now,
-            });
-            return await ctx.db.get(current._id);
-        }
-        const id = await ctx.db.insert("attendance_plans", {
-            person_id: args.personId,
-            service_date: args.serviceDate,
-            status: args.status,
-            leader_id: args.leaderId,
-            notes: args.notes,
-            created_at: now,
-            updated_at: now,
-        });
+        const values = { person_id: args.personId, leader_id: args.leaderId, service_date: args.serviceDate, status: args.status, notes: args.notes, updated_at: isoNow() };
+        const id = current?._id ?? await ctx.db.insert("attendance_plans", { ...values, created_at: isoNow() });
+        if (current) await ctx.db.patch(id, values);
+        for (const duplicate of existing.filter(p => p._id !== id)) await ctx.db.delete(duplicate._id);
+        if (managesAttendance(ctx)) await reconcilePerson(ctx, args.personId);
         return await ctx.db.get(id);
+    },
+});
+
+export const getGatheringChoices = queryFor("crm:getGatheringChoices")({
+    args: { gatheringType, gatheringDate: v.string() },
+    handler: async (ctx, args) => {
+        if (!managesAttendance(ctx)) throw new Error("An administrator must record or correct actual attendance");
+        return candidates(ctx, args.gatheringType, args.gatheringDate);
     },
 });

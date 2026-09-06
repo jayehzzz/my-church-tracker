@@ -30,8 +30,9 @@
   ]);
 
   const responseOptions = [
-    { value: "responsive", label: "Responsive" },
-    { value: "non_responsive", label: "Non-responsive" },
+    { value: "not_assessed", label: "Not assessed" },
+    { value: "responsive", label: "Open to follow-up" },
+    { value: "non_responsive", label: "Not responding" },
     { value: "events_only", label: "Events only" },
     { value: "big_events_only", label: "Big events only" },
     { value: "bacenta_mainly", label: "Bacenta mainly" },
@@ -52,8 +53,8 @@
     return {
       first_name: "", last_name: "", phone: "", email: "", address: "",
       contact_date: new Date().toISOString().slice(0, 10), contact_method: "in_person",
-      response: "responsive", invited_by_id: "", assigned_leader_id: "",
-      follow_up_date: "", attended_church: false, salvation_decision: false,
+      response: "not_assessed", invited_by_id: "", assigned_leader_id: "",
+      follow_up_date: "", first_visit_date: "", salvation_decision: false,
       converted: false, conversion_date: "", notes: "",
     };
   }
@@ -88,11 +89,11 @@
       phone: contact.phone || "", email: contact.email || "", address: contact.address || "",
       contact_date: contact.contact_date || new Date().toISOString().slice(0, 10),
       contact_method: contact.contact_method || "",
-      response: contact.response || contact.contact_category || "responsive",
+      response: contact.response || contact.contact_category || "not_assessed",
       invited_by_id: contact.invited_by_id || "",
       assigned_leader_id: contact.assigned_leader_id || "",
       follow_up_date: contact.follow_up_date || "",
-      attended_church: Boolean(contact.attended_church || contact.first_visit_date),
+      first_visit_date: contact.first_visit_date || "",
       salvation_decision: Boolean(contact.salvation_decision),
       converted: Boolean(contact.converted || contact.member_status === "member"),
       conversion_date: contact.conversion_date || contact.membership_date || "",
@@ -163,7 +164,7 @@
       <div><h3 id="outreach-title" class="text-sm font-semibold text-foreground">Outreach and follow-up</h3><p class="mt-1 text-xs text-muted-foreground">Capture what happened and make ownership explicit.</p></div>
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input label="Contact Date" type="date" bind:value={formData.contact_date} error={errors.contact_date} required disabled={saving} />
-        <SearchableSelect label="Response Category" bind:value={formData.response} options={responseOptions} disabled={saving} />
+        <SearchableSelect label="Follow-up Posture" bind:value={formData.response} options={responseOptions} disabled={saving} />
         <SearchableSelect label="Contact Method" bind:value={formData.contact_method} options={contactMethodOptions} disabled={saving} />
         <SearchableSelect label="Invited By" bind:value={formData.invited_by_id} options={peopleOptions()} disabled={saving || loadingPeople} placeholder="Search people..." />
         {#if mode === "create"}
@@ -184,7 +185,7 @@
         <Input label="Address" bind:value={formData.address} disabled={saving} />
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label class="flex items-start gap-3 rounded-lg border border-border bg-secondary/20 p-3"><input type="checkbox" bind:checked={formData.salvation_decision} disabled={saving} class="mt-0.5 h-4 w-4 rounded" /><span><span class="block text-sm font-medium text-foreground">Salvation decision</span><span class="text-xs text-muted-foreground">They prayed to receive Christ.</span></span></label>
-          <label class="flex items-start gap-3 rounded-lg border border-border bg-secondary/20 p-3"><input type="checkbox" bind:checked={formData.attended_church} disabled={saving} class="mt-0.5 h-4 w-4 rounded" /><span><span class="block text-sm font-medium text-foreground">Previously attended</span><span class="text-xs text-muted-foreground">They have already visited a gathering.</span></span></label>
+          <div class="rounded-lg border border-border bg-secondary/20 p-3"><Input label="First Visit Date" type="date" bind:value={formData.first_visit_date} disabled={saving} /><p class="mt-2 text-xs text-muted-foreground">Usually filled automatically from Sunday or meeting attendance. Use this only for an earlier visit already known.</p></div>
         </div>
         <label class="flex items-start gap-3 rounded-lg border border-border bg-secondary/20 p-3"><input type="checkbox" bind:checked={formData.converted} disabled={saving} class="mt-0.5 h-4 w-4 rounded" /><span class="flex-1"><span class="block text-sm font-medium text-foreground">Promote to member</span><span class="text-xs text-muted-foreground">Use only when this person has joined the church.</span></span></label>
         {#if formData.converted}<Input label="Membership Date" type="date" bind:value={formData.conversion_date} disabled={saving} />{/if}

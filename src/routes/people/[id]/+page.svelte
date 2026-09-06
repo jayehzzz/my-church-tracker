@@ -2,7 +2,7 @@
     import { onMount, untrack } from "svelte";
     import { goto } from "$app/navigation";
     import DashboardLayout from "$lib/components/layout/DashboardLayout.svelte";
-    import { Card, Button, Badge, Motion } from "$lib/components/ui";
+    import { Card, Button, Badge, Modal, Motion } from "$lib/components/ui";
     import * as peopleService from "$lib/services/peopleService";
     import * as attendanceService from "$lib/services/attendanceService";
     import * as meetingsService from "$lib/services/meetingsService";
@@ -32,6 +32,13 @@
     let loading = $state(true);
     let error = $state(null);
     let showEditModal = $state(false);
+    let showMergeModal = $state(false);
+    let mergeCandidates = $state([]);
+    let mergeTargetId = $state("");
+    let mergePreview = $state(null);
+    let mergeError = $state(null);
+    let mergeLoading = $state(false);
+    let mergeConfirmed = $state(false);
     let showServiceDetailModal = $state(false);
     let selectedAttendanceRecord = $state(null);
     let attendanceHistory = $state([]);
@@ -307,6 +314,55 @@
         person = freshData;
     }
 
+    async function openMergeReview() {
+        if (!person) return;
+        showMergeModal = true;
+        mergeCandidates = [];
+        mergeTargetId = "";
+        mergePreview = null;
+        mergeError = null;
+        mergeConfirmed = false;
+        mergeLoading = true;
+        const result = await peopleService.getAll();
+        mergeLoading = false;
+        if (result.error) {
+            mergeError = result.error.message || "Could not load records for merge review.";
+            return;
+        }
+        const currentId = person._id || person.id;
+        mergeCandidates = (result.data || []).filter(
+            (candidate) => (candidate.id || candidate._id) !== currentId && candidate.member_status !== "archived",
+        );
+    }
+
+    async function previewMerge() {
+        if (!mergeTargetId || !person) return;
+        mergeLoading = true;
+        mergeError = null;
+        mergeConfirmed = false;
+        const result = await peopleService.getMergePreview(person._id || person.id, mergeTargetId);
+        mergeLoading = false;
+        if (result.error) {
+            mergeError = result.error.message || "Could not prepare this merge.";
+            return;
+        }
+        mergePreview = result.data;
+    }
+
+    async function completeMerge() {
+        if (!mergePreview || !mergeConfirmed) return;
+        mergeLoading = true;
+        mergeError = null;
+        const result = await peopleService.mergeReviewed(mergePreview);
+        mergeLoading = false;
+        if (result.error) {
+            mergeError = result.error.message || "The merge could not be completed.";
+            return;
+        }
+        showMergeModal = false;
+        await goto(`/people/${mergePreview.target.id}`);
+    }
+
     async function updateMemberStatus(newStatus) {
         if (!person) return;
         updatingStatus = true;
@@ -406,6 +462,7 @@
                     onUpdateStatus={updateMemberStatus}
                     onUpdateActivity={updateActivityStatus}
                     onEdit={() => (showEditModal = true)}
+                    onMerge={openMergeReview}
                     {updatingStatus}
                     {statusUpdateError}
                 />
@@ -416,6 +473,63 @@
                 {person}
                 onsave={handleEditSave}
             />
+
+            <Modal bind:isOpen={showMergeModal} title="Review duplicate merge" size="lg">
+                <div class="space-y-4">
+                    <p class="text-sm text-muted-foreground">
+                        Keep one record and archive this profile as its duplicate. The preview lists every linked record that would move; it refuses ambiguous attendance, programme, commitment, plan, leader, or account relationships.
+                    </p>
+                    {#if mergeError}
+                        <p class="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{mergeError}</p>
+                    {/if}
+                    <label class="block text-sm font-medium text-foreground" for="merge-target">
+                        Keep this record
+                    </label>
+                    <select id="merge-target" bind:value={mergeTargetId} disabled={mergeLoading} class="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground">
+                        <option value="">Choose the record to retain…</option>
+                        {#each mergeCandidates as candidate}
+                            <option value={candidate.id || candidate._id}>
+                                {candidate.first_name} {candidate.last_name} — {candidate.email || candidate.phone || "no contact details"}
+                            </option>
+                        {/each}
+                    </select>
+
+                    {#if mergePreview}
+                        <section class="rounded-lg border border-border bg-secondary/15 p-4 text-sm">
+                            <h3 class="font-semibold text-foreground">Preview</h3>
+                            <p class="mt-1 text-muted-foreground">
+                                Archive {mergePreview.source.first_name} {mergePreview.source.last_name}; retain {mergePreview.target.first_name} {mergePreview.target.last_name}.
+                            </p>
+                            <dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-muted-foreground">
+                                {#each Object.entries(mergePreview.relationshipCounts).filter(([, count]) => count > 0) as [name, count]}
+                                    <div class="flex justify-between gap-2"><dt>{name.replaceAll(/([A-Z])/g, " $1")}</dt><dd class="font-medium text-foreground">{count}</dd></div>
+                                {/each}
+                            </dl>
+                            {#if mergePreview.conflictReasons.length > 0}
+                                <div class="mt-4 rounded-md border border-warning/30 bg-warning/10 p-3 text-warning">
+                                    <p class="font-medium">Manual reconciliation is needed</p>
+                                    <ul class="mt-1 list-disc pl-5">
+                                        {#each mergePreview.conflictReasons as reason}<li>{reason}</li>{/each}
+                                    </ul>
+                                </div>
+                            {:else}
+                                <label class="mt-4 flex items-start gap-2 text-foreground">
+                                    <input type="checkbox" bind:checked={mergeConfirmed} class="mt-1 h-4 w-4" />
+                                    <span>I reviewed the retained record and the linked-record counts. Archive this duplicate and transfer the listed relationships.</span>
+                                </label>
+                            {/if}
+                        </section>
+                    {/if}
+                </div>
+                {#snippet footer()}
+                    <Button variant="secondary" onclick={() => (showMergeModal = false)} disabled={mergeLoading}>Cancel</Button>
+                    {#if mergePreview?.canMerge}
+                        <Button variant="danger" onclick={completeMerge} disabled={!mergeConfirmed || mergeLoading}>Merge and archive duplicate</Button>
+                    {:else}
+                        <Button onclick={previewMerge} disabled={!mergeTargetId || mergeLoading}>{mergeLoading ? "Preparing…" : "Preview merge"}</Button>
+                    {/if}
+                {/snippet}
+            </Modal>
 
             <Motion delay={100}>
                 <PeopleStatsGrid

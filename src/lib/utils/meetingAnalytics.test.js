@@ -66,8 +66,8 @@ describe("meeting analytics", () => {
   it("combines attendance, programme-firsts, return rate, and roster rate", () => {
     const analytics = buildMeetingAnalytics(meetings, programs);
 
-    expect(analytics.metrics.held).toBe(3);
-    expect(analytics.metrics.totalAttendance).toBe(7);
+    expect(analytics.metrics.held).toBe(2);
+    expect(analytics.metrics.totalAttendance).toBe(6);
     expect(analytics.metrics.uniquePeople).toBe(3);
     expect(analytics.metrics.firstTimers).toBe(1);
     expect(analytics.metrics.returnRate).toBe(100);

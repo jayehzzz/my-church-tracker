@@ -95,7 +95,7 @@
   }
 </script>
 
-<Modal bind:isOpen title="Schedule Pastoral Care" size="lg">
+<Modal bind:isOpen title="Schedule Visit" size="lg">
   <form
     class="space-y-6"
     onsubmit={(event) => {
@@ -110,9 +110,9 @@
     {/if}
 
     <div class="rounded-xl border border-primary/20 bg-primary/5 p-4">
-      <p class="text-sm font-medium text-foreground">Create one shared care task</p>
+      <p class="text-sm font-medium text-foreground">Plan one physical visit</p>
       <p class="mt-1 text-xs text-muted-foreground">
-        It will appear here, in Follow-Up CRM, and on the person’s profile.
+        It will appear in the dedicated Visits list and on the person’s profile.
       </p>
     </div>
 
@@ -171,7 +171,7 @@
   {#snippet footer()}
     <Button variant="secondary" onclick={() => (isOpen = false)} disabled={saving}>Cancel</Button>
     <Button onclick={handleSubmit} disabled={saving} loading={saving}>
-      {saving ? "Scheduling…" : "Schedule care"}
+      {saving ? "Scheduling…" : "Schedule visit"}
     </Button>
   {/snippet}
 </Modal>

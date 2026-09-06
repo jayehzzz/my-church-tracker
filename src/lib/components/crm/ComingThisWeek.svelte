@@ -1,7 +1,6 @@
 <script>
   import Badge from '$lib/components/ui/Badge.svelte';
   import Button from '$lib/components/ui/Button.svelte';
-  import Card from '$lib/components/ui/Card.svelte';
 
   let {
     commitments = [],
@@ -90,38 +89,25 @@
       <p class="mt-1 text-xs text-muted-foreground">A person appears here only after giving a clear yes.</p>
     </div>
   {:else}
-    <div class="grid grid-cols-1 gap-3 xl:grid-cols-2" role="list" aria-label="Confirmed gathering commitments">
+    <div class="overflow-hidden rounded-xl border border-border bg-card" role="list" aria-label="Confirmed gathering commitments">
       {#each confirmedCommitments as commitment, index (commitment._id || index)}
         {@const resolution = resolutionInfo(commitment.resolution)}
         {@const owner = leaderName(commitment.leader)}
-        <Card padding="md" role="listitem">
-          <div class="flex h-full flex-col justify-between gap-4">
-            <div>
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <button type="button" class="truncate text-left text-base font-semibold text-foreground hover:underline" onclick={() => onOpen(commitment.person)}>
-                    {personName(commitment.person)}
-                  </button>
-                  <p class="mt-1 text-sm text-muted-foreground">
-                    {gatheringLabel(commitment.gathering_type)} · {formatDate(commitment.gathering_date)}
-                  </p>
-                </div>
-                <Badge size="sm" variant={resolution.variant}>{resolution.label}</Badge>
-              </div>
-              {#if owner}
-                <p class="mt-3 text-xs text-muted-foreground">Followed up by {owner}</p>
-              {/if}
-            </div>
-
-            {#if !commitment.resolution || commitment.resolution === 'pending'}
-              <div class="flex flex-wrap gap-2 border-t border-border/70 pt-4" aria-label={`Resolve attendance for ${personName(commitment.person)}`}>
-                <Button size="sm" onclick={() => onResolve(commitment, 'attended')}>Attended</Button>
-                <Button variant="secondary" size="sm" onclick={() => onResolve(commitment, 'no_show')}>No-show</Button>
-                <Button variant="ghost" size="sm" onclick={() => onResolve(commitment, 'cancelled')}>Cancelled</Button>
-              </div>
-            {/if}
+        <div class="flex flex-col gap-3 border-b border-border px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between" role="listitem">
+          <div class="min-w-0">
+            <button type="button" class="truncate text-left text-sm font-semibold text-foreground hover:underline" onclick={() => onOpen(commitment.person)}>{personName(commitment.person)}</button>
+            <p class="mt-0.5 text-xs text-muted-foreground">{gatheringLabel(commitment.gathering_type)} · {formatDate(commitment.gathering_date)}{owner ? ` · ${owner}` : ''}</p>
           </div>
-        </Card>
+          {#if !commitment.resolution || commitment.resolution === 'pending'}
+            <div class="flex flex-wrap gap-2" aria-label={`Resolve attendance for ${personName(commitment.person)}`}>
+              <Button size="sm" onclick={() => onResolve(commitment, 'attended')}>Attended</Button>
+              <Button variant="secondary" size="sm" onclick={() => onResolve(commitment, 'no_show')}>Didn’t attend</Button>
+              <Button variant="ghost" size="sm" onclick={() => onResolve(commitment, 'cancelled')}>Cancelled</Button>
+            </div>
+          {:else}
+            <Badge size="sm" variant={resolution.variant}>{resolution.label}</Badge>
+          {/if}
+        </div>
       {/each}
     </div>
   {/if}

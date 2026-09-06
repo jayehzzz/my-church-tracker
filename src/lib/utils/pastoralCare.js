@@ -18,11 +18,6 @@ export const CARE_SIGNAL_DEFINITIONS = [
     label: "Missed Sundays",
     trigger: "A member or leader attended at least 4 of the last 6 Sundays but missed the latest 2.",
   },
-  {
-    id: "new_guest",
-    label: "New guest",
-    trigger: "A guest’s first visit was at least three days ago and no welcome care has been recorded.",
-  },
 ];
 
 export function recordId(record) {
@@ -182,7 +177,7 @@ export function buildCareCandidates({
   });
 
   return people
-    .filter((person) => person.member_status !== "archived")
+    .filter((person) => ["member", "leader"].includes(person.member_status))
     .filter((person) => !openPersonIds.has(String(recordId(person))))
     .map((person) => {
       const id = recordId(person);
@@ -243,24 +238,6 @@ export function buildCareCandidates({
           service_count: attendanceSignal.service_count,
           days_since_care: daysSinceCare,
           last_visit: lastVisit,
-        };
-      }
-      if (
-        person.member_status === "guest"
-        && !lastVisit
-        && (person.first_visit_date || person.attended_church)
-      ) {
-        const daysSinceFirstVisit = dayDifference(today, person.first_visit_date || person.contact_date || person.created_at);
-        if (daysSinceFirstVisit === null || daysSinceFirstVisit < 3) return null;
-        return {
-          person,
-          person_id: id,
-          signal_type: "new_guest",
-          reason: "New guest without a recorded welcome visit",
-          priority: daysSinceFirstVisit >= 14 ? "high" : "normal",
-          purpose: "new_guest",
-          days_since_care: daysSinceFirstVisit,
-          last_visit: null,
         };
       }
       return null;

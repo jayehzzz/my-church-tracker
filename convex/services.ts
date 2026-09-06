@@ -1,8 +1,36 @@
-import { query, mutation } from "./_generated/server";
+import { queryFor, mutationFor } from "./lib/security";
+import { actualDate, date, deleteGathering, prepareServiceCounts, reconcileServiceCounts, serviceRows, syncServiceAttendance } from "./lib/attendanceWorkflow";
+
 import { v } from "convex/values";
 
+async function servicePhotoReferences(ctx: any, serviceId: any) {
+    const photos = await ctx.db.query("service_photos")
+        .withIndex("by_service", (q: any) => q.eq("service_id", serviceId))
+        .collect();
+    const entries = await Promise.all(photos.map(async (photo: any) => ({
+        id: photo._id,
+        url: await ctx.storage.getUrl(photo.storage_id),
+    })));
+    const available = entries.filter((entry: any) => entry.url);
+    return { ids: available.map((entry: any) => entry.id), urls: available.map((entry: any) => entry.url) };
+}
+
+async function enrichService(ctx: any, service: any, attendance: any[]) {
+    const individuals = (await Promise.all(attendance.map((record: any) => ctx.db.get(record.person_id))))
+        .filter(Boolean);
+    const photos = await servicePhotoReferences(ctx, service._id);
+    return {
+        ...service,
+        // Legacy URL values remain readable; all newly recorded images are
+        // resolved from storage IDs in service_photos.
+        photos: [...(service.photos || []), ...photos.urls],
+        photo_ids: photos.ids,
+        individuals,
+    };
+}
+
 // Get all services sorted by date descending
-export const getAll = query({
+export const getAll = queryFor("services:getAll")({
     args: {},
     handler: async (ctx) => {
         const services = await ctx.db.query("services").collect();
@@ -11,9 +39,7 @@ export const getAll = query({
                 .query("attendance")
                 .withIndex("by_service", (q) => q.eq("service_id", service._id))
                 .collect();
-            const individuals = (await Promise.all(attendance.map((record) => ctx.db.get(record.person_id))))
-                .filter(Boolean);
-            return { ...service, individuals };
+            return await enrichService(ctx, service, attendance);
         }));
         return enriched.sort(
             (a, b) =>
@@ -23,7 +49,7 @@ export const getAll = query({
 });
 
 // Get service by ID
-export const getById = query({
+export const getById = queryFor("services:getById")({
     args: { id: v.id("services") },
     handler: async (ctx, args) => {
         const service = await ctx.db.get(args.id);
@@ -32,14 +58,12 @@ export const getById = query({
             .query("attendance")
             .withIndex("by_service", (q) => q.eq("service_id", args.id))
             .collect();
-        const individuals = (await Promise.all(attendance.map((record) => ctx.db.get(record.person_id))))
-            .filter(Boolean);
-        return { ...service, individuals };
+        return await enrichService(ctx, service, attendance);
     },
 });
 
 // Create a new service
-export const create = mutation({
+export const create = mutationFor("services:create")({
     args: {
         service_date: v.string(),
         service_type: v.string(),
@@ -56,17 +80,18 @@ export const create = mutation({
         photos: v.optional(v.array(v.string())),
     },
     handler: async (ctx, args) => {
-        const now = new Date().toISOString();
-        const id = await ctx.db.insert("services", {
-            ...args,
-            created_at: now,
-        });
+        date(args.service_date);
+        if (args.total_attendance) actualDate(args.service_date);
+        if (args.individuals?.length) throw new Error("Use record to save named attendance atomically");
+        const id = await ctx.db.insert("services", { ...args, individuals: undefined, created_at: new Date().toISOString() });
+        await reconcileServiceCounts(ctx, id, args);
         return await ctx.db.get(id);
+
     },
 });
 
 // Update a service
-export const update = mutation({
+export const update = mutationFor("services:update")({
     args: {
         id: v.id("services"),
         service_date: v.optional(v.string()),
@@ -85,18 +110,25 @@ export const update = mutation({
     },
     handler: async (ctx, args) => {
         const { id, ...updates } = args;
-        await ctx.db.patch(id, {
-            ...updates,
-            updated_at: new Date().toISOString(),
-        });
+        if (updates.individuals) throw new Error("Use record to save named attendance atomically");
+        if (updates.service_date) {
+            date(updates.service_date);
+            if (updates.total_attendance ?? (await ctx.db.get(id))?.total_attendance) actualDate(updates.service_date);
+        }
+        await prepareServiceCounts(ctx, id);
+        await ctx.db.patch(id, { ...updates, updated_at: new Date().toISOString() });
+        const rows = (await serviceRows(ctx, id)).map(({person_id, first_timer, gave_tithe, made_salvation_decision}) => ({person_id, first_timer, gave_tithe, made_salvation_decision}));
+        await syncServiceAttendance(ctx, id, rows, updates);
         return await ctx.db.get(id);
+
     },
 });
 
 // Record the service and its named attendance as one atomic operation.
 // Aggregate headcounts remain authoritative because they may include unnamed attendees.
-export const record = mutation({
+export const record = mutationFor("services:record")({
     args: {
+        request_id: v.optional(v.string()),
         id: v.optional(v.id("services")),
         service_date: v.string(),
         service_type: v.string(),
@@ -110,6 +142,7 @@ export const record = mutation({
         salvation_decisions: v.float64(),
         tithers_count: v.float64(),
         photos: v.optional(v.array(v.string())),
+        photoIds: v.optional(v.array(v.id("service_photos"))),
         attendanceData: v.array(v.object({
             person_id: v.id("people"),
             made_salvation_decision: v.boolean(),
@@ -118,83 +151,61 @@ export const record = mutation({
         })),
     },
     handler: async (ctx, args) => {
-        const { id, attendanceData, ...serviceData } = args;
-        const namedGuests = (await Promise.all(attendanceData.map(async (record) => {
-            const person = await ctx.db.get(record.person_id);
-            return ["guest", "visitor"].includes(person?.member_status || "") || (!person?.member_status && Boolean(person?.contact_date));
-        }))).filter(Boolean).length;
-        const namedDecisions = attendanceData.filter((record) => record.made_salvation_decision).length;
-        const namedTithers = attendanceData.filter((record) => record.gave_tithe).length;
-        const namedFirstTimers = attendanceData.filter((record) => record.first_timer).length;
-
-        if (serviceData.total_attendance < attendanceData.length) throw new Error("Total attendance cannot be lower than named check-ins");
-        if (serviceData.guests_count > serviceData.total_attendance || serviceData.guests_count < Math.max(namedGuests, namedFirstTimers)) throw new Error("Guest headcount conflicts with named attendance");
-        if (serviceData.salvation_decisions > serviceData.total_attendance || serviceData.salvation_decisions < namedDecisions) throw new Error("Salvation decisions conflict with named attendance");
-        if (serviceData.tithers_count > serviceData.total_attendance || serviceData.tithers_count < namedTithers) throw new Error("Tither count conflicts with named attendance");
-
-        const now = new Date().toISOString();
+        const { id, attendanceData, photoIds = [], ...serviceData } = args;
+        date(serviceData.service_date);
+        if (serviceData.total_attendance) actualDate(serviceData.service_date);
+        if (!id && args.request_id) {
+            const previous = await ctx.db.query("services").filter(q => q.eq(q.field("request_id"), args.request_id)).first();
+            if (previous) return await enrichService(ctx, previous, await serviceRows(ctx, previous._id));
+        }
         let serviceId = id;
         if (serviceId) {
-            const existingService = await ctx.db.get(serviceId);
-            if (!existingService) throw new Error("Service not found");
-            await ctx.db.patch(serviceId, { ...serviceData, updated_at: now });
-        } else {
-            serviceId = await ctx.db.insert("services", { ...serviceData, created_at: now });
-        }
+            await prepareServiceCounts(ctx, serviceId);
+            await ctx.db.patch(serviceId, { ...serviceData, updated_at: new Date().toISOString() });
+        } else serviceId = await ctx.db.insert("services", { ...serviceData, created_at: new Date().toISOString() });
 
-        const existingAttendance = await ctx.db
-            .query("attendance")
+        const existingPhotos = await ctx.db.query("service_photos")
             .withIndex("by_service", (q) => q.eq("service_id", serviceId))
             .collect();
-        const existingByPerson = new Map(existingAttendance.map((record) => [String(record.person_id), record]));
-        const incomingIds = new Set(attendanceData.map((record) => String(record.person_id)));
-
-        await Promise.all(existingAttendance
-            .filter((record) => !incomingIds.has(String(record.person_id)))
-            .map((record) => ctx.db.delete(record._id)));
-
-        await Promise.all(attendanceData.map(async (record) => {
-            const existing = existingByPerson.get(String(record.person_id));
-            if (existing) {
-                await ctx.db.patch(existing._id, {
-                    made_salvation_decision: record.made_salvation_decision,
-                    gave_tithe: record.gave_tithe,
-                    first_timer: record.first_timer,
-                });
-            } else {
-                await ctx.db.insert("attendance", { ...record, service_id: serviceId, created_at: now });
+        const incomingPhotoIds = new Set(photoIds.map(String));
+        for (const photo of existingPhotos) {
+            if (!incomingPhotoIds.has(String(photo._id))) {
+                await ctx.storage.delete(photo.storage_id);
+                await ctx.db.delete(photo._id);
             }
-
-            if (record.first_timer) {
-                const person = await ctx.db.get(record.person_id);
-                if (person && !person.first_visit_date) {
-                    await ctx.db.patch(record.person_id, {
-                        first_visit_date: serviceData.service_date,
-                        entry_point: person.entry_point || "sunday_service",
-                        updated_at: now,
-                    });
-                }
+        }
+        for (const photoId of photoIds) {
+            const photo = await ctx.db.get(photoId);
+            if (!photo) throw new Error("A selected service photo no longer exists.");
+            if (photo.service_id && photo.service_id !== serviceId) {
+                throw new Error("A service photo is already attached to another service.");
             }
-        }));
+            await ctx.db.patch(photoId, { service_id: serviceId });
+        }
+        await syncServiceAttendance(ctx, serviceId, attendanceData, serviceData);
+        return await enrichService(ctx, await ctx.db.get(serviceId), await serviceRows(ctx, serviceId));
 
-        const service = await ctx.db.get(serviceId);
-        const individuals = (await Promise.all(attendanceData.map((record) => ctx.db.get(record.person_id))))
-            .filter(Boolean);
-        return { ...service, individuals };
     },
 });
 
 // Delete a service
-export const remove = mutation({
+export const remove = mutationFor("services:remove")({
     args: { id: v.id("services") },
     handler: async (ctx, args) => {
-        await ctx.db.delete(args.id);
-        return { success: true };
+        const photos = await ctx.db.query("service_photos")
+            .withIndex("by_service", (q) => q.eq("service_id", args.id))
+            .collect();
+        for (const photo of photos) {
+            await ctx.storage.delete(photo.storage_id);
+            await ctx.db.delete(photo._id);
+        }
+        return await deleteGathering(ctx, { serviceId: args.id });
+
     },
 });
 
 // Get services by date range
-export const getByDateRange = query({
+export const getByDateRange = queryFor("services:getByDateRange")({
     args: { startDate: v.string(), endDate: v.string() },
     handler: async (ctx, args) => {
         // Use index for efficient date range filtering

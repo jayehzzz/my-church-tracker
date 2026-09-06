@@ -21,6 +21,7 @@
   import { navigationStore, sidebarVisible } from "$lib/stores/navigationStore";
   import { openSearch } from "$lib/stores/searchStore";
   import { unreadCount } from "$lib/stores/notificationStore";
+  import { session } from "$lib/auth/session.js";
   import { page } from "$app/stores";
   import GlobalSearch from "./GlobalSearch.svelte";
   import ChurchHubDropdown from "./ChurchHubDropdown.svelte";
@@ -118,9 +119,9 @@
 <header
   class="sticky top-0 z-30 w-full border-b border-border bg-card/80 backdrop-blur-md supports-[backdrop-filter]:bg-card/60 transition-all duration-200"
 >
-  <div class="flex h-16 items-center justify-between relative">
+  <div class="flex h-16 min-w-0 items-center justify-between relative">
     <!-- Left Section: Logo + Toggle + Title -->
-    <div class="flex items-center">
+    <div class="flex min-w-0 flex-1 items-center">
       <!-- Logo/Brand Area - width matches sidebar -->
       <div
         class="hidden md:flex items-center justify-between px-4 border-r border-border/50 transition-all duration-300 relative {$sidebarVisible
@@ -194,7 +195,7 @@
       <!-- Mobile Hamburger Menu -->
       <button
         onclick={toggleMobileSidebar}
-        class="md:hidden flex items-center justify-center w-10 h-10 ml-4 rounded-lg hover:bg-secondary transition-colors"
+        class="md:hidden flex shrink-0 items-center justify-center w-10 h-10 ml-2 rounded-lg hover:bg-secondary transition-colors"
         aria-label="Toggle mobile menu"
       >
         <svg
@@ -237,7 +238,7 @@
       {/if}
 
       <!-- Page Title -->
-      <div class="ml-4 flex items-center gap-2">
+      <div class="ml-2 flex min-w-0 items-center gap-1 sm:ml-4 sm:gap-2">
         <button
           type="button"
           onclick={goBack}
@@ -249,14 +250,14 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <p class="text-lg font-semibold text-foreground truncate">
+        <p class="min-w-0 truncate text-lg font-semibold text-foreground">
           {currentTitle}
         </p>
       </div>
     </div>
 
     <!-- Right Section: Search + Notifications + Profile -->
-    <div class="flex items-center space-x-3 pr-4 md:pr-6">
+    <div class="flex shrink-0 items-center gap-1 pr-2 sm:gap-3 sm:pr-4 md:pr-6">
       <!-- Search Input Trigger -->
       <div class="hidden md:flex items-center">
         <div class="relative">
@@ -363,12 +364,12 @@
           onclick={toggleProfile}
           class="flex items-center justify-center w-10 h-10 rounded-lg hover:bg-secondary transition-colors {isProfileOpen ? 'ring-2 ring-primary ring-offset-2 ring-offset-card' : ''}"
           aria-label="User profile & settings"
-          title="Pastor Profile & Settings"
+          title="Your profile and settings"
         >
           <div
             class="w-8 h-8 bg-primary rounded-full flex items-center justify-center shadow-sm text-primary-foreground font-semibold text-xs hover:scale-105 transition-transform"
           >
-            PJ
+            {($session.user?.name || "?").split(" ").map(part => part[0]).slice(0, 2).join("")}
           </div>
         </button>
 

@@ -16,11 +16,13 @@
     import ProfileQuickViewCard from "$lib/components/people/ProfileQuickViewCard.svelte";
 
     let {
-        open = false,
+        isOpen = $bindable(false),
         person = null,
         contacts = [],
+        periodLabel = "Selected period",
         onClose = null,
         onViewProfile = null,
+        onViewContact = null,
     } = $props();
 
     // Calculate inviter stats
@@ -28,21 +30,22 @@
         if (!person || !contacts.length) {
             return {
                 totalInvited: 0,
-                conversions: 0,
+                joined: 0,
                 conversionRate: 0,
                 recentContacts: [],
             };
         }
 
+        const personId = person._id || person.id;
         const invitedContacts = contacts.filter(
-            (c) => c.invited_by_id === person.id,
+            (c) => String(c.invited_by_id) === String(personId),
         );
-        const conversions = invitedContacts.filter(
-            (c) => c.converted || c.salvation_decision,
+        const joined = invitedContacts.filter(
+            (c) => c.converted || c.status === "member" || c.member_status === "member" || c.member_status === "leader",
         ).length;
         const conversionRate =
             invitedContacts.length > 0
-                ? Math.round((conversions / invitedContacts.length) * 100)
+                ? Math.round((joined / invitedContacts.length) * 100)
                 : 0;
 
         // Get recent contacts (sorted by date, max 5)
@@ -56,7 +59,7 @@
 
         return {
             totalInvited: invitedContacts.length,
-            conversions,
+            joined,
             conversionRate,
             recentContacts,
         };
@@ -84,26 +87,7 @@
     }
 </script>
 
-<Modal {open} onclose={onClose} size="md">
-    {#snippet title()}
-        <span class="flex items-center gap-2">
-            <svg
-                class="w-5 h-5 text-primary"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-            >
-                <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                />
-            </svg>
-            Inviter Profile
-        </span>
-    {/snippet}
-
+<Modal bind:isOpen onclose={onClose} title="Connection impact" size="md">
     {#snippet children()}
         {#if person}
             <div class="space-y-4">
@@ -120,11 +104,9 @@
                     </div>
                     <div class="text-center p-3 rounded-lg bg-secondary/30">
                         <div class="text-2xl font-bold text-success">
-                            {stats().conversions}
+                            {stats().joined}
                         </div>
-                        <div class="text-xs text-muted-foreground">
-                            Conversions
-                        </div>
+                        <div class="text-xs text-muted-foreground">Joined</div>
                     </div>
                     <div class="text-center p-3 rounded-lg bg-secondary/30">
                         <div class="text-2xl font-bold text-foreground">
@@ -133,6 +115,7 @@
                         <div class="text-xs text-muted-foreground">Rate</div>
                     </div>
                 </div>
+                <p class="text-center text-xs text-muted-foreground">Results for {periodLabel}</p>
 
                 <!-- Recent Contacts -->
                 {#if stats().recentContacts.length > 0}
@@ -144,8 +127,10 @@
                         </h4>
                         <div class="space-y-2">
                             {#each stats().recentContacts as contact}
-                                <div
-                                    class="flex items-center justify-between p-2 rounded-lg bg-secondary/20"
+                                <button
+                                    type="button"
+                                    class="flex w-full items-center justify-between rounded-lg bg-secondary/20 p-2 text-left transition-colors hover:bg-secondary/40"
+                                    onclick={() => onViewContact?.(contact)}
                                 >
                                     <div class="flex items-center gap-2">
                                         <span
@@ -153,18 +138,18 @@
                                         >
                                             {formatName(contact)}
                                         </span>
-                                        {#if contact.converted}
+                                        {#if contact.converted || contact.status === "member" || contact.member_status === "member" || contact.member_status === "leader"}
                                             <span
                                                 class="text-[10px] px-1.5 py-0.5 rounded bg-success/20 text-success"
                                             >
-                                                Converted
+                                                Joined
                                             </span>
                                         {/if}
                                     </div>
                                     <span class="text-xs text-muted-foreground">
                                         {formatDate(contact.contact_date)}
                                     </span>
-                                </div>
+                                </button>
                             {/each}
                         </div>
                     </div>

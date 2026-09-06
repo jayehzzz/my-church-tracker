@@ -6,16 +6,13 @@
 <script>
   import { goto } from "$app/navigation";
   import { fade, scale } from "svelte/transition";
+  import { isDemoMode } from "$lib/convex.js";
 
   let { isOpen = false, onclose } = $props();
 
   let dropdownRef = $state(null);
-  let selectedCampus = $state("Central Campus (Luton)");
-  const campuses = [
-    "Central Campus (Luton)",
-    "North Campus (Bedford)",
-    "Online Campus",
-  ];
+  let selectedCampus = $state("Demo campus");
+  const campuses = ["Demo campus"];
 
   // Dismiss dropdown when clicking anywhere in the empty space outside
   $effect(() => {
@@ -76,12 +73,12 @@
           </div>
           <div>
             <h2 class="font-bold text-foreground text-sm leading-tight">
-              Grace Community Church
+              {isDemoMode() ? "Demo church profile" : "Church profile unavailable"}
             </h2>
             <div class="flex items-center space-x-1.5 mt-0.5">
               <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span class="text-xs text-muted-foreground font-medium">
-                Live Ministry Hub
+                {isDemoMode() ? "Local demo hub" : "Organization profile not connected"}
               </span>
             </div>
           </div>
@@ -99,7 +96,7 @@
       </div>
 
       <!-- Campus Switcher -->
-      <div class="mt-3">
+      {#if isDemoMode()}<div class="mt-3">
         <label for="campus-select" class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Active Campus
         </label>
@@ -120,11 +117,11 @@
             </svg>
           </div>
         </div>
-      </div>
+      </div>{/if}
     </div>
 
     <!-- Quick Ministry Health Snapshot -->
-    <div class="px-4 py-3 bg-secondary/15 border-b border-border/40 grid grid-cols-3 gap-2 text-center">
+    {#if isDemoMode()}<div class="px-4 py-3 bg-secondary/15 border-b border-border/40 grid grid-cols-3 gap-2 text-center">
       <div class="p-2 rounded-lg bg-card/60 border border-border/40">
         <span class="block text-base font-bold text-foreground">30</span>
         <span class="text-[10px] text-muted-foreground font-medium">Members</span>
@@ -137,7 +134,7 @@
         <span class="block text-base font-bold text-amber-500">8</span>
         <span class="text-[10px] text-muted-foreground font-medium">Follow-ups</span>
       </div>
-    </div>
+    </div>{:else}<div class="px-4 py-3 bg-secondary/15 border-b border-border/40 text-xs text-muted-foreground">Live organization metrics are shown on the dashboard; no church profile summary is configured here yet.</div>{/if}
 
     <!-- Quick Action Launchpad -->
     <div class="p-3">

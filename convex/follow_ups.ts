@@ -1,4 +1,6 @@
-import { query, mutation } from "./_generated/server";
+import { requireFollowUpAllowed } from "./lib/contactPolicy";
+import { queryFor, mutationFor } from "./lib/security";
+
 import { v } from "convex/values";
 
 /**
@@ -88,7 +90,7 @@ function determinePipelineStage(outcome: string, currentStage: string | undefine
  * Log a follow-up interaction.
  * Auto-updates warmth score, pipeline stage, and pause status on the contact.
  */
-export const create = mutation({
+export const create = mutationFor("follow_ups:create")({
     args: {
         contact_id: v.id("people"),
         leader_id: v.id("people"),
@@ -100,6 +102,10 @@ export const create = mutation({
         notes: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
+        const person = await ctx.db.get(args.contact_id);
+        if (!person) throw new Error("Person not found");
+        requireFollowUpAllowed(person);
+
         const now = new Date().toISOString();
 
         // Insert the follow-up record
@@ -159,55 +165,20 @@ export const create = mutation({
 /**
  * Resolve a promise — mark whether the contact showed up or not.
  */
-export const resolvePromise = mutation({
+export const resolvePromise = mutationFor("follow_ups:resolvePromise")({
     args: {
         follow_up_id: v.id("follow_ups"),
         fulfilled: v.boolean(),
     },
     handler: async (ctx, args) => {
-        const followUp = await ctx.db.get(args.follow_up_id);
-        if (!followUp) return null;
-
-        // Update the follow-up record
-        await ctx.db.patch(args.follow_up_id, {
-            promise_fulfilled: args.fulfilled,
-        });
-
-        // Update the contact's promise stats and stage
-        const contact = await ctx.db.get(followUp.contact_id);
-        if (!contact) return await ctx.db.get(args.follow_up_id);
-
-        const updates: any = {
-            updated_at: new Date().toISOString(),
-        };
-
-        if (args.fulfilled) {
-            updates.promises_kept = (contact.promises_kept || 0) + 1;
-            updates.pipeline_stage = "showed_up";
-            updates.warmth_score = "hot";
-            // Set first_visit_date if not already set
-            if (!contact.first_visit_date) {
-                updates.first_visit_date = followUp.promised_date || new Date().toISOString().split('T')[0];
-            }
-        } else {
-            updates.pipeline_stage = "no_show";
-            // Recompute warmth with the broken promise
-            const allFollowUps = await ctx.db
-                .query("follow_ups")
-                .withIndex("by_contact", (q) => q.eq("contact_id", followUp.contact_id))
-                .collect();
-            updates.warmth_score = computeWarmthScore({ ...contact, ...updates }, allFollowUps);
-        }
-
-        await ctx.db.patch(followUp.contact_id, updates);
-        return await ctx.db.get(args.follow_up_id);
+        throw new Error("Legacy promise resolution is retired. Record actual attendance in Services/Meetings or resolve a CRM gathering commitment.");
     },
 });
 
 /**
  * Bulk resolve promises from the Sunday Confirmation Sheet.
  */
-export const bulkResolvePromises = mutation({
+export const bulkResolvePromises = mutationFor("follow_ups:bulkResolvePromises")({
     args: {
         resolutions: v.array(v.object({
             follow_up_id: v.id("follow_ups"),
@@ -215,49 +186,14 @@ export const bulkResolvePromises = mutation({
         })),
     },
     handler: async (ctx, args) => {
-        const results = [];
-        for (const resolution of args.resolutions) {
-            const followUp = await ctx.db.get(resolution.follow_up_id);
-            if (!followUp) continue;
-
-            await ctx.db.patch(resolution.follow_up_id, {
-                promise_fulfilled: resolution.fulfilled,
-            });
-
-            const contact = await ctx.db.get(followUp.contact_id);
-            if (!contact) continue;
-
-            const updates: any = {
-                updated_at: new Date().toISOString(),
-            };
-
-            if (resolution.fulfilled) {
-                updates.promises_kept = (contact.promises_kept || 0) + 1;
-                updates.pipeline_stage = "showed_up";
-                updates.warmth_score = "hot";
-                if (!contact.first_visit_date) {
-                    updates.first_visit_date = followUp.promised_date || new Date().toISOString().split('T')[0];
-                }
-            } else {
-                updates.pipeline_stage = "no_show";
-                const allFollowUps = await ctx.db
-                    .query("follow_ups")
-                    .withIndex("by_contact", (q) => q.eq("contact_id", followUp.contact_id))
-                    .collect();
-                updates.warmth_score = computeWarmthScore({ ...contact, ...updates }, allFollowUps);
-            }
-
-            await ctx.db.patch(followUp.contact_id, updates);
-            results.push({ contact_id: followUp.contact_id, fulfilled: resolution.fulfilled });
-        }
-        return results;
+        throw new Error("Legacy promise resolution is retired. Record actual attendance in Services/Meetings or resolve CRM gathering commitments.");
     },
 });
 
 /**
  * Resume paused contacts that have passed their resume date.
  */
-export const resumePausedContacts = mutation({
+export const resumePausedContacts = mutationFor("follow_ups:resumePausedContacts")({
     args: {},
     handler: async (ctx) => {
         const today = new Date().toISOString().split('T')[0];
@@ -268,7 +204,7 @@ export const resumePausedContacts = mutation({
             .collect();
 
         const pausedContacts = allGuests.filter(
-            (p) => p.is_paused && p.resume_date && p.resume_date <= today
+            (p) => p.contact_category !== "do_not_contact" && p.is_paused && p.resume_date && p.resume_date <= today
         );
 
         const resumed = [];
@@ -297,7 +233,7 @@ export const resumePausedContacts = mutation({
 /**
  * Get all follow-ups for a specific contact (timeline view).
  */
-export const getByContact = query({
+export const getByContact = queryFor("follow_ups:getByContact")({
     args: { contactId: v.id("people") },
     handler: async (ctx, args) => {
         const followUps = await ctx.db
@@ -323,7 +259,7 @@ export const getByContact = query({
 /**
  * Get all follow-ups by a specific leader (activity log).
  */
-export const getByLeader = query({
+export const getByLeader = queryFor("follow_ups:getByLeader")({
     args: { leaderId: v.id("people") },
     handler: async (ctx, args) => {
         const followUps = await ctx.db
@@ -350,7 +286,7 @@ export const getByLeader = query({
  * Returns follow-ups with outcome "promised_to_come" where the promised_date
  * falls within the current week (Mon-Sun) and hasn't been resolved yet.
  */
-export const getPromisedThisWeek = query({
+export const getPromisedThisWeek = queryFor("follow_ups:getPromisedThisWeek")({
     args: {},
     handler: async (ctx) => {
         const now = new Date();
@@ -402,7 +338,7 @@ export const getPromisedThisWeek = query({
  * Get pipeline contacts grouped by stage for the Kanban board.
  * Also computes freshness for each contact.
  */
-export const getPipelineByStage = query({
+export const getPipelineByStage = queryFor("follow_ups:getPipelineByStage")({
     args: {},
     handler: async (ctx) => {
         // Get all guests/evangelism contacts
@@ -480,7 +416,7 @@ export const getPipelineByStage = query({
 /**
  * Get contacts added in the last 7 days (new this week).
  */
-export const getNewThisWeek = query({
+export const getNewThisWeek = queryFor("follow_ups:getNewThisWeek")({
     args: {},
     handler: async (ctx) => {
         const sevenDaysAgo = new Date();
@@ -506,7 +442,7 @@ export const getNewThisWeek = query({
 /**
  * Get stale contacts (2+ weeks with no progress, excluding paused).
  */
-export const getStaleContacts = query({
+export const getStaleContacts = queryFor("follow_ups:getStaleContacts")({
     args: {},
     handler: async (ctx) => {
         const guests = await ctx.db
@@ -540,7 +476,7 @@ export const getStaleContacts = query({
 /**
  * Get paused contacts.
  */
-export const getPausedContacts = query({
+export const getPausedContacts = queryFor("follow_ups:getPausedContacts")({
     args: {},
     handler: async (ctx) => {
         const guests = await ctx.db
@@ -555,7 +491,7 @@ export const getPausedContacts = query({
 /**
  * Get aggregated stats per leader for the Leader Scoreboard.
  */
-export const getLeaderStats = query({
+export const getLeaderStats = queryFor("follow_ups:getLeaderStats")({
     args: {},
     handler: async (ctx) => {
         // Get all leaders
@@ -632,7 +568,7 @@ export const getLeaderStats = query({
  * Get conversion funnel stats.
  * New Contact → Contacted → Promised → Visited → Member
  */
-export const getConversionFunnel = query({
+export const getConversionFunnel = queryFor("follow_ups:getConversionFunnel")({
     args: {},
     handler: async (ctx) => {
         const allPeople = await ctx.db.query("people").collect();
@@ -683,7 +619,7 @@ export const getConversionFunnel = query({
 /**
  * Get all leaders (people with member_status "leader").
  */
-export const getLeaders = query({
+export const getLeaders = queryFor("follow_ups:getLeaders")({
     args: {},
     handler: async (ctx) => {
         const leaders = await ctx.db

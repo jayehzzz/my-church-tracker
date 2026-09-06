@@ -1,4 +1,7 @@
-import { query, mutation } from "./_generated/server";
+import { reconcileCare, deleteCare } from "./lib/careWorkflow";
+import { requireFollowUpAllowed } from "./lib/contactPolicy";
+import { queryFor, mutationFor } from "./lib/security";
+
 import { v } from "convex/values";
 
 const visitationStatus = v.union(
@@ -61,7 +64,7 @@ async function enrichVisitation(ctx: any, visitation: any) {
     };
 }
 
-export const getAll = query({
+export const getAll = queryFor("visitations:getAll")({
     args: {},
     handler: async (ctx) => {
         const visitations = await ctx.db.query("visitations").collect();
@@ -72,7 +75,7 @@ export const getAll = query({
     },
 });
 
-export const getById = query({
+export const getById = queryFor("visitations:getById")({
     args: { id: v.id("visitations") },
     handler: async (ctx, args) => {
         const visitation = await ctx.db.get(args.id);
@@ -82,8 +85,9 @@ export const getById = query({
 
 // Completing a care interaction also completes its source task, records the
 // shared contact timeline entry, and creates the next task when requested.
-export const create = mutation({
+export const create = mutationFor("visitations:create")({
     args: {
+        request_id: v.optional(v.string()),
         person_id: v.optional(v.id("people")),
         person_visited_name: v.optional(v.string()),
         visited_by_name: v.optional(v.string()),
@@ -99,6 +103,14 @@ export const create = mutation({
         notes: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
+        if (args.request_id) {
+            const previous = await ctx.db.query("visitations").filter(q => q.eq(q.field("request_id"), args.request_id)).first();
+            if (previous) return previous;
+        }
+        if (args.source_task_id) {
+            const previous = await ctx.db.query("visitations").withIndex("by_source_task", q => q.eq("source_task_id", args.source_task_id)).first();
+            if (previous) return previous;
+        }
         const now = new Date().toISOString();
         const person = args.person_id ? await ctx.db.get(args.person_id) : null;
         const visitor = args.visited_by_id ? await ctx.db.get(args.visited_by_id) : null;
@@ -122,10 +134,12 @@ export const create = mutation({
         const resolvedVisitorId = args.visited_by_id ?? sourceTask?.assigned_leader_id;
         const resolvedPerson = person ?? (resolvedPersonId ? await ctx.db.get(resolvedPersonId) : null);
         const resolvedVisitor = visitor ?? (resolvedVisitorId ? await ctx.db.get(resolvedVisitorId) : null);
+        if (resolvedPerson) requireFollowUpAllowed(resolvedPerson);
         const status = args.status
             ?? (["not_home", "declined"].includes(args.outcome) ? "unsuccessful" : "completed");
 
         const visitationId = await ctx.db.insert("visitations", {
+            request_id: args.request_id,
             person_id: resolvedPersonId,
             person_visited_name: args.person_visited_name || personName(resolvedPerson),
             visited_by_id: resolvedVisitorId,
@@ -142,26 +156,6 @@ export const create = mutation({
             created_at: now,
         });
 
-        let nextTaskId = null;
-        if (args.follow_up_required && args.follow_up_date && resolvedPersonId && resolvedVisitorId) {
-            nextTaskId = await ctx.db.insert("follow_up_tasks", {
-                person_id: resolvedPersonId,
-                assigned_leader_id: resolvedVisitorId,
-                created_by_id: resolvedVisitorId,
-                due_date: args.follow_up_date,
-                status: "open",
-                task_type: "member_care",
-                priority: ["concerns_shared", "prayer_request_received"].includes(args.outcome)
-                    ? "high"
-                    : "normal",
-                reason: `Continue pastoral care after ${args.visit_date}`,
-                source_visitation_id: visitationId,
-                created_at: now,
-                updated_at: now,
-            });
-            await ctx.db.patch(visitationId, { next_task_id: nextTaskId });
-        }
-
         if (sourceTask) {
             await ctx.db.patch(sourceTask._id, {
                 status: "completed",
@@ -173,33 +167,13 @@ export const create = mutation({
             });
         }
 
-        if (resolvedPersonId && resolvedVisitorId) {
-            await ctx.db.insert("follow_ups", {
-                contact_id: resolvedPersonId,
-                leader_id: resolvedVisitorId,
-                follow_up_date: args.visit_date,
-                method: followUpMethod(args.interaction_type),
-                outcome: args.outcome,
-                next_action_date: args.follow_up_date,
-                notes: args.notes,
-                created_at: now,
-            });
-            const interactions = await ctx.db
-                .query("follow_ups")
-                .withIndex("by_contact", (q) => q.eq("contact_id", resolvedPersonId))
-                .collect();
-            await ctx.db.patch(resolvedPersonId, {
-                total_follow_ups: interactions.length,
-                last_follow_up_date: args.visit_date,
-                updated_at: now,
-            });
-        }
+        await reconcileCare(ctx, visitationId);
 
         return await ctx.db.get(visitationId);
     },
 });
 
-export const update = mutation({
+export const update = mutationFor("visitations:update")({
     args: {
         id: v.id("visitations"),
         person_id: v.optional(v.id("people")),
@@ -219,66 +193,20 @@ export const update = mutation({
         const { id, ...updates } = args;
         const existing = await ctx.db.get(id);
         if (!existing) throw new Error("Care interaction not found");
-        const personId = updates.person_id ?? existing.person_id;
-        const leaderId = updates.visited_by_id ?? existing.visited_by_id;
-        const followUpRequired = updates.follow_up_required ?? existing.follow_up_required;
-        const followUpDate = updates.follow_up_date ?? existing.follow_up_date;
-        const now = new Date().toISOString();
-
-        let nextTaskId = existing.next_task_id;
-        const nextTask = nextTaskId ? await ctx.db.get(nextTaskId) : null;
-        if (followUpRequired && followUpDate && personId && leaderId) {
-            if (nextTask?.status === "open") {
-                await ctx.db.patch(nextTask._id, {
-                    person_id: personId,
-                    assigned_leader_id: leaderId,
-                    due_date: followUpDate,
-                    updated_at: now,
-                });
-            } else {
-                nextTaskId = await ctx.db.insert("follow_up_tasks", {
-                    person_id: personId,
-                    assigned_leader_id: leaderId,
-                    created_by_id: leaderId,
-                    due_date: followUpDate,
-                    status: "open",
-                    task_type: "member_care",
-                    priority: ["concerns_shared", "prayer_request_received"].includes(
-                        updates.outcome ?? existing.outcome,
-                    ) ? "high" : "normal",
-                    reason: `Continue pastoral care after ${updates.visit_date ?? existing.visit_date}`,
-                    source_visitation_id: id,
-                    created_at: now,
-                    updated_at: now,
-                });
-            }
-        } else if (nextTask?.status === "open") {
-            await ctx.db.patch(nextTask._id, {
-                status: "cancelled",
-                outcome: "care_follow_up_removed",
-                completed_at: now,
-                updated_at: now,
-            });
-        }
-
-        await ctx.db.patch(id, {
-            ...updates,
-            next_task_id: followUpRequired ? nextTaskId : undefined,
-            updated_at: now,
-        });
+        await ctx.db.patch(id, { ...updates, ...(updates.follow_up_required === false ? { follow_up_date: undefined } : {}), updated_at: new Date().toISOString() });
+        await reconcileCare(ctx, id, existing);
         return await ctx.db.get(id);
     },
 });
 
-export const remove = mutation({
+export const remove = mutationFor("visitations:remove")({
     args: { id: v.id("visitations") },
     handler: async (ctx, args) => {
-        await ctx.db.delete(args.id);
-        return { success: true };
+        return await deleteCare(ctx, args.id);
     },
 });
 
-export const getByPerson = query({
+export const getByPerson = queryFor("visitations:getByPerson")({
     args: { personId: v.id("people") },
     handler: async (ctx, args) => {
         const visitations = await ctx.db
@@ -292,7 +220,7 @@ export const getByPerson = query({
     },
 });
 
-export const getRequiringFollowUp = query({
+export const getRequiringFollowUp = queryFor("visitations:getRequiringFollowUp")({
     args: {},
     handler: async (ctx) => {
         const visitations = await ctx.db
@@ -308,7 +236,7 @@ export const getRequiringFollowUp = query({
     },
 });
 
-export const getByDateRange = query({
+export const getByDateRange = queryFor("visitations:getByDateRange")({
     args: { startDate: v.string(), endDate: v.string() },
     handler: async (ctx, args) => {
         const visitations = await ctx.db

@@ -223,6 +223,8 @@ export function nextSunday(date = new Date()) {
  */
 export const FRESH_CONTACT_DAYS = 14;
 export const QUARTERLY_REENGAGEMENT_DAYS = 90;
+export const UNANSWERED_ATTEMPT_LIMIT = 3;
+export const SUNDAY_NO_SHOW_LIMIT = 2;
 
 export function isFresh(contact, today = new Date(), days = FRESH_CONTACT_DAYS) {
   if (!contact || !Number.isFinite(Number(days)) || Number(days) < 0) return false;
@@ -361,9 +363,9 @@ export function nextTaskPlanForOutcome(outcome, today = new Date()) {
       reason: 'They asked to speak later — reconnect after a month'
     },
     not_serious_now: {
-      days: 30,
+      days: QUARTERLY_REENGAGEMENT_DAYS,
       task_type: 'reengagement',
-      reason: 'Not serious right now — gently reconnect after a month'
+      reason: 'Not serious right now — review again in 90 days'
     },
     on_holiday: {
       days: 30,
@@ -386,6 +388,85 @@ export function nextTaskPlanForOutcome(outcome, today = new Date()) {
   return {
     ...plan,
     due_date: formatCalendarDate(addCalendarDays(current, plan.days))
+  };
+}
+
+/**
+ * Summarise the small number of signals needed to decide whether somebody
+ * should stay in active weekly work. Only consecutive unanswered attempts are
+ * counted; a real conversation resets that streak.
+ */
+export function deriveCandidateSignals({ contact = {}, followUps = [], commitments = [] } = {}) {
+  const contactId = recordId(contact);
+  const contactFollowUps = followUps
+    .filter((followUp) => contactId == null || sameId(personIdFrom(followUp), contactId))
+    .slice()
+    .sort((left, right) => {
+      const leftDate = calendarDate(left?.follow_up_date ?? left?.activity_date ?? left?.created_at)?.timestamp ?? 0;
+      const rightDate = calendarDate(right?.follow_up_date ?? right?.activity_date ?? right?.created_at)?.timestamp ?? 0;
+      return rightDate - leftDate;
+    });
+
+  let unansweredAttempts = 0;
+  for (const followUp of contactFollowUps) {
+    if (normalise(followUp?.outcome) !== 'no_response') break;
+    unansweredAttempts += 1;
+  }
+
+  const relevantCommitments = commitments.filter((commitment) => {
+    const commitmentPersonId = personIdFrom(commitment);
+    return contactId == null || commitmentPersonId == null || sameId(contactId, commitmentPersonId);
+  });
+  const confirmedNoShows = new Set(
+    relevantCommitments
+      .filter((commitment) =>
+        commitmentResponse(commitment) === 'yes'
+        && commitmentResolution(commitment) === 'no_show'
+        && normalise(commitment?.gathering_type ?? 'sunday_service') === 'sunday_service'
+      )
+      .map((commitment, index) => {
+        const date = formatCalendarDate(calendarDate(serviceDateFrom(commitment)));
+        return date ? `date:${date}` : `record:${commitment._id ?? commitment.id ?? index}`;
+      })
+  ).size;
+  const attendedMeetings = relevantCommitments.filter(
+    (commitment) => commitmentResolution(commitment) === 'attended'
+  ).length;
+  const acceptedInvitations = relevantCommitments.filter(
+    (commitment) => commitmentResponse(commitment) === 'yes'
+  ).length;
+  const responsiveConversations = contactFollowUps.filter((followUp) =>
+    ['positive_conversation', 'rescheduled', 'care_check_in', 'came_to_church', 'showed_up', 'attended']
+      .includes(normalise(followUp?.outcome))
+  ).length;
+  const category = normalise(contact?.contact_category ?? contact?.response);
+  const stage = normalise(contact?.pipeline_stage);
+  const manuallySerious = contact?.is_serious === true || normalise(contact?.seriousness) === 'serious';
+  const manuallyUnserious = contact?.is_serious === false || ['unserious', 'not_serious'].includes(normalise(contact?.seriousness));
+  const activeStatus = normalise(contact?.follow_up_status);
+  const pausedOrClosed = contact?.is_paused === true || ['later', 'closed'].includes(activeStatus);
+  const positiveSignal = manuallySerious
+    || category === 'responsive'
+    || ['responding', 'invited', 'promised', 'showed_up'].includes(stage)
+    || responsiveConversations > 0
+    || acceptedInvitations > 0
+    || attendedMeetings > 0;
+  const shouldMoveToLater = unansweredAttempts >= UNANSWERED_ATTEMPT_LIMIT
+    || confirmedNoShows >= SUNDAY_NO_SHOW_LIMIT;
+
+  return {
+    unanswered_attempts: unansweredAttempts,
+    confirmed_no_shows: confirmedNoShows,
+    attended_meetings: attendedMeetings,
+    accepted_invitations: acceptedInvitations,
+    responsive_conversations: responsiveConversations,
+    is_serious: !pausedOrClosed && !manuallyUnserious && positiveSignal && !shouldMoveToLater,
+    should_move_to_later: !pausedOrClosed && shouldMoveToLater,
+    recommendation_reason: unansweredAttempts >= UNANSWERED_ATTEMPT_LIMIT
+      ? `${unansweredAttempts} unanswered attempts`
+      : confirmedNoShows >= SUNDAY_NO_SHOW_LIMIT
+        ? `${confirmedNoShows} Sunday promises missed`
+        : null
   };
 }
 
@@ -545,7 +626,9 @@ export function deriveTeamStats({
   tasks = [],
   followUps = [],
   commitments = [],
-  today = new Date()
+  today = new Date(),
+  periodStart = null,
+  periodEnd = null
 } = {}) {
   const current = calendarDate(today);
   if (!current) throw new TypeError('deriveTeamStats requires a valid today date');
@@ -555,6 +638,8 @@ export function deriveTeamStats({
   const mondayOffset = currentWeekday === 0 ? -6 : 1 - currentWeekday;
   const monday = addCalendarDays(current, mondayOffset).timestamp;
   const monthStart = Date.UTC(current.year, current.month - 1, 1);
+  const selectedStart = calendarDate(periodStart)?.timestamp ?? monday;
+  const selectedEnd = calendarDate(periodEnd)?.timestamp ?? current.timestamp;
 
   const peopleById = new Map();
   for (const person of people) {
@@ -591,6 +676,10 @@ export function deriveTeamStats({
     const assignedPeople = [...assignedIds].map((id) => peopleById.get(id)).filter(Boolean);
     const freshPeople = assignedPeople.filter((person) => isFresh(person, currentDate));
     const leaderFollowUps = followUps.filter((followUp) => sameId(leaderIdFrom(followUp), leaderId));
+    const followUpsInPeriod = leaderFollowUps.filter((followUp) => {
+      const date = calendarDate(followUp.follow_up_date ?? followUp.activity_date ?? followUp.created_at)?.timestamp;
+      return date != null && date >= selectedStart && date <= selectedEnd;
+    });
 
     const freshContactedPeople = freshPeople.filter((person) => {
       const id = recordId(person);
@@ -646,6 +735,32 @@ export function deriveTeamStats({
       ['came_to_church', 'showed_up', 'attended'].includes(normalise(followUp.outcome))
     ).length;
     const converted = assignedPeople.filter((person) => ['member', 'leader'].includes(normalise(person.member_status))).length;
+    const assignedSignals = assignedPeople.map((person) => deriveCandidateSignals({
+      contact: person,
+      followUps,
+      commitments
+    }));
+    const seriousCandidates = assignedSignals.filter((signal) => signal.is_serious).length;
+    const meaningfulConversations = followUpsInPeriod.filter((followUp) =>
+      !['no_response', 'wrong_number'].includes(normalise(followUp?.outcome))
+    ).length;
+    const periodCommitments = commitments.filter((commitment) => {
+      if (!sameId(leaderIdFrom(commitment), leaderId)) return false;
+      const date = calendarDate(
+        commitment?.created_at ?? commitment?.gathering_date ?? commitment?.service_date
+      )?.timestamp;
+      return date != null && date >= selectedStart && date <= selectedEnd;
+    });
+    const sundayPromises = periodCommitments.filter((commitment) =>
+      normalise(commitment?.gathering_type ?? 'sunday_service') === 'sunday_service'
+      && commitmentResponse(commitment) === 'yes'
+    );
+    const promisesAttended = sundayPromises.filter(
+      (commitment) => commitmentResolution(commitment) === 'attended'
+    ).length;
+    const promisesMissed = sundayPromises.filter(
+      (commitment) => commitmentResolution(commitment) === 'no_show'
+    ).length;
 
     return {
       leader_id: leaderId,
@@ -674,6 +789,13 @@ export function deriveTeamStats({
       follow_ups_this_week: followUpsThisWeek.length,
       follow_ups_this_month: followUpsThisMonth.length,
       unique_contacts_this_week: new Set(followUpsThisWeek.map(personIdFrom).filter(Boolean).map(String)).size,
+      period_follow_ups: followUpsInPeriod.length,
+      period_unique_contacts: new Set(followUpsInPeriod.map(personIdFrom).filter(Boolean).map(String)).size,
+      meaningful_conversations: meaningfulConversations,
+      serious_candidates: seriousCandidates,
+      sunday_promises: sundayPromises.length,
+      promises_attended: promisesAttended,
+      promises_missed: promisesMissed,
       last_activity:
         lastActivityTimestamp === Number.NEGATIVE_INFINITY
           ? null
@@ -723,7 +845,7 @@ export function applyNoShowRule({ contact = {}, commitments = [], threshold = 2 
     ...contact,
     confirmed_no_shows: distinctNoShows,
     follow_up_status: distinctNoShows >= required ? 'active' : contact.follow_up_status,
-    recommended_next_action_days: distinctNoShows >= required ? 30 : undefined,
+    recommended_next_action_days: distinctNoShows >= required ? QUARTERLY_REENGAGEMENT_DAYS : undefined,
     recommended_next_task_type: distinctNoShows >= required ? 'reengagement' : undefined,
     no_show_rule_applied: distinctNoShows >= required
   };

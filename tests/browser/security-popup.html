@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8">
+  <title>Map popup security fixture</title>
+  <style>body { font: 16px system-ui; padding: 2rem; } article { border: 1px solid #aaa; padding: 1rem; margin: 1rem 0; } button { margin: 1rem 0; padding: .6rem; }</style>
+  <h1>Map popup security fixture</h1>
+  <p>Synthetic data only. Text must stay literal, and both buttons must work.</p>
+  <article id="hostile"></article>
+  <article id="optional"></article>
+  <p role="status" id="result">No route selection yet.</p>
+  <script type="module">
+    import { createPersonPopup } from '/src/lib/utils/mapPopup.js';
+    const onSelect = id => { document.querySelector('#result').textContent = `Selected literal ID: ${id}`; };
+    document.querySelector('#hostile').append(createPersonPopup({
+      id: `person-'"<>&`, first_name: '<img src=x onerror="document.body.remove()">',
+      last_name: "O'Brien & Jones", address: '<svg onload="alert(1)">',
+      member_status: '<b>guest</b>', role: '<script>alert(1)<\/script>',
+    }, { colorClass: '', isSelected: false, onSelect }));
+    document.querySelector('#optional').append(createPersonPopup({
+      id: 'optional-role', first_name: 'Anne', last_name: "O'Brien",
+    }, { colorClass: '', isSelected: true, onSelect }));
+  </script>
+</html>

@@ -13,6 +13,7 @@
   let activeStep = $state(1);
   let formData = $state(emptyForm());
   let saving = $state(false);
+  let requestId = $state(crypto.randomUUID());
   let errors = $state({});
 
   let people = $state([]);
@@ -30,7 +31,9 @@
 
   let photos = $state([]);
   let uploading = $state(false);
+  let uploadProgress = $state(0);
   let uploadError = $state(null);
+  let initialFormSnapshot = $state("");
 
   const mode = $derived(service?.id || service?._id ? "edit" : "create");
   const modalTitle = $derived(mode === "edit" ? "Update service record" : "Record service");
@@ -68,6 +71,7 @@
 
   $effect(() => {
     if (!isOpen) return;
+    requestId = crypto.randomUUID();
     activeStep = 1;
     errors = {};
     attendeeFilter = "members";
@@ -90,7 +94,12 @@
       tithers_count: valueString(service.tithers_count),
       notes: service.notes || "",
     } : emptyForm();
-    photos = service?.photos || [];
+    photos = (service?.photos || []).map((url, index) => ({
+      id: service?.photo_ids?.[index] || null,
+      url,
+      isNew: false,
+    }));
+    initialFormSnapshot = JSON.stringify(formData);
     void loadData();
   });
 
@@ -137,7 +146,7 @@
 
       if (ids.length) {
         const attendanceService = await import("$lib/services/attendanceService");
-        const historyResult = await attendanceService.getAttendanceHistory(ids);
+        const historyResult = await attendanceService.getAttendanceHistory(ids, formData.service_date);
         priorAttendance = historyResult.data || {};
 
         if (mode === "edit" && (service?.id || service?._id)) {
@@ -219,7 +228,6 @@
         last_name: quickAddData.last_name.trim(),
         phone: quickAddData.phone.trim() || undefined,
         member_status: "guest",
-        first_visit_date: formData.service_date,
         entry_point: "sunday_service",
       });
       if (result.error) throw result.error;
@@ -243,30 +251,55 @@
   }
 
   async function handleFileUpload(event) {
-    const files = [...(event.currentTarget.files || [])];
+    const input = event.currentTarget;
+    const files = [...(input.files || [])];
     if (!files.length) return;
     uploading = true;
+    uploadProgress = 0;
     uploadError = null;
     try {
       const storageService = await import("$lib/services/storageService");
       for (const file of files) {
-        if (!file.type.startsWith("image/")) continue;
-        const result = await storageService.uploadImage(file);
-        photos = [...photos, result.error ? URL.createObjectURL(file) : result.url];
+        const result = await storageService.uploadImage(file, { onProgress: (value) => (uploadProgress = value) });
+        if (result.error) throw result.error;
+        photos = [...photos, { id: result.data.id, url: result.data.previewUrl, isNew: true }];
       }
     } catch (uploadFailure) {
       uploadError = uploadFailure?.message || "Photos could not be uploaded";
     } finally {
       uploading = false;
-      event.currentTarget.value = "";
+      input.value = "";
     }
   }
 
-  function removePhoto(index) {
+  async function removePhoto(index) {
+    const photo = photos[index];
     photos = photos.filter((_, photoIndex) => photoIndex !== index);
+    if (!photo?.isNew) return;
+    URL.revokeObjectURL(photo.url);
+    const storageService = await import("$lib/services/storageService");
+    const result = await storageService.deleteImage(photo.id);
+    if (result.error) uploadError = "The removed upload could not be cleaned up. Try saving or contact an administrator.";
+  }
+
+  async function handleCancel() {
+    const hasUnsavedChanges = JSON.stringify(formData) !== initialFormSnapshot || photos.some((photo) => photo.isNew);
+    if (hasUnsavedChanges && !window.confirm("Discard unsaved service changes?")) return;
+    const pendingPhotos = photos.filter((photo) => photo.isNew);
+    if (pendingPhotos.length) {
+      const storageService = await import("$lib/services/storageService");
+      const outcomes = await Promise.all(pendingPhotos.map((photo) => storageService.deleteImage(photo.id)));
+      if (outcomes.some((outcome) => outcome.error)) {
+        uploadError = "Some pending uploads could not be cleaned up. Please try again before closing.";
+        return;
+      }
+      pendingPhotos.forEach((photo) => URL.revokeObjectURL(photo.url));
+    }
+    isOpen = false;
   }
 
   async function handleSubmit() {
+    if (saving) return;
     const setupErrors = validateServiceSetup(formData);
     if (Object.keys(setupErrors).length) {
       errors = setupErrors;
@@ -287,6 +320,7 @@
       const servicesService = await import("$lib/services/servicesService");
       const result = await servicesService.record({
         id: service?.id || service?._id,
+        request_id: requestId,
         service_date: formData.service_date,
         service_type: formData.service_type,
         service_time: formData.service_time || undefined,
@@ -294,11 +328,12 @@
         sermon_topic: formData.sermon_topic.trim() || undefined,
         sermon_speaker: formData.sermon_speaker.trim() || undefined,
         notes: formData.notes.trim() || undefined,
-        photos,
+        photoIds: photos.map((photo) => photo.id).filter(Boolean),
         ...resolvedCounts,
         attendanceData: buildAttendanceData(selectedPersonIds, attendanceMetadata),
       });
       if (result.error) throw result.error;
+      photos.filter((photo) => photo.isNew).forEach((photo) => URL.revokeObjectURL(photo.url));
       onsave?.(result.data);
       isOpen = false;
     } catch (saveError) {
@@ -309,7 +344,7 @@
   }
 </script>
 
-<Modal bind:isOpen title={modalTitle} size="2xl" {...restProps}>
+<Modal bind:isOpen title={modalTitle} size="2xl" closable={false} closeOnBackdrop={false} closeOnEscape={false} {...restProps}>
   <form class="space-y-5" onsubmit={(event) => { event.preventDefault(); handleSubmit(); }}>
     <nav class="grid grid-cols-3 gap-2 rounded-xl border border-border bg-secondary/15 p-2" aria-label="Service recording steps">
       {#each steps as step (step.number)}
@@ -447,9 +482,9 @@
           <summary class="flex cursor-pointer items-center justify-between px-4 py-3 text-sm font-medium text-foreground"><span>Notes and photos</span><span class="text-xs text-muted-foreground">Optional · {photos.length} photos</span></summary>
           <div class="space-y-4 border-t border-border p-4">
             <div><label for="service-notes" class="mb-1.5 block text-sm font-medium text-foreground">Reflection from the day</label><p class="mb-2 text-xs text-muted-foreground">Capture the atmosphere, testimonies and moments you will want to remember later.</p><textarea id="service-notes" bind:value={formData.notes} rows="4" disabled={saving} class="w-full resize-none rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary" placeholder="What made this service memorable? What happened, and how did the day feel?"></textarea></div>
-            <div class="flex flex-wrap items-center justify-between gap-3"><div><p class="text-sm font-medium text-foreground">Service photos</p><p class="mt-1 text-xs text-muted-foreground">Add supporting photos after the core record is complete.</p></div><label for="service-photo-upload" class="inline-flex h-9 cursor-pointer items-center rounded-lg border border-border bg-secondary px-3 text-xs font-medium text-foreground hover:bg-secondary/70">{uploading ? "Uploading…" : "Add photos"}</label><input id="service-photo-upload" class="hidden" type="file" multiple accept="image/*" onchange={handleFileUpload} disabled={uploading || saving} /></div>
+            <div class="flex flex-wrap items-center justify-between gap-3"><div><p class="text-sm font-medium text-foreground">Service photos</p><p class="mt-1 text-xs text-muted-foreground">JPEG, PNG or WebP · maximum 10 MB each. Uploads are saved securely with this service.</p></div><label for="service-photo-upload" class="inline-flex h-9 cursor-pointer items-center rounded-lg border border-border bg-secondary px-3 text-xs font-medium text-foreground hover:bg-secondary/70">{uploading ? `Uploading ${uploadProgress}%…` : "Add photos"}</label><input id="service-photo-upload" class="sr-only" type="file" multiple accept="image/jpeg,image/png,image/webp" onchange={handleFileUpload} disabled={uploading || saving} /></div>
             {#if uploadError}<p class="text-xs text-destructive">{uploadError}</p>{/if}
-            {#if photos.length}<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">{#each photos as photo, index}<div class="group relative aspect-video overflow-hidden rounded-lg border border-border bg-secondary"><img src={photo} alt={`Service ${index + 1}`} class="h-full w-full object-cover" /><button type="button" class="absolute right-1.5 top-1.5 rounded-full bg-background/85 p-1 text-destructive opacity-0 shadow-sm transition-opacity group-hover:opacity-100" aria-label="Remove photo" onclick={() => removePhoto(index)}><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button></div>{/each}</div>{/if}
+            {#if photos.length}<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">{#each photos as photo, index}<div class="group relative aspect-video overflow-hidden rounded-lg border border-border bg-secondary"><img src={photo.url} alt={`Service ${index + 1}`} class="h-full w-full object-cover" /><button type="button" class="absolute right-1.5 top-1.5 rounded-full bg-background/85 p-1 text-destructive opacity-0 shadow-sm transition-opacity group-hover:opacity-100" aria-label="Remove photo" onclick={() => removePhoto(index)}><svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button></div>{/each}</div>{/if}
           </div>
         </details>
       </section>
@@ -458,7 +493,7 @@
 
   {#snippet footer()}
     <div class="flex w-full items-center justify-between gap-3">
-      <Button variant="ghost" onclick={() => isOpen = false} disabled={saving}>Cancel</Button>
+      <Button variant="ghost" onclick={handleCancel} disabled={saving || uploading}>Cancel</Button>
       <div class="flex gap-2">
         {#if activeStep > 1}<Button variant="secondary" onclick={() => goToStep(activeStep - 1)} disabled={saving}>Back</Button>{/if}
         {#if activeStep < 3}

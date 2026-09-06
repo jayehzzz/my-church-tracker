@@ -9,7 +9,10 @@
     notifications,
     unreadCount,
     notificationStore,
+    liveNotificationState,
+    refreshLiveNotifications,
   } from "$lib/stores/notificationStore";
+  import { isDemoMode } from "$lib/convex.js";
 
   let { isOpen = false, onclose } = $props();
 
@@ -18,6 +21,7 @@
 
   // Dismiss dropdown when clicking anywhere in the empty space outside
   $effect(() => {
+    if (isOpen && !isDemoMode()) void refreshLiveNotifications();
     if (isOpen) {
       function handleClickOutside(event) {
         if (dropdownRef && !dropdownRef.contains(event.target)) {
@@ -47,6 +51,16 @@
       if (activeTab === "milestone") return n.category === "milestone";
       return true;
     })
+  );
+
+  const isLiveLoading = $derived(!isDemoMode() && $liveNotificationState === "loading");
+  const isLiveUnavailable = $derived(!isDemoMode() && $liveNotificationState === "error");
+  const liveFooterLabel = $derived(
+    $liveNotificationState === "loading"
+      ? "Loading live feed"
+      : $liveNotificationState === "error"
+        ? "Live feed unavailable"
+        : "Live feed ready",
   );
 
   function handleNotificationClick(item) {
@@ -112,7 +126,7 @@
                 </span>
               {/if}
             </h3>
-            <p class="text-[11px] text-muted-foreground">Church alerts & follow-up queue</p>
+            <p class="text-[11px] text-muted-foreground">{isDemoMode() ? "Demo alerts & follow-up queue" : "Live notification feed"}</p>
           </div>
         </div>
 
@@ -168,15 +182,31 @@
 
     <!-- Notification List -->
     <div class="max-h-80 overflow-y-auto divide-y divide-border/40">
-      {#if filteredNotifications.length === 0}
+      {#if isLiveLoading}
+        <div class="p-8 text-center" role="status" aria-live="polite">
+          <div class="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-2 border-primary/30 border-t-primary"></div>
+          <p class="text-sm font-medium text-foreground">Loading notifications…</p>
+          <p class="mt-0.5 text-xs text-muted-foreground">Checking your current follow-up activity.</p>
+        </div>
+      {:else if isLiveUnavailable}
+        <div class="p-8 text-center" role="status" aria-live="polite">
+          <div class="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3m0 4h.01M10.29 3.86l-7.3 12.64A2 2 0 004.73 19.5h14.54a2 2 0 001.74-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+          </div>
+          <p class="text-sm font-medium text-foreground">Notifications are unavailable</p>
+          <p class="mt-0.5 text-xs text-muted-foreground">We couldn’t load the current notification feed. Try opening this panel again.</p>
+        </div>
+      {:else if filteredNotifications.length === 0}
         <div class="p-8 text-center">
           <div class="w-12 h-12 rounded-full bg-secondary/50 text-muted-foreground flex items-center justify-center mx-auto mb-2">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <p class="text-sm font-medium text-foreground">All caught up!</p>
-          <p class="text-xs text-muted-foreground mt-0.5">No notifications in this category.</p>
+          <p class="text-sm font-medium text-foreground">{isDemoMode() ? "All caught up!" : "No notifications yet"}</p>
+          <p class="text-xs text-muted-foreground mt-0.5">{isDemoMode() ? "No notifications in this category." : "There are no notifications in this category right now."}</p>
         </div>
       {:else}
         {#each filteredNotifications as item (item.id)}
@@ -254,14 +284,16 @@
     </div>
 
     <!-- Footer -->
-    <div class="p-3 bg-secondary/30 border-t border-border/60 flex items-center justify-between text-xs">
+    <div class="p-3 bg-secondary/30 border-t border-border/60 flex items-center justify-end text-xs">
+      {#if isDemoMode()}
       <button
         onclick={() => notificationStore.resetNotifications()}
-        class="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        class="mr-auto text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
         Restore sample alerts
       </button>
-      <span class="text-muted-foreground text-[11px]">Real-time Sync</span>
+      {/if}
+      <span class="text-muted-foreground text-[11px]">{isDemoMode() ? "Local demo" : liveFooterLabel}</span>
     </div>
   </div>
 {/if}

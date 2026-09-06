@@ -15,7 +15,7 @@
   let updatingResponse = $state(false);
 
   const responseOptions = [
-    ["responsive", "Responsive"], ["non_responsive", "Non-responsive"],
+    ["not_assessed", "Not assessed"], ["responsive", "Open to follow-up"], ["non_responsive", "Not responding"],
     ["events_only", "Events only"], ["big_events_only", "Big events only"],
     ["bacenta_mainly", "Bacenta mainly"], ["has_church", "Has another church"],
     ["do_not_contact", "Do not contact"],
@@ -70,6 +70,10 @@
   function readable(value, fallback = "—") {
     if (!value) return fallback;
     return String(value).replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  function responseLabel(value) {
+    return responseOptions.find((option) => option[0] === value)?.[1] || readable(value, "Not assessed");
   }
 
   function meetingName(meeting) {
@@ -131,7 +135,7 @@
         <div class="flex items-center gap-3">
           <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">{contact.first_name?.[0] || ""}{contact.last_name?.[0] || ""}</div>
           <div>
-            <div class="flex flex-wrap items-center gap-2"><h3 class="text-xl font-semibold text-foreground">{contact.first_name} {contact.last_name || ""}</h3><Badge variant="default">{readable(contact.response)}</Badge>{#if contact.converted || contact.member_status === "member"}<Badge variant="default">Member</Badge>{/if}</div>
+            <div class="flex flex-wrap items-center gap-2"><h3 class="text-xl font-semibold text-foreground">{contact.first_name} {contact.last_name || ""}</h3><Badge variant="default">{responseLabel(contact.response || contact.contact_category)}</Badge>{#if contact.converted || contact.member_status === "member"}<Badge variant="default">Member</Badge>{/if}</div>
             <p class="mt-1 text-sm text-muted-foreground">{freshnessLabel()} · Met {formatShortDate(contact.contact_date)}</p>
           </div>
         </div>
@@ -158,9 +162,9 @@
                 <div><dt class="text-xs text-muted-foreground">Phone</dt><dd class="mt-1 font-medium text-foreground">{contact.phone || "Not recorded"}</dd></div>
                 <div><dt class="text-xs text-muted-foreground">Email</dt><dd class="mt-1 break-all font-medium text-foreground">{contact.email || "Not recorded"}</dd></div>
                 <div><dt class="text-xs text-muted-foreground">Invited by</dt><dd class="mt-1 font-medium text-foreground">{contact.invited_by_name || "Not recorded"}</dd></div>
-                <div><dt class="text-xs text-muted-foreground">Interest</dt><dd class="mt-1 font-medium text-foreground">{readable(contact.response)}</dd></div>
+                <div><dt class="text-xs text-muted-foreground">Follow-up posture</dt><dd class="mt-1 font-medium text-foreground">{responseLabel(contact.response || contact.contact_category)}</dd></div>
               </dl>
-              {#if onQuickUpdate}<div class="mt-4 border-t border-border pt-4"><label for="profile-response" class="mb-1.5 block text-xs text-muted-foreground">Update response category</label><select id="profile-response" value={contact.response} onchange={updateResponse} disabled={updatingResponse} class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground">{#each responseOptions as option}<option value={option[0]}>{option[1]}</option>{/each}</select></div>{/if}
+              {#if onQuickUpdate}<div class="mt-4 border-t border-border pt-4"><label for="profile-response" class="mb-1.5 block text-xs text-muted-foreground">Update follow-up posture</label><select id="profile-response" value={contact.response} onchange={updateResponse} disabled={updatingResponse} class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground">{#each responseOptions as option}<option value={option[0]}>{option[1]}</option>{/each}</select></div>{/if}
             </section>
             {#if contact.notes}<section class="rounded-xl border border-border bg-card p-4"><h4 class="text-sm font-semibold text-foreground">Context</h4><p class="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{contact.notes}</p></section>{/if}
           </div>

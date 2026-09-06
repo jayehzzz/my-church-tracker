@@ -1,4 +1,9 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
+import { requireMaintenance } from "./lib/maintenance";
+import { queryFor, mutationFor } from "./lib/security";
+import { actualDate, count, date, present, deleteGathering, meetingRows, reconcilePeople, reconcileMeetingCounts, setActualAttendance } from "./lib/attendanceWorkflow";
+import type { MutationCtx } from "./_generated/server";
+
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 
@@ -87,9 +92,7 @@ async function getPriorProgrammeAttendeeIds(ctx: any, meeting: any) {
         priorAttendance
             .filter(
                 (record: any) =>
-                    !record.status ||
-                    record.status === "present" ||
-                    record.attended,
+                    present(record),
             )
             .map((record: any) => String(record.person_id)),
     );
@@ -108,7 +111,7 @@ async function hydrateMeeting(ctx: any, meeting: any) {
     ]);
     const presentRecords = attendanceRecords.filter(
         (record: any) =>
-            !record.status || record.status === "present" || record.attended,
+            present(record),
     );
     const attendees = (await Promise.all(
         presentRecords.map(async (record: any) => {
@@ -142,7 +145,7 @@ async function hydrateMeeting(ctx: any, meeting: any) {
     };
 }
 
-export const getAll = query({
+export const getAll = queryFor("meetings:getAll")({
     args: {},
     handler: async (ctx) => {
         const meetings = await ctx.db.query("meetings").collect();
@@ -157,7 +160,7 @@ export const getAll = query({
     },
 });
 
-export const getById = query({
+export const getById = queryFor("meetings:getById")({
     args: { id: v.id("meetings") },
     handler: async (ctx, args) => {
         const meeting = await ctx.db.get(args.id);
@@ -165,7 +168,7 @@ export const getById = query({
     },
 });
 
-export const create = mutation({
+export const create = mutationFor("meetings:create")({
     args: {
         program_id: v.optional(v.id("meeting_programs")),
         title: v.optional(v.string()),
@@ -185,12 +188,16 @@ export const create = mutation({
         notes: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
+        date(args.meeting_date);
+        count(args.unnamed_guests_count, "Unnamed guests");
+        count(args.attendance_count, "Attendance");
+        if (args.attendance_count && args.attendance_count !== args.unnamed_guests_count) throw new Error("Use record for named attendance; specify unnamed_guests_count for unnamed attendees");
         const now = new Date().toISOString();
         const id = await ctx.db.insert("meetings", {
             ...args,
             meeting_type:
                 RENAMED_MEETING_TYPES[args.meeting_type] || args.meeting_type,
-            attendance_count: args.attendance_count || 0,
+            attendance_count: args.unnamed_guests_count || 0,
             unnamed_guests_count: args.unnamed_guests_count || 0,
             status: args.status || "attendance_needed",
             created_at: now,
@@ -199,7 +206,7 @@ export const create = mutation({
     },
 });
 
-export const update = mutation({
+export const update = mutationFor("meetings:update")({
     args: {
         id: v.id("meetings"),
         program_id: v.optional(v.id("meeting_programs")),
@@ -221,6 +228,14 @@ export const update = mutation({
     },
     handler: async (ctx, args) => {
         const { id, meeting_type, ...updates } = args;
+        if (!await ctx.db.get(id)) throw new Error("Meeting not found");
+        if (updates.meeting_date) date(updates.meeting_date);
+        count(updates.unnamed_guests_count, "Unnamed guests");
+        count(updates.attendance_count, "Attendance");
+        const rows = await meetingRows(ctx, id);
+        if (updates.meeting_date && (rows.some(present) || updates.status === "completed")) actualDate(updates.meeting_date);
+        if (updates.status === "cancelled" && rows.some(present)) throw new Error("Remove named attendance before cancelling the meeting");
+        if (updates.attendance_count !== undefined && updates.attendance_count !== rows.filter(present).length + (updates.unnamed_guests_count ?? (await ctx.db.get(id))?.unnamed_guests_count ?? 0)) throw new Error("Attendance totals are derived from named and unnamed attendance");
         await ctx.db.patch(id, {
             ...updates,
             ...(meeting_type
@@ -231,26 +246,21 @@ export const update = mutation({
                 : {}),
             updated_at: new Date().toISOString(),
         });
+        await reconcileMeetingCounts(ctx, id);
+        await reconcilePeople(ctx, rows.map(r => r.person_id));
         return await ctx.db.get(id);
     },
 });
 
-export const remove = mutation({
+export const remove = mutationFor("meetings:remove")({
     args: { id: v.id("meetings") },
     handler: async (ctx, args) => {
-        const attendance = await ctx.db
-            .query("meeting_attendance")
-            .withIndex("by_meeting", (q) => q.eq("meeting_id", args.id))
-            .collect();
-        await Promise.all(
-            attendance.map((record) => ctx.db.delete(record._id)),
-        );
-        await ctx.db.delete(args.id);
-        return { success: true, attendanceRemoved: attendance.length };
+        return await deleteGathering(ctx, { meetingId: args.id });
+
     },
 });
 
-export const getByType = query({
+export const getByType = queryFor("meetings:getByType")({
     args: { meetingType: v.string() },
     handler: async (ctx, args) => {
         const acceptedTypes = Object.entries(RENAMED_MEETING_TYPES)
@@ -272,7 +282,7 @@ export const getByType = query({
     },
 });
 
-export const getByDateRange = query({
+export const getByDateRange = queryFor("meetings:getByDateRange")({
     args: { startDate: v.string(), endDate: v.string() },
     handler: async (ctx, args) => {
         const meetings = await ctx.db
@@ -294,49 +304,19 @@ export const getByDateRange = query({
     },
 });
 
-export const addAttendee = mutation({
+export const addAttendee = mutationFor("meetings:addAttendee")({
     args: {
         meetingId: v.id("meetings"),
         personId: v.id("people"),
     },
     handler: async (ctx, args) => {
-        const meeting = await ctx.db.get(args.meetingId);
-        if (!meeting) throw new Error("Meeting not found");
-        const priorProgrammeAttendeeIds =
-            await getPriorProgrammeAttendeeIds(ctx, meeting);
-        const firstProgramAttendance = Boolean(
-            meeting.program_id &&
-                !priorProgrammeAttendeeIds.has(String(args.personId)),
-        );
-        const existing = await ctx.db
-            .query("meeting_attendance")
-            .withIndex("by_meeting_person", (q) =>
-                q
-                    .eq("meeting_id", args.meetingId)
-                    .eq("person_id", args.personId),
-            )
-            .first();
-        if (existing) {
-            await ctx.db.patch(existing._id, {
-                attended: true,
-                status: "present",
-                first_program_attendance: firstProgramAttendance,
-            });
-            return await ctx.db.get(existing._id);
-        }
-        const id = await ctx.db.insert("meeting_attendance", {
-            meeting_id: args.meetingId,
-            person_id: args.personId,
-            attended: true,
-            status: "present",
-            first_program_attendance: firstProgramAttendance,
-            created_at: new Date().toISOString(),
-        });
-        return await ctx.db.get(id);
+        await setActualAttendance(ctx, args.personId, { meetingId: args.meetingId }, true);
+        return (await meetingRows(ctx, args.meetingId)).find(r => r.person_id === args.personId);
+
     },
 });
 
-export const syncAttendance = mutation({
+export const syncAttendance = mutationFor("meetings:syncAttendance")({
     args: {
         meetingId: v.id("meetings"),
         attendanceData: v.array(
@@ -351,10 +331,21 @@ export const syncAttendance = mutation({
         unnamedGuestsCount: v.float64(),
         markComplete: v.boolean(),
     },
-    handler: async (ctx, args) => {
+    handler: async (ctx, args) => syncMeetingAttendance(ctx, args),
+});
+
+async function syncMeetingAttendance(ctx: MutationCtx, args: {
+    meetingId: Id<"meetings">;
+    attendanceData: Array<{ person_id: Id<"people">; status?: string; arrived_late?: boolean; left_early?: boolean; first_timer?: boolean }>;
+    unnamedGuestsCount: number;
+    markComplete: boolean;
+}) {
+        count(args.unnamedGuestsCount, "Unnamed guests");
         const now = new Date().toISOString();
         const meeting = await ctx.db.get(args.meetingId);
         if (!meeting) throw new Error("Meeting not found");
+        if (args.markComplete || args.attendanceData.some(r => !r.status || r.status === "present")) actualDate(meeting.meeting_date);
+        if (meeting.status === "cancelled") throw new Error("Reopen the cancelled meeting before recording attendance");
         const priorProgrammeAttendeeIds =
             await getPriorProgrammeAttendeeIds(ctx, meeting);
         const existing = await ctx.db
@@ -373,13 +364,15 @@ export const syncAttendance = mutation({
             dedupedAttendance.map((record) => String(record.person_id)),
         );
         const removals = existing.filter(
-            (record) => !incomingIds.has(String(record.person_id)),
+            (record) => !incomingIds.has(String(record.person_id)) || existingByPerson.get(String(record.person_id))?._id !== record._id,
         );
         await Promise.all(
             removals.map((record) => ctx.db.delete(record._id)),
         );
 
         for (const record of dedupedAttendance) {
+            if (!await ctx.db.get(record.person_id)) throw new Error("Person not found");
+            if (record.status && !["present", "absent", "excused"].includes(record.status)) throw new Error("Invalid attendance status");
             const current = existingByPerson.get(String(record.person_id));
             const isPresent = (record.status || "present") === "present";
             const attendanceValues = {
@@ -404,23 +397,7 @@ export const syncAttendance = mutation({
                     created_at: now,
                 });
             }
-            if (record.first_timer) {
-                const person = await ctx.db.get(record.person_id);
-                if (person && !person.first_visit_date) {
-                    await ctx.db.patch(record.person_id, {
-                        first_visit_date:
-                            meeting.meeting_date || now.split("T")[0],
-                        entry_point:
-                            person.entry_point ||
-                            (meeting.meeting_type === "bacenta"
-                                ? "bacenta_meeting"
-                                : meeting.meeting_type === "evangelistic_event"
-                                  ? "evangelism"
-                                  : "other"),
-                        updated_at: now,
-                    });
-                }
-            }
+
         }
 
         const present = dedupedAttendance.filter(
@@ -451,16 +428,17 @@ export const syncAttendance = mutation({
             attendance_completed_at: args.markComplete ? now : undefined,
             updated_at: now,
         });
+        await reconcilePeople(ctx, [...existing.map(r => r.person_id), ...dedupedAttendance.map(r => r.person_id)]);
         return {
             success: true,
             namedAttendance: present.length,
             totalAttendance: total,
             removed: removals.length,
         };
-    },
-});
+}
 
-export const getAttendees = query({
+
+export const getAttendees = queryFor("meetings:getAttendees")({
     args: { meetingId: v.id("meetings") },
     handler: async (ctx, args) => {
         const records = await ctx.db
@@ -476,7 +454,7 @@ export const getAttendees = query({
     },
 });
 
-export const getByPerson = query({
+export const getByPerson = queryFor("meetings:getByPerson")({
     args: { personId: v.id("people") },
     handler: async (ctx, args) => {
         const records = await ctx.db
@@ -501,9 +479,10 @@ export const getByPerson = query({
     },
 });
 
-export const migrateLegacyMeetings = mutation({
+export const migrateLegacyMeetings = internalMutation({
     args: {},
     handler: async (ctx) => {
+        requireMaintenance();
         const meetings = await ctx.db.query("meetings").collect();
         const programs = await ctx.db.query("meeting_programs").collect();
         const programByCode = new Map(
@@ -540,5 +519,47 @@ export const migrateLegacyMeetings = mutation({
             }
         }
         return { updated };
+    },
+});
+
+// Meeting details and check-ins commit together, including retries after timeout.
+export const record = mutationFor("meetings:record")({
+    args: {
+        id: v.optional(v.id("meetings")),
+        request_id: v.optional(v.string()),
+        attendanceData: v.array(v.object({ person_id: v.id("people"), status: v.optional(v.string()), first_timer: v.optional(v.boolean()) })),
+        markComplete: v.boolean(),
+        program_id: v.optional(v.id("meeting_programs")),
+        title: v.optional(v.string()),
+        meeting_date: v.string(),
+        meeting_type: v.string(),
+        start_time: v.optional(v.string()),
+        end_time: v.optional(v.string()),
+        duration_minutes: v.optional(v.float64()),
+        format: v.optional(v.string()),
+        location: v.optional(v.string()),
+        online_url: v.optional(v.string()),
+        status: v.optional(v.string()),
+        attendance_count: v.optional(v.float64()),
+        unnamed_guests_count: v.optional(v.float64()),
+        leaders_count: v.optional(v.float64()),
+        leader_id: v.optional(v.string()),
+        notes: v.optional(v.string()),
+    },
+    handler: async (ctx, args) => {
+        const { id, request_id, attendanceData, markComplete, attendance_count, ...data } = args;
+        date(data.meeting_date);
+        count(data.unnamed_guests_count, "Unnamed guests");
+        if (!id && request_id) {
+            const previous = await ctx.db.query("meetings").filter(q => q.eq(q.field("request_id"), request_id)).first();
+            if (previous) return await hydrateMeeting(ctx, previous);
+        }
+        let meetingId = id;
+        if (meetingId) {
+            if (!await ctx.db.get(meetingId)) throw new Error("Meeting not found");
+            await ctx.db.patch(meetingId, { ...data, updated_at: new Date().toISOString() });
+        } else meetingId = await ctx.db.insert("meetings", { ...data, request_id, created_at: new Date().toISOString() });
+        await syncMeetingAttendance(ctx, { meetingId, attendanceData, unnamedGuestsCount: data.unnamed_guests_count ?? 0, markComplete });
+        return await hydrateMeeting(ctx, await ctx.db.get(meetingId));
     },
 });

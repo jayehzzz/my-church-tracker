@@ -82,6 +82,9 @@
     --success: 160 84% 39%; /* #10b981 - positive */
     --success-foreground: 0 0% 100%;
     
+    --info: 217 91% 60%; /* #3b82f6 - sky/blue info */
+    --info-foreground: 0 0% 100%;
+    
     --destructive: 0 84% 60%; /* #ef4444 - negative */
     --destructive-foreground: 0 0% 100%;
     

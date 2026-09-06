@@ -1,3 +1,6 @@
+import { getConvexHttpClient, isDemoMode } from '$lib/convex.js';
+import { api } from '../../../convex/_generated/api.js';
+
 /**
  * Export Utilities
  * ================
@@ -17,10 +20,15 @@
  * @param {any} value - Value to escape
  * @returns {string} Escaped string
  */
-function escapeCSV(value) {
+export function escapeCSV(value, { preserveAsText = false } = {}) {
     if (value === null || value === undefined) return '';
 
-    const str = String(value);
+    let str = String(value);
+
+    // Prevent spreadsheet applications from interpreting untrusted cells as formulas.
+    if (/^[=+\-@\t\r]/.test(str)) str = `'${str}`;
+    // Phone numbers are identifiers: force text so leading zeroes and + are retained.
+    if (preserveAsText && !str.startsWith("'")) str = `'${str}`;
 
     // If contains comma, quote, or newline, wrap in quotes and escape internal quotes
     if (str.includes(',') || str.includes('"') || str.includes('\n')) {
@@ -54,7 +62,7 @@ export function dataToCSV(data, columns) {
                 value = col.format(value, row);
             }
 
-            return escapeCSV(value);
+            return escapeCSV(value, { preserveAsText: col.type === 'text' });
         }).join(',');
     });
 
@@ -67,7 +75,17 @@ export function dataToCSV(data, columns) {
  * @param {string} filename - Filename (without extension)
  * @param {Array<{key: string, label: string, format?: function}>} columns - Column definitions
  */
-export function exportToCSV(data, filename, columns) {
+export async function exportToCSV(data, filename, columns) {
+    if (!isDemoMode()) {
+        try {
+            const client = getConvexHttpClient();
+            if (!client) throw new Error('Unavailable');
+            await client.query(api.access.authorizeExport, {});
+        } catch {
+            window.alert('Export is unavailable. An active owner or administrator account is required.');
+            return false;
+        }
+    }
     const csv = dataToCSV(data, columns);
 
     // Create blob and download
@@ -122,7 +140,7 @@ export const exportColumns = {
         { key: 'first_name', label: 'First Name' },
         { key: 'last_name', label: 'Last Name' },
         { key: 'email', label: 'Email' },
-        { key: 'phone', label: 'Phone' },
+        { key: 'phone', label: 'Phone', type: 'text' },
         { key: 'member_status', label: 'Status' },
         { key: 'membership_date', label: 'Membership Date', format: formatDateForExport }
     ],
@@ -130,7 +148,7 @@ export const exportColumns = {
     evangelismContacts: [
         { key: 'first_name', label: 'First Name' },
         { key: 'last_name', label: 'Last Name' },
-        { key: 'phone', label: 'Phone' },
+        { key: 'phone', label: 'Phone', type: 'text' },
         { key: 'email', label: 'Email' },
         { key: 'contact_date', label: 'Contact Date', format: formatDateForExport },
         { key: 'response', label: 'Response' },

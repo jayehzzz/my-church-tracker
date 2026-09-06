@@ -1,13 +1,11 @@
 /**
  * Activities Service - Convex Backend
  */
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api.js";
+import { getConvexHttpClient, unavailableError } from "$lib/convex.js";
 
 function getClient() {
-  const convexUrl = import.meta.env?.VITE_CONVEX_URL;
-  if (!convexUrl) return null;
-  return new ConvexHttpClient(convexUrl);
+  return getConvexHttpClient();
 }
 
 function withTimeout(promise, timeoutMs = 3500) {
@@ -19,7 +17,7 @@ function withTimeout(promise, timeoutMs = 3500) {
   ]);
 }
 
-const notConfigured = () => ({ data: null, error: new Error('Convex not configured') });
+const notConfigured = () => ({ data: null, error: unavailableError() });
 
 export async function getAll() {
   const client = getClient();

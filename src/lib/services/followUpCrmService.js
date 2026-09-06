@@ -1,6 +1,7 @@
-import { ConvexHttpClient } from "convex/browser";
+import { canFollowUp } from "../../../convex/lib/contactPolicy.ts";
 import { api } from "../../../convex/_generated/api.js";
 import { browser } from "$app/environment";
+import { getConvexClient, getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
 import {
   mockEvangelismContacts,
   mockMeetings,
@@ -9,6 +10,7 @@ import {
 } from "$lib/data/mockData.js";
 import {
   buildAttendanceForecast,
+  deriveCandidateSignals,
   deriveTeamStats,
   nextTaskPlanForOutcome,
   nextSunday,
@@ -21,8 +23,7 @@ const STORAGE_VERSION = 1;
 const QUARTERLY_ACTIVE_LIMIT_PER_LEADER = 10;
 
 function getClient() {
-  const convexUrl = import.meta.env?.VITE_CONVEX_URL_PROD || import.meta.env?.VITE_CONVEX_URL;
-  return convexUrl ? new ConvexHttpClient(convexUrl) : null;
+  return getConvexHttpClient();
 }
 
 function withTimeout(promise, timeoutMs = 5000) {
@@ -316,8 +317,14 @@ function normalizeLocalState(state) {
   return ensureDemoCareTasks(normalized);
 }
 
+let inMemoryState = null;
+
 function readLocalState() {
-  if (!browser || typeof window === "undefined" || !window.localStorage) return seedLocalState();
+  if (!isDemoMode()) throw unavailableError();
+  if (!browser || typeof window === "undefined" || !window.localStorage) {
+    if (!inMemoryState) inMemoryState = seedLocalState();
+    return inMemoryState;
+  }
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -337,7 +344,11 @@ function readLocalState() {
 }
 
 function writeLocalState(state) {
-  if (!browser || typeof window === "undefined" || !window.localStorage) return;
+  if (!isDemoMode()) throw unavailableError();
+  if (!browser || typeof window === "undefined" || !window.localStorage) {
+    inMemoryState = state;
+    return;
+  }
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (error) {
@@ -402,6 +413,44 @@ function syncLocalQuarterlyReengagement(state, today = dateOnly()) {
   return { created, waiting, active_limit: QUARTERLY_ACTIVE_LIMIT_PER_LEADER };
 }
 
+function syncLocalLaterReviews(state, today = dateOnly()) {
+  const dueContacts = state.contacts.filter((contact) =>
+    contact.follow_up_status === "later"
+    && contact.resume_date
+    && contact.resume_date <= today
+  );
+  let created = 0;
+  for (const contact of dueContacts) {
+    const assignment = state.assignments
+      .filter((item) => String(item.person_id) === String(contact._id) && item.status === "active")
+      .sort((a, b) => String(b.assigned_at).localeCompare(String(a.assigned_at)))[0];
+    if (!assignment) continue;
+    contact.follow_up_status = "active";
+    contact.pipeline_stage = "review";
+    contact.moved_to_later_at = undefined;
+    contact.resume_date = undefined;
+    if (!state.tasks.some((task) => String(task.person_id) === String(contact._id) && task.status === "open")) {
+      const now = new Date().toISOString();
+      state.tasks.push({
+        _id: makeId("local-task"),
+        person_id: contact._id,
+        assigned_leader_id: assignment.assigned_leader_id,
+        task_type: "reengagement",
+        due_date: today,
+        status: "open",
+        priority: "normal",
+        reason: "90-day review — decide whether to restart follow-up",
+        automation_key: "later_review",
+        created_at: now,
+        updated_at: now,
+      });
+      created += 1;
+    }
+  }
+  if (created) writeLocalState(state);
+  return created;
+}
+
 function enrichTask(task, state) {
   const people = allLocalPeople(state);
   return {
@@ -426,9 +475,10 @@ function enrichCommitment(commitment, state) {
   };
 }
 
-function buildLocalDashboard({ leaderId, serviceDate } = {}, suppliedState = null) {
+function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } = {}, suppliedState = null) {
   const state = suppliedState || readLocalState();
   const today = dateOnly();
+  syncLocalLaterReviews(state, today);
   const quarterlySync = syncLocalQuarterlyReengagement(state, today);
   const targetSunday = serviceDate || nextSunday(today);
   const weekEnd = addDays(today, 7);
@@ -438,7 +488,8 @@ function buildLocalDashboard({ leaderId, serviceDate } = {}, suppliedState = nul
     .filter((task) => !leaderId || String(task.assigned_leader_id) === String(leaderId))
     .map((task) => enrichTask(task, state));
   const memberCareTasks = openTasks.filter((task) => task.task_type === "member_care");
-  const actionTasks = openTasks.filter((task) => task.task_type !== "member_care");
+  const visitationTasks = openTasks.filter((task) => task.task_type === "visitation");
+  const actionTasks = openTasks.filter((task) => !["member_care", "visitation"].includes(task.task_type));
   const confirmedCommitments = state.commitments
     .filter(
       (commitment) =>
@@ -446,6 +497,15 @@ function buildLocalDashboard({ leaderId, serviceDate } = {}, suppliedState = nul
         commitment.gathering_date === targetSunday &&
         commitment.response === "yes" &&
         commitment.resolution === "pending",
+    )
+    .filter((commitment) => !leaderId || String(commitment.leader_id) === String(leaderId))
+    .map((commitment) => enrichCommitment(commitment, state));
+  const sundayCommitments = state.commitments
+    .filter(
+      (commitment) =>
+        commitment.gathering_type === "sunday_service" &&
+        commitment.gathering_date === targetSunday &&
+        commitment.response === "yes",
     )
     .filter((commitment) => !leaderId || String(commitment.leader_id) === String(leaderId))
     .map((commitment) => enrichCommitment(commitment, state));
@@ -502,6 +562,7 @@ function buildLocalDashboard({ leaderId, serviceDate } = {}, suppliedState = nul
       .map((assignment) => [String(assignment.person_id), assignment]),
   );
   const crmContacts = state.contacts
+    .filter((contact) => !["member", "leader", "archived"].includes(contact.member_status))
     .map((contact) => {
       const contactId = String(contact._id || contact.id);
       const assignment = activeAssignmentByPerson.get(contactId);
@@ -510,6 +571,7 @@ function buildLocalDashboard({ leaderId, serviceDate } = {}, suppliedState = nul
         .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)))[0] || null;
       return {
         ...contact,
+        ...deriveCandidateSignals({ contact, followUps: state.followUps, commitments: state.commitments }),
         assigned_leader_id: assignment?.assigned_leader_id || null,
         assigned_leader: people.find(
           (person) => String(person._id || person.id) === String(assignment?.assigned_leader_id),
@@ -527,6 +589,8 @@ function buildLocalDashboard({ leaderId, serviceDate } = {}, suppliedState = nul
     followUps: state.followUps,
     commitments: state.commitments,
     today,
+    periodStart,
+    periodEnd,
   });
   const visitationFollowUps = mockVisitations
     .filter((visitation) => visitation.follow_up_required)
@@ -553,7 +617,9 @@ function buildLocalDashboard({ leaderId, serviceDate } = {}, suppliedState = nul
       })),
     tasks: sortTasks(actionTasks, today),
     member_care_tasks: sortTasks(memberCareTasks, today),
+    visitation_tasks: sortTasks(visitationTasks, today),
     confirmed_commitments: confirmedCommitments,
+    sunday_commitments: sundayCommitments,
     upcoming_commitments: upcomingCommitments,
     visitation_follow_ups: visitationFollowUps,
     quarterly_backlog_count: quarterlySync.waiting,
@@ -569,6 +635,12 @@ function buildLocalDashboard({ leaderId, serviceDate } = {}, suppliedState = nul
     team_stats: teamStats,
     attendance_forecast: forecast,
     attendance_roster: attendanceRoster,
+    recent_sunday_results: state.commitments
+      .filter((commitment) => commitment.gathering_type === "sunday_service" && commitment.resolution !== "pending")
+      .filter((commitment) => !leaderId || String(commitment.leader_id) === String(leaderId))
+      .map((commitment) => enrichCommitment(commitment, state))
+      .sort((a, b) => String(b.gathering_date).localeCompare(String(a.gathering_date)))
+      .slice(0, 40),
     service_date: targetSunday,
     source: "local",
   };
@@ -583,7 +655,10 @@ function normalizeDashboard(data, source) {
     tasks: data?.tasks || (data?.open_tasks || []).filter((task) => task.task_type !== "member_care"),
     member_care_tasks:
       data?.member_care_tasks || (data?.open_tasks || []).filter((task) => task.task_type === "member_care"),
+    visitation_tasks:
+      data?.visitation_tasks || (data?.open_tasks || []).filter((task) => task.task_type === "visitation"),
     confirmed_commitments: data?.confirmed_commitments || [],
+    sunday_commitments: data?.sunday_commitments || data?.confirmed_commitments || [],
     upcoming_commitments: data?.upcoming_commitments || data?.confirmed_commitments || [],
     visitation_follow_ups: data?.visitation_follow_ups || [],
     quarterly_backlog_count: data?.quarterly_backlog_count || 0,
@@ -596,6 +671,7 @@ function normalizeDashboard(data, source) {
       confirmed_guests: stat.confirmed_guests ?? stat.confirmed_this_sunday ?? 0,
     })),
     attendance_roster: data?.attendance_roster || [],
+    recent_sunday_results: data?.recent_sunday_results || [],
     attendance_forecast: {
       ...forecast,
       service_date: forecast.service_date || data?.service_date,
@@ -614,13 +690,15 @@ function normalizeDashboard(data, source) {
 
 async function runRemoteOrLocal(remoteCall, localCall) {
   const client = getClient();
-  if (!client) return { data: normalizeDashboard(localCall(), "local"), error: null, source: "local" };
+  if (!client) {
+    if (!isDemoMode()) return { data: null, error: unavailableError(), source: "unavailable" };
+    return { data: normalizeDashboard(localCall(), "demo"), error: null, source: "demo" };
+  }
   try {
     const data = await withTimeout(remoteCall(client));
     return { data: normalizeDashboard(data, "convex"), error: null, source: "convex" };
   } catch (error) {
-    console.warn("CRM backend unavailable; using the on-device workspace:", error);
-    return { data: normalizeDashboard(localCall(), "local"), error: null, source: "local" };
+    return { data: null, error, source: "convex" };
   }
 }
 
@@ -628,23 +706,42 @@ export async function getDashboard(options = {}) {
   const args = {
     ...(options.leaderId ? { leaderId: options.leaderId } : {}),
     ...(options.serviceDate ? { serviceDate: options.serviceDate } : {}),
+    ...(options.periodStart ? { periodStart: options.periodStart } : {}),
+    ...(options.periodEnd ? { periodEnd: options.periodEnd } : {}),
   };
   return await runRemoteOrLocal(
-    async (client) => {
-      const sync = await client.mutation(api.crm.syncQuarterlyReengagement, { asOfDate: dateOnly() });
-      const dashboard = await client.query(api.crm.getDashboard, args);
-      return {
-        ...dashboard,
-        quarterly_backlog_count: sync?.waiting || 0,
-        quarterly_active_limit: sync?.active_limit || QUARTERLY_ACTIVE_LIMIT_PER_LEADER,
-      };
-    },
+    async (client) => await client.query(api.crm.getDashboard, args),
     () => buildLocalDashboard(options),
   );
 }
 
+// Convex subscriptions give active workers timely shared updates. The caller
+// owns the returned cleanup function so switching a filter or leaving the page
+// stops the old subscription rather than leaving a background poll running.
+export async function watchDashboard(options = {}, { onUpdate, onError } = {}) {
+  if (isDemoMode()) return () => {};
+  const client = await getConvexClient();
+  if (!client) {
+    onError?.(unavailableError());
+    return () => {};
+  }
+  const args = {
+    ...(options.leaderId ? { leaderId: options.leaderId } : {}),
+    ...(options.serviceDate ? { serviceDate: options.serviceDate } : {}),
+    ...(options.periodStart ? { periodStart: options.periodStart } : {}),
+    ...(options.periodEnd ? { periodEnd: options.periodEnd } : {}),
+  };
+  return client.onUpdate(
+    api.crm.getDashboard,
+    args,
+    (data) => onUpdate?.(normalizeDashboard(data, "convex")),
+    (error) => onError?.(error),
+  );
+}
+
 export function getDemoDashboard(options = {}) {
-  return normalizeDashboard(buildLocalDashboard(options, seedLocalState()), "local");
+  if (!isDemoMode()) return null;
+  return normalizeDashboard(buildLocalDashboard(options, seedLocalState()), "demo");
 }
 
 function buildLocalContactProfile(personId) {
@@ -697,21 +794,16 @@ function buildLocalContactProfile(personId) {
 
 export async function getContactProfile(personId) {
   const client = getClient();
-  const localId = String(personId).startsWith("e")
-    || String(personId).startsWith("mock-")
-    || String(personId).startsWith("demo-");
+  const localId = !isRemoteId(personId);
   if (client && !localId) {
     try {
       const data = await withTimeout(client.query(api.crm.getContactProfile, { personId }));
       return { data: { ...data, source: "convex" }, error: null, source: "convex" };
     } catch (error) {
-      try {
-        return { data: buildLocalContactProfile(personId), error: null, source: "local" };
-      } catch {
-        return { data: null, error, source: "convex" };
-      }
+      return { data: null, error, source: "convex" };
     }
   }
+  if (!isDemoMode()) return { data: null, error: unavailableError(), source: "unavailable" };
   try {
     return { data: buildLocalContactProfile(personId), error: null, source: "local" };
   } catch (error) {
@@ -723,7 +815,7 @@ export async function assignContact(personId, leaderId, dueDate = dateOnly(), op
   const createFirstContactTask = options.createFirstContactTask !== false;
   const reason = options.reason || "Fresh evangelism contact — make the first personal follow-up";
   const client = getClient();
-  if (client && !String(personId).startsWith("e") && !String(personId).startsWith("mock-")) {
+  if (client && isRemoteId(personId)) {
     try {
       const data = await client.mutation(api.crm.assignContact, {
         personId,
@@ -742,6 +834,7 @@ export async function assignContact(personId, leaderId, dueDate = dateOnly(), op
   const person = state.contacts.find((contact) => String(contact._id) === String(personId));
   const leader = state.people.find((candidate) => String(candidate._id) === String(leaderId));
   if (!person) return { data: null, error: new Error("Contact not found"), source: "local" };
+  if (!canFollowUp(person)) return { data: null, error: new Error("Follow-up is paused or this person has requested no contact."), source: "local" };
   if (!leader || leader.member_status !== "leader") {
     return { data: null, error: new Error("Choose a valid leader"), source: "local" };
   }
@@ -773,6 +866,22 @@ export async function assignContact(personId, leaderId, dueDate = dateOnly(), op
   person.follow_up_status = "active";
   writeLocalState(state);
   return { data: { assignment, task }, error: null, source: "local" };
+}
+
+export async function batchAssignContacts(personIds, leaderId, dueDate = dateOnly(), options = {}) {
+  const results = [];
+  const errors = [];
+  for (const personId of personIds) {
+    const res = await assignContact(personId, leaderId, dueDate, options);
+    if (res.error) errors.push({ personId, error: res.error });
+    else results.push(res.data);
+  }
+  return {
+    data: results,
+    errors,
+    error: errors.length ? new Error(`${errors.length} assignments failed`) : null,
+    source: results[0]?.task ? "local" : "convex",
+  };
 }
 
 export async function captureLocalEvangelismContact(contact) {
@@ -855,6 +964,7 @@ export async function createTask({
     String(candidate._id || candidate.id) === String(assignedLeaderId),
   );
   if (!person) return { data: null, error: new Error("Choose a valid person"), source: "local" };
+  if (!canFollowUp(person)) return { data: null, error: new Error("Follow-up is paused or this person has requested no contact."), source: "local" };
   if (!leader || leader.member_status !== "leader") {
     return { data: null, error: new Error("Choose a valid care leader"), source: "local" };
   }
@@ -892,6 +1002,8 @@ export async function completeTask(taskId, details) {
   const state = readLocalState();
   const task = state.tasks.find((item) => String(item._id) === String(taskId));
   if (!task) return { data: null, error: new Error("Task not found"), source: "local" };
+  const person = allLocalPeople(state).find(p => String(p._id || p.id) === String(task.person_id));
+  if (person && !canFollowUp(person)) return { data: null, error: new Error("Follow-up is paused or this person has requested no contact."), source: "local" };
   const today = dateOnly();
   const automaticPlan = !details.skipAutomaticNextTask && !details.nextActionDate
     ? nextTaskPlanForOutcome(details.outcome, today)
@@ -964,7 +1076,8 @@ export async function completeTask(taskId, details) {
     if (contact) {
       contact.follow_up_status = "later";
       contact.moved_to_later_at = new Date().toISOString();
-      contact.later_reason = "Moved after follow-up";
+      contact.later_reason = details.nextReason || details.notes || "Moved after follow-up";
+      contact.resume_date = details.resumeDate || addDays(today, 90);
     }
   }
   const contact = state.contacts.find((item) => String(item._id) === String(task.person_id));
@@ -975,24 +1088,60 @@ export async function completeTask(taskId, details) {
       contact.response = "wrong_number";
       contact.follow_up_status = "closed";
     }
+    if (details.closeContact) {
+      contact.follow_up_status = "closed";
+      contact.pipeline_stage = "closed";
+      contact.closed_reason = details.closeReason || details.nextReason || details.notes || "Follow-up closed";
+      contact.closed_at = new Date().toISOString();
+      contact.moved_to_later_at = undefined;
+      contact.resume_date = undefined;
+      if (details.closeReason === "settled") {
+        contact.member_status = "member";
+        contact.activity_status = "regular";
+        contact.membership_date = contact.membership_date || today;
+      }
+      state.tasks.forEach((openTask) => {
+        if (String(openTask.person_id) === String(task.person_id) && openTask.status === "open") {
+          openTask.status = "cancelled";
+          openTask.outcome = "contact_closed";
+          openTask.updated_at = new Date().toISOString();
+        }
+      });
+    }
   }
   writeLocalState(state);
   return { data: enrichTask(task, state), error: null, source: "local" };
 }
 
-export async function resolveCommitment(commitmentId, resolution) {
+export async function quickLogNoAnswer(taskId, leaderId) {
+  const nextDate = addDays(dateOnly(), 2);
+  return await completeTask(taskId, {
+    leaderId,
+    method: "call",
+    outcome: "no_response",
+    notes: "Attempted call — no answer. Auto-scheduled follow-up.",
+    nextActionDate: nextDate,
+    nextTaskType: "follow_up",
+    nextReason: "Retry call after no answer",
+    skipAutomaticNextTask: true,
+  });
+}
+
+export async function resolveCommitment(commitmentId, resolution, gathering = {}) {
   const client = getClient();
   if (client && !String(commitmentId).startsWith("demo-") && !String(commitmentId).startsWith("local-")) {
     try {
       const data = await client.mutation(api.crm.resolveCommitment, {
         commitmentId,
         resolution,
+        ...gathering,
       });
       return { data, error: null, source: "convex" };
     } catch (error) {
       return { data: null, error, source: "convex" };
     }
   }
+  if (resolution === "attended") return { data: null, error: new Error("Connected attendance recording requires the live backend. Demo expectations do not create check-ins.") };
   const state = readLocalState();
   const commitment = state.commitments.find((item) => String(item._id) === String(commitmentId));
   if (!commitment) {
@@ -1014,59 +1163,76 @@ export async function resolveCommitment(commitmentId, resolution) {
         )
         .map((item) => item.gathering_date),
     ).size;
-    if (noShowCount >= 2) {
-      const contact = state.contacts.find(
-        (item) => String(item._id) === String(commitment.person_id),
-      );
-      if (contact) {
-        const dueDate = addDays(dateOnly(), 30);
-        const assignment = state.assignments
-          .filter((item) => String(item.person_id) === String(commitment.person_id) && item.status === "active")
-          .sort((a, b) => String(b.assigned_at).localeCompare(String(a.assigned_at)))[0];
-        const leaderId = assignment?.assigned_leader_id || commitment.leader_id;
-        contact.follow_up_status = "active";
-        contact.sunday_no_show_count = noShowCount;
-        contact.pipeline_stage = "cooling_off";
-        contact.moved_to_later_at = undefined;
-        contact.later_reason = undefined;
-        state.tasks.forEach((task) => {
-          if (String(task.person_id) !== String(commitment.person_id) || task.status !== "open") return;
-          if (["bacenta", "special_event"].includes(task.gathering_type)) return;
-          task.status = "cancelled";
-          task.outcome = "cooling_off_after_no_shows";
-          task.updated_at = new Date().toISOString();
-        });
-        if (leaderId && !state.tasks.some((task) =>
-          String(task.person_id) === String(commitment.person_id)
-          && task.status === "open"
-          && task.task_type === "reengagement"
-          && task.due_date === dueDate
-        )) {
-          state.tasks.push({
-            _id: makeId("local-task"),
-            person_id: commitment.person_id,
-            assigned_leader_id: leaderId,
-            task_type: "reengagement",
-            due_date: dueDate,
-            status: "open",
-            priority: "normal",
-            reason: "Two confirmed Sunday no-shows — reconnect after one month",
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
-        }
-      }
+    const contact = state.contacts.find((item) => String(item._id) === String(commitment.person_id));
+    if (contact) {
+      contact.sunday_no_show_count = noShowCount;
+      contact.pipeline_stage = "no_show";
+    }
+    const assignment = state.assignments
+      .filter((item) => String(item.person_id) === String(commitment.person_id) && item.status === "active")
+      .sort((a, b) => String(b.assigned_at).localeCompare(String(a.assigned_at)))[0];
+    const leaderId = assignment?.assigned_leader_id || commitment.leader_id || state.people.find((p) => p.member_status === "leader")?._id;
+    const existingOpenTask = state.tasks.find(
+      (task) => String(task.person_id) === String(commitment.person_id) && task.status === "open",
+    );
+    if (existingOpenTask) {
+      existingOpenTask.reason = "Missed Sunday service — warm care check-in";
+      existingOpenTask.due_date = addDays(dateOnly(), 2);
+      existingOpenTask.priority = "high";
+      existingOpenTask.updated_at = new Date().toISOString();
+    } else if (leaderId) {
+      const now = new Date().toISOString();
+      state.tasks.push({
+        _id: makeId("local-task"),
+        person_id: commitment.person_id,
+        assigned_leader_id: leaderId,
+        task_type: "follow_up",
+        due_date: addDays(dateOnly(), 2),
+        status: "open",
+        priority: "high",
+        reason: "Missed Sunday service — warm care check-in",
+        created_at: now,
+        updated_at: now,
+      });
+    }
+  }
+  if (resolution === "attended") {
+    const contact = state.contacts.find((item) => String(item._id) === String(commitment.person_id));
+    if (contact) {
+      contact.pipeline_stage = "showed_up";
+      contact.first_visit_date = contact.first_visit_date || commitment.gathering_date;
+    }
+    const assignment = state.assignments
+      .filter((item) => String(item.person_id) === String(commitment.person_id) && item.status === "active")
+      .sort((a, b) => String(b.assigned_at).localeCompare(String(a.assigned_at)))[0];
+    const leaderId = assignment?.assigned_leader_id || commitment.leader_id;
+    if (leaderId && !state.tasks.some((task) => String(task.person_id) === String(commitment.person_id) && task.status === "open")) {
+      const now = new Date().toISOString();
+      state.tasks.push({
+        _id: makeId("local-task"),
+        person_id: commitment.person_id,
+        assigned_leader_id: leaderId,
+        task_type: "follow_up",
+        due_date: addDays(dateOnly(), 2),
+        status: "open",
+        priority: "high",
+        reason: "Welcome them after attending and plan their next connection",
+        created_at: now,
+        updated_at: now,
+      });
     }
   }
   writeLocalState(state);
   return { data: enrichCommitment(commitment, state), error: null, source: "local" };
 }
 
-export async function moveToLater(personId) {
+export async function moveToLater(personId, options = {}) {
+  const reason = options.reason || "Not ready for active weekly follow-up";
+  const resumeDate = options.resumeDate || addDays(dateOnly(), 90);
   const client = getClient();
-  if (client && !String(personId).startsWith("e")) {
+  if (client && isRemoteId(personId)) {
     try {
-      const data = await client.mutation(api.crm.moveToLater, { personId });
+      const data = await client.mutation(api.crm.moveToLater, { personId, reason, resumeDate });
       return { data, error: null, source: "convex" };
     } catch (error) {
       return { data: null, error, source: "convex" };
@@ -1077,7 +1243,8 @@ export async function moveToLater(personId) {
   if (!contact) return { data: null, error: new Error("Contact not found"), source: "local" };
   contact.follow_up_status = "later";
   contact.moved_to_later_at = new Date().toISOString();
-  contact.later_reason = "Moved after follow-up";
+  contact.later_reason = reason;
+  contact.resume_date = resumeDate;
   state.tasks.forEach((task) => {
     if (String(task.person_id) === String(personId) && task.status === "open") {
       task.status = "cancelled";
@@ -1090,7 +1257,7 @@ export async function moveToLater(personId) {
 
 export async function reactivateContact(personId, leaderId, dueDate = dateOnly()) {
   const client = getClient();
-  if (client && !String(personId).startsWith("e")) {
+  if (client && isRemoteId(personId)) {
     try {
       const data = await client.mutation(api.crm.reactivateContact, {
         personId,
@@ -1105,6 +1272,8 @@ export async function reactivateContact(personId, leaderId, dueDate = dateOnly()
   const state = readLocalState();
   const contact = state.contacts.find((item) => String(item._id) === String(personId));
   if (!contact) return { data: null, error: new Error("Contact not found"), source: "local" };
+  if (contact.contact_category === "do_not_contact") return { data: null, error: new Error("This person has requested no contact."), source: "local" };
+  contact.is_paused = false;
   contact.follow_up_status = "active";
   contact.moved_to_later_at = undefined;
   contact.later_reason = undefined;
@@ -1124,15 +1293,16 @@ export async function reactivateContact(personId, leaderId, dueDate = dateOnly()
   return { data: contact, error: null, source: "local" };
 }
 
-export async function setAttendancePlan(personId, leaderId, serviceDate, status, notes) {
+export async function setAttendancePlan(personId, leaderId, serviceDate, status, notes, gathering = {}) {
   const client = getClient();
-  if (client && !String(personId).startsWith("e") && String(personId).length > 12) {
+  if (client && isRemoteId(personId)) {
     try {
       const data = await client.mutation(api.crm.setAttendancePlan, {
         personId,
         leaderId,
         serviceDate,
         status,
+        ...gathering,
         ...(notes ? { notes } : {}),
       });
       return { data, error: null, source: "convex" };
@@ -1140,6 +1310,7 @@ export async function setAttendancePlan(personId, leaderId, serviceDate, status,
       return { data: null, error, source: "convex" };
     }
   }
+  if (status === "attended") return { data: null, error: new Error("Connected attendance recording requires the live backend.") };
   const state = readLocalState();
   const existing = state.attendancePlans.find(
     (plan) => String(plan.person_id) === String(personId) && plan.service_date === serviceDate,
@@ -1165,3 +1336,10 @@ export function resetLocalWorkspace() {
 }
 
 export { fullName };
+
+export async function getGatheringChoices(gatheringType, gatheringDate) {
+  const client = getClient();
+  if (!client) return { data: null, error: new Error("Actual attendance requires a connected backend and an administrator account.") };
+  try { return { data: await client.query(api.crm.getGatheringChoices, { gatheringType, gatheringDate }), error: null }; }
+  catch (error) { return { data: null, error }; }
+}

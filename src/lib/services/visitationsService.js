@@ -1,16 +1,16 @@
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../../convex/_generated/api.js";
 import {
   mockVisitations,
   getPersonById as getMockPersonById,
   getVisitationsByPerson as getMockVisitationsByPerson,
 } from "../data/mockData.js";
+import { getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
 
 function getClient() {
-  const convexUrl = import.meta.env?.VITE_CONVEX_URL;
-  if (!convexUrl) return null;
-  return new ConvexHttpClient(convexUrl);
+  return getConvexHttpClient();
 }
+
+const unavailable = () => ({ data: null, error: unavailableError() });
 
 function isConvexId(id) {
   if (!id || typeof id !== "string") return false;
@@ -43,20 +43,21 @@ function cleanData(obj) {
 export async function getAll() {
   const client = getClient();
   if (!client) {
-    return { data: mockVisitations.map(mapDoc), error: null };
+    return isDemoMode() ? { data: mockVisitations.map(mapDoc), error: null } : unavailable();
   }
 
   try {
     const data = await withTimeout(client.query(api.visitations.getAll), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    return { data: mockVisitations.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }
 
 export async function getById(id) {
   const client = getClient();
   if (!client || !isConvexId(id)) {
+    if (!isDemoMode()) return unavailable();
     const mock = mockVisitations.find(v => String(v.id) === String(id));
     return { data: mock ? mapDoc(mock) : null, error: null };
   }
@@ -65,13 +66,12 @@ export async function getById(id) {
     const data = await withTimeout(client.query(api.visitations.getById, { id }), 2500);
     return { data: mapDoc(data), error: null };
   } catch (error) {
-    const mock = mockVisitations.find(v => String(v.id) === String(id));
-    if (mock) return { data: mapDoc(mock), error: null };
     return { data: null, error };
   }
 }
 
 export async function create(visitationData) {
+  if (isDemoMode()) return { data: null, error: new Error("Connected attendance and care recording requires the live backend. Demo records are read-only.") };
   const client = getClient();
   const linkedIds = [
     visitationData.person_id,
@@ -79,6 +79,7 @@ export async function create(visitationData) {
     visitationData.source_task_id,
   ].filter(Boolean);
   if (!client || linkedIds.some((id) => !isConvexId(id))) {
+    if (!isDemoMode()) return unavailable();
     const person = getMockPersonById(visitationData.person_id);
     const visitor = getMockPersonById(visitationData.visited_by_id);
     const newVisit = {
@@ -168,8 +169,10 @@ export async function create(visitationData) {
 }
 
 export async function update(id, visitationData) {
+  if (isDemoMode()) return { data: null, error: new Error("Connected attendance and care recording requires the live backend. Demo records are read-only.") };
   const client = getClient();
   if (!client || !isConvexId(id)) {
+    if (!isDemoMode()) return unavailable();
     const index = mockVisitations.findIndex(v => v.id === id);
     if (index !== -1) {
       mockVisitations[index] = { ...mockVisitations[index], ...visitationData };
@@ -202,7 +205,7 @@ export async function update(id, visitationData) {
   }
 
   try {
-    const data = await withTimeout(client.mutation(api.visitations.update, { id, ...cleanData(visitationData) }), 5000);
+    const data = await withTimeout(client.mutation(api.visitations.update, { id, ...cleanData(visitationData), ...(visitationData.notes !== undefined ? { notes: visitationData.notes } : {}) }), 5000);
     return { data: mapDoc(data), error: null };
   } catch (error) {
     return { data: null, error };
@@ -210,8 +213,10 @@ export async function update(id, visitationData) {
 }
 
 export async function remove(id) {
+  if (isDemoMode()) return { data: null, error: new Error("Connected attendance and care recording requires the live backend. Demo records are read-only.") };
   const client = getClient();
   if (!client || !isConvexId(id)) {
+    if (!isDemoMode()) return { error: unavailableError() };
     const index = mockVisitations.findIndex(v => v.id === id);
     if (index !== -1) mockVisitations.splice(index, 1);
     return { error: null };
@@ -228,6 +233,7 @@ export async function remove(id) {
 export async function getByPerson(personId) {
   const client = getClient();
   if (!client || !isConvexId(personId)) {
+    if (!isDemoMode()) return unavailable();
     const filtered = getMockVisitationsByPerson(personId);
     return { data: filtered.map(mapDoc), error: null };
   }
@@ -236,14 +242,14 @@ export async function getByPerson(personId) {
     const data = await withTimeout(client.query(api.visitations.getByPerson, { personId }), 2500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    const filtered = getMockVisitationsByPerson(personId);
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }
 
 export async function getRequiringFollowUp() {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const crm = await import("$lib/services/followUpCrmService.js");
     const dashboard = await crm.getDashboard();
     const openTaskIds = new Set([
@@ -261,14 +267,14 @@ export async function getRequiringFollowUp() {
     const data = await withTimeout(client.query(api.visitations.getRequiringFollowUp), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    const filtered = mockVisitations.filter(v => v.follow_up_required);
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }
 
 export async function getByDateRange(startDate, endDate) {
   const client = getClient();
   if (!client) {
+    if (!isDemoMode()) return unavailable();
     const filtered = mockVisitations.filter(v => v.visit_date >= startDate && v.visit_date <= endDate);
     return { data: filtered.map(mapDoc), error: null };
   }
@@ -277,7 +283,6 @@ export async function getByDateRange(startDate, endDate) {
     const data = await withTimeout(client.query(api.visitations.getByDateRange, { startDate, endDate }), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
-    const filtered = mockVisitations.filter(v => v.visit_date >= startDate && v.visit_date <= endDate);
-    return { data: filtered.map(mapDoc), error: null };
+    return { data: null, error };
   }
 }

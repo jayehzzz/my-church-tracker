@@ -1,23 +1,18 @@
 <script>
-    import { onMount } from "svelte";
     import LeafletMap from "$lib/components/map/LeafletMap.svelte";
-    import {
-        churchLocation,
-        mockPeople,
-        mockPriorityQueue,
-    } from "$lib/data/mockData";
+    import { churchLocation, mockPriorityQueue } from "$lib/data/mockData";
+    import { isDemoMode } from "$lib/convex.js";
     import { Button } from "$lib/components/ui";
 
     let { people } = $props();
 
-    // Fallback if needed, though parent usually provides data
-    let allPeople = $derived(people && people.length > 0 ? people : mockPeople);
+    // An empty live database remains empty; only explicit demo mode has sample data.
+    let allPeople = $derived(people || []);
 
     // State
     let mapComponent = $state();
     let selectedPeopleIds = $state([]);
     let isRoutePanelOpen = $state(false);
-    let mapReady = $state(false);
 
     // Pro Features
     let searchQuery = $state("");
@@ -27,7 +22,7 @@
 
     // Derived: Visitation Queue IDs
     let visitationQueueIds = $derived(
-        visitationMode ? mockPriorityQueue.map((item) => item.personId) : [],
+        visitationMode && isDemoMode() ? mockPriorityQueue.map((item) => item.personId) : [],
     );
 
     // Calculate distances & Process Data
@@ -96,12 +91,6 @@
         return { count: selected.length, avgDistance };
     });
 
-    onMount(() => {
-        setTimeout(() => {
-            mapReady = true;
-        }, 100);
-    });
-
     function calculateDistance(lat1, lon1, lat2, lon2) {
         const R = 3959;
         const dLat = toRad(lat2 - lat1);
@@ -165,7 +154,7 @@
 </script>
 
 <div
-    class="h-[700px] w-full relative overflow-hidden rounded-xl border border-border/50 shadow-sm bg-card group"
+    class="h-[min(700px,calc(100vh-11rem))] min-h-[540px] w-full relative overflow-hidden rounded-2xl border border-border/60 shadow-lg bg-card group"
 >
     <!-- Top Controls: Search & Modes -->
     <div
@@ -233,7 +222,7 @@
                 }}
             >
                 Visitation
-                {#if mockPriorityQueue.length > 0}
+                {#if isDemoMode() && mockPriorityQueue.length > 0}
                     <span class="bg-white/20 px-1 rounded-full text-[9px]"
                         >{mockPriorityQueue.length}</span
                     >
@@ -307,25 +296,23 @@
 
     <!-- Map Area -->
     <div class="w-full h-full z-0 bg-muted/20">
-        {#if mapReady}
-            <LeafletMap
-                bind:this={mapComponent}
-                people={peopleWithDistance}
-                center={[churchLocation.lat, churchLocation.lng]}
-                selectedIds={visitationMode
-                    ? visitationQueueIds
-                    : selectedPeopleIds}
-                {visitationQueueIds}
-                {showStructure}
-                onMarkerClick={handleMarkerClick}
-                scrollWheelZoom={true}
-            />
-        {/if}
+        <LeafletMap
+            bind:this={mapComponent}
+            people={peopleWithDistance}
+            center={[churchLocation.lat, churchLocation.lng]}
+            selectedIds={visitationMode
+                ? visitationQueueIds
+                : selectedPeopleIds}
+            {visitationQueueIds}
+            {showStructure}
+            onMarkerClick={handleMarkerClick}
+            scrollWheelZoom={true}
+        />
     </div>
 
     <!-- Route Drawer (Right Side) -->
     <div
-        class="absolute top-2 bottom-2 right-2 w-80 bg-background/95 backdrop-blur border border-border/60 shadow-2xl rounded-xl z-[400] transition-all duration-300 ease-out flex flex-col overflow-hidden text-sm {isRoutePanelOpen
+        class="absolute top-2 bottom-2 left-2 right-2 sm:left-auto sm:w-80 bg-background/95 backdrop-blur border border-border/60 shadow-2xl rounded-xl z-[400] transition-all duration-300 ease-out flex flex-col overflow-hidden text-sm {isRoutePanelOpen
             ? 'translate-x-0 opacity-100'
             : 'translate-x-full opacity-0 pointer-events-none'}"
     >

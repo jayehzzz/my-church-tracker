@@ -2,6 +2,14 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+    // Recovery snapshots are written atomically before relational deletion.
+    // Deliberately no public mutation to restore or overwrite live records.
+    record_recovery: defineTable({
+        record_type: v.string(),
+        record_id: v.string(),
+        snapshot: v.any(),
+        deleted_at: v.string(),
+    }),
     // People - Unified table for Members, Guests, Leaders, and Contacts
     people: defineTable({
         // Identity
@@ -11,12 +19,16 @@ export default defineSchema({
         email: v.optional(v.string()),
         phone: v.optional(v.string()),
         address: v.optional(v.string()),
+        city: v.optional(v.string()),
+        state: v.optional(v.string()),
+        zip_code: v.optional(v.string()),
         birthday: v.optional(v.string()), // Added from specs YYYY-MM-DD
 
         // Demographics
         gender: v.optional(v.string()), // "male" | "female"
         marital_status: v.optional(v.string()), // "single" | "married" | "beloved"
         employment_status: v.optional(v.string()), // "employed" | "unemployed" | "student" | "retired" | "other"
+        degree_status: v.optional(v.string()), // "no_degree" | "studying" | "degree_completed"
         basontas: v.optional(v.array(v.string())), // Ministry groups: ["worship", "ushering", "media", "childrens", "choir", "dancing_stars"]
 
         // Geolocation
@@ -26,6 +38,7 @@ export default defineSchema({
 
         // Status & Role (The Core State Machine)
         member_status: v.string(), // "guest", "member", "leader", "archived" (Normalized from visitor->guest)
+        church_role: v.optional(v.string()), // "no_role" | "basonta" (membership, not leadership)
         role: v.optional(v.string()), // "basonta_leader", "bacenta_leader", "no_role" (Leadership roles only)
         activity_status: v.optional(v.string()), // "regular", "irregular", "dormant"
         leader_id: v.optional(v.string()), // Direct leader assignment
@@ -33,14 +46,30 @@ export default defineSchema({
         // Evangelism / Contact Tracking (Merged from evangelism_contacts)
         contact_category: v.optional(v.string()), // "responsive", "non_responsive", "events_only", "do_not_contact", "has_church"
         contact_date: v.optional(v.string()), // Date first contacted
+        contact_method: v.optional(v.string()), // Initial outreach channel
         invited_by_id: v.optional(v.id("people")), // Self-reference to who invited them
+        notes: v.optional(v.string()), // Shared pastoral/outreach context
 
         // Spiritual Journey
-        first_visit_date: v.optional(v.string()), // When they became a "First Timer"
+        attendance_milestones: v.optional(v.object({
+            first_visit_date: v.optional(v.string()),
+            entry_point: v.optional(v.string()),
+            salvation_decision: v.optional(v.boolean()),
+            pipeline_stage: v.optional(v.string()),
+            warmth_score: v.optional(v.string()),
+            applied_first_visit_date: v.optional(v.string()),
+            applied_entry_point: v.optional(v.string()),
+            applied_salvation_decision: v.optional(v.boolean()),
+            applied_pipeline_stage: v.optional(v.string()),
+            applied_warmth_score: v.optional(v.string()),
+        })),
+        first_visit_date: v.optional(v.string()), // Manual history plus earliest recorded gathering.
         entry_point: v.optional(v.string()), // "sunday_service" | "bacenta_meeting" | "evangelism" | "referral" | "other"
         membership_date: v.optional(v.string()), // When they became a "Member"
         is_baptised: v.optional(v.boolean()),
         is_tither: v.optional(v.boolean()),
+        completed_schools: v.optional(v.array(v.string())),
+        merged_into_id: v.optional(v.id("people")), // Archived duplicate retained after a reviewed merge
         salvation_decision: v.optional(v.boolean()), // Made salvation decision during evangelism outreach
 
         // Pipeline Tracking (cached, updated by follow-up mutations)
@@ -61,12 +90,16 @@ export default defineSchema({
         .index("by_last_name", ["last_name"])
         .index("by_contact_date", ["contact_date"])
         .index("by_invited_by", ["invited_by_id"])
+        .index("by_merged_into", ["merged_into_id"])
         .index("by_pipeline_stage", ["pipeline_stage"])
-        .index("by_warmth", ["warmth_score"]),
+        .index("by_warmth", ["warmth_score"])
+        .searchIndex("search_first_name", { searchField: "first_name" })
+        .searchIndex("search_last_name", { searchField: "last_name" }),
 
 
     // Services - Church services
     services: defineTable({
+        request_id: v.optional(v.string()),
         service_date: v.string(),
         service_type: v.string(), // "sunday_service", "special_service"
         service_time: v.optional(v.string()),
@@ -76,6 +109,10 @@ export default defineSchema({
         notes: v.optional(v.string()),
 
         // Aggregates (calculated from meeting_attendance usually, but kept for cache)
+        unnamed_attendance_count: v.optional(v.float64()),
+        unnamed_guests_count: v.optional(v.float64()),
+        unnamed_decisions_count: v.optional(v.float64()),
+        unnamed_tithers_count: v.optional(v.float64()),
         total_attendance: v.optional(v.float64()),
         guests_count: v.optional(v.float64()),
         salvation_decisions: v.optional(v.float64()),
@@ -86,6 +123,19 @@ export default defineSchema({
         created_at: v.string(),
         updated_at: v.optional(v.string()),
     }).index("by_service_date", ["service_date"]),
+
+    // Durable file references for service images. Browser object URLs are only
+    // transient previews and must never be persisted in service records.
+    service_photos: defineTable({
+        service_id: v.optional(v.id("services")),
+        storage_id: v.id("_storage"),
+        original_filename: v.string(),
+        content_type: v.string(),
+        size_bytes: v.float64(),
+        uploaded_by: v.string(),
+        created_at: v.string(),
+    }).index("by_service", ["service_id"])
+      .index("by_storage", ["storage_id"]),
 
     // Attendance - Links people to services (Legacy? Or specific to Services vs Meetings?)
     // Note: The specs mention a unified 'meetings' and 'meeting_attendance' for everything.
@@ -145,6 +195,7 @@ export default defineSchema({
 
     // Meetings - individual dated occurrences for a programme.
     meetings: defineTable({
+        request_id: v.optional(v.string()),
         program_id: v.optional(v.id("meeting_programs")),
         title: v.optional(v.string()), // Used by one-off and special events.
         meeting_date: v.string(),
@@ -196,6 +247,7 @@ export default defineSchema({
 
     // Visitations - Home visit records
     visitations: defineTable({
+        request_id: v.optional(v.string()),
         person_id: v.optional(v.id("people")), // Who was visited (optional for name-only entries)
         person_visited_name: v.optional(v.string()), // Caching name
         visited_by_id: v.optional(v.id("people")), // Who did the visiting (Linked now)
@@ -252,6 +304,10 @@ export default defineSchema({
 
     // Follow-Ups - Track every leader-contact interaction for the Pipeline
     follow_ups: defineTable({
+        commitment_id: v.optional(v.id("gathering_commitments")),
+        source_task_id: v.optional(v.id("follow_up_tasks")),
+        source_visitation_id: v.optional(v.id("visitations")),
+        care_status: v.optional(v.string()),
         contact_id: v.id("people"),         // The evangelism contact being followed up
         leader_id: v.id("people"),          // The leader who did the follow-up
         follow_up_date: v.string(),         // When this interaction happened (YYYY-MM-DD)
@@ -292,7 +348,8 @@ export default defineSchema({
         updated_at: v.string(),
     }).index("by_person", ["person_id"])
       .index("by_person_status", ["person_id", "status"])
-      .index("by_leader_status", ["assigned_leader_id", "status"]),
+      .index("by_leader_status", ["assigned_leader_id", "status"])
+      .index("by_status", ["status"]),
 
     follow_up_tasks: defineTable({
         person_id: v.id("people"),
@@ -337,9 +394,13 @@ export default defineSchema({
     }).index("by_person", ["person_id"])
       .index("by_person_status", ["person_id", "status"])
       .index("by_assignee_status", ["assigned_leader_id", "status"])
-      .index("by_status_due_date", ["status", "due_date"]),
+      .index("by_status_due_date", ["status", "due_date"])
+      .index("by_status_completed_at", ["status", "completed_at"]),
 
     gathering_commitments: defineTable({
+        service_id: v.optional(v.id("services")),
+        meeting_id: v.optional(v.id("meetings")),
+        attendance_previous_status: v.optional(v.string()),
         person_id: v.id("people"),
         leader_id: v.id("people"),
         gathering_type: v.union(
@@ -365,19 +426,26 @@ export default defineSchema({
     }).index("by_person", ["person_id"])
       .index("by_person_date", ["person_id", "gathering_date"])
       .index("by_gathering", ["gathering_type", "gathering_date"])
+      .index("by_date", ["gathering_date"])
       .index("by_leader_date", ["leader_id", "gathering_date"]),
 
     // Regular members are expected by default. This table stores weekly
     // confirmations and known absences, plus confirmations for irregular members.
     attendance_plans: defineTable({
+        service_id: v.optional(v.id("services")),
+        meeting_id: v.optional(v.id("meetings")),
+        attendance_previous_status: v.optional(v.string()),
         person_id: v.id("people"),
         service_date: v.string(),
         status: v.union(
             v.literal("expected"),
             v.literal("away"),
             v.literal("confirmed"),
+            v.literal("attended"),
+            v.literal("absent"),
         ),
-        leader_id: v.id("people"),
+        leader_id: v.optional(v.id("people")), // May be absent on a derived actual-attendance plan.
+        generated_from_attendance: v.optional(v.boolean()),
         notes: v.optional(v.string()),
         created_at: v.string(),
         updated_at: v.string(),
@@ -385,9 +453,30 @@ export default defineSchema({
       .index("by_service_date", ["service_date"])
       .index("by_leader_date", ["leader_id", "service_date"]),
 
-    // Authentication will be added later. This supplies a stable app-user and
-    // permission model without coupling it to a specific auth provider today.
+    // Explicit app access keyed by the verified identity tokenIdentifier.
+    // Existing rows without a linked identity remain unable to sign in.
+    security_audit: defineTable({
+        actor_user_id: v.id("crm_users"),
+        operation: v.string(),
+        record_id: v.string(),
+        created_at: v.string(),
+    }).index("by_actor", ["actor_user_id"]),
+
+    // A person must present a provider-verified identity before an owner can
+    // approve them. Contact details here help the owner recognise a request;
+    // the issuer + subject remain the only authentication key.
+    access_requests: defineTable({
+        external_auth_id: v.string(),
+        display_name: v.optional(v.string()),
+        email: v.optional(v.string()),
+        status: v.union(v.literal("pending"), v.literal("approved")),
+        requested_at: v.string(),
+        updated_at: v.string(),
+    }).index("by_external_auth_id", ["external_auth_id"])
+      .index("by_status", ["status"]),
+
     crm_users: defineTable({
+        can_view_confidential: v.optional(v.boolean()),
         person_id: v.optional(v.id("people")),
         external_auth_id: v.optional(v.string()),
         display_name: v.optional(v.string()),

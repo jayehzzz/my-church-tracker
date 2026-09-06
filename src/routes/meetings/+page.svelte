@@ -1106,7 +1106,7 @@
       Delete <strong>{selectedMeeting ? programmeName(selectedMeeting) : "this meeting"}</strong>
       and its attendance from {selectedMeeting ? formatDate(selectedMeeting.meeting_date) : "this date"}?
     </p>
-    <p class="text-sm text-muted-foreground">This cannot be undone.</p>
+    <p class="text-sm text-muted-foreground">Named attendance will be removed and matching commitments and open gathering tasks cancelled. A recovery snapshot is retained for an administrator.</p>
   </div>
   {#snippet footer()}
     <Button variant="secondary" onclick={() => (isDeleteModalOpen = false)} disabled={deleting}>Cancel</Button>

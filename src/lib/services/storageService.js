@@ -1,40 +1,78 @@
-/**
- * Storage Service - Convex Backend
- * 
- * NOTE: Convex handles file storage differently than Supabase.
- * For file uploads with Convex, you'll need to use Convex's file storage APIs.
- * See: https://docs.convex.dev/file-storage
- * 
- * This is a placeholder that returns errors until file storage is configured.
- */
+import { api } from "../../../convex/_generated/api.js";
+import { getConvexHttpClient, unavailableError } from "$lib/convex.js";
 
-export const BUCKET_NAME = 'service-photos';
+// Convex has no buckets: a service photo is stored as a file plus a durable
+// service_photos record. Blob URLs are used only to preview a chosen file.
+export const BUCKET_NAME = "service-photos";
+export const MAX_SERVICE_PHOTO_BYTES = 10 * 1024 * 1024;
+export const ALLOWED_SERVICE_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
-/**
- * Upload a file to storage
- * @param {File} file - The file object to upload
- * @param {string} path - The path/filename in the bucket
- * @returns {Promise<{ path: string, url: string, error: object }>}
- */
-export async function uploadImage(file, path = null) {
-    // TODO: Implement Convex file storage
-    // See: https://docs.convex.dev/file-storage
-    console.warn('File storage not yet configured for Convex. Please implement Convex file storage.');
-    return {
-        error: new Error('File storage not yet configured. Please implement Convex file storage.'),
-        path: null,
-        url: null
-    };
+export function validateServicePhoto(file) {
+  if (!file) return new Error("Choose a photo to upload.");
+  if (!ALLOWED_SERVICE_PHOTO_TYPES.includes(file.type)) {
+    return new Error("Use a JPEG, PNG, or WebP photo.");
+  }
+  if (file.size > MAX_SERVICE_PHOTO_BYTES) {
+    return new Error("Each service photo must be 10 MB or smaller.");
+  }
+  return null;
 }
 
-/**
- * Delete a file from storage
- * @param {string} path - The path of the file to delete
- */
-export async function deleteImage(path) {
-    // TODO: Implement Convex file storage deletion
-    console.warn('File storage not yet configured for Convex.');
-    return {
-        error: new Error('File storage not yet configured.')
+function postFile(uploadUrl, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", uploadUrl);
+    request.setRequestHeader("Content-Type", file.type);
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
     };
+    request.onerror = () => reject(new Error("The photo upload could not reach storage. Check your connection and try again."));
+    request.onload = () => {
+      if (request.status < 200 || request.status >= 300) {
+        reject(new Error("The photo upload was rejected by storage. Please try again."));
+        return;
+      }
+      try {
+        resolve(JSON.parse(request.responseText));
+      } catch {
+        reject(new Error("Storage returned an invalid upload response."));
+      }
+    };
+    request.send(file);
+  });
+}
+
+export async function uploadImage(file, { onProgress } = {}) {
+  const validationError = validateServicePhoto(file);
+  if (validationError) return { data: null, error: validationError };
+  const client = getConvexHttpClient();
+  if (!client) return { data: null, error: unavailableError() };
+
+  try {
+    onProgress?.(0);
+    const uploadUrl = await client.mutation(api.servicePhotos.generateUploadUrl, {});
+    const response = await postFile(uploadUrl, file, onProgress);
+    if (!response.storageId) throw new Error("Storage did not return a file reference.");
+    const photo = await client.mutation(api.servicePhotos.registerUpload, {
+      storageId: response.storageId,
+      filename: file.name,
+    });
+    onProgress?.(100);
+    return { data: { id: photo._id, previewUrl: URL.createObjectURL(file) }, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+// This can only discard a pending upload. Attached image deletion happens when
+// the authenticated service-record mutation saves the updated photo set.
+export async function deleteImage(photoId) {
+  const client = getConvexHttpClient();
+  if (!client) return { error: unavailableError() };
+  try {
+    await client.mutation(api.servicePhotos.discardPending, { photoId });
+    return { error: null };
+  } catch (error) {
+    return { error };
+  }
 }

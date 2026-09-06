@@ -40,7 +40,7 @@ This project leverages the bleeding edge of web development:
 
 *   **Framework:** [SvelteKit](https://kit.svelte.dev/) (Svelte 5 Runes)
 *   **Styling:** [Tailwind CSS](https://tailwindcss.com/)
-*   **Charts:** [Recharts](https://recharts.org/) / Custom SVG Components
+*   **Charts:** Custom SVG chart components
 *   **Icons:** [Lucide Icons](https://lucide.dev/)
 *   **Backend:** [Convex](https://www.convex.dev/)
 
@@ -51,8 +51,9 @@ This project leverages the bleeding edge of web development:
 Follow these steps to set up the project locally on your machine.
 
 ### Prerequisites
-*   Node.js (v18 or higher)
+*   Node.js 18 or newer
 *   Git
+*   A non-production Convex development deployment for live local work
 
 ### 1. Clone the repository
 ```bash
@@ -65,12 +66,37 @@ cd my-church-tracker
 npm install
 ```
 
-### 3. Start the development server
+### 3. Configure local environment
+
+Copy `.env.example` to an untracked `.env.local` and set `VITE_APP_ENV=development`,
+`VITE_APP_MODE=live`, the development `VITE_CONVEX_URL`, and the Auth0 values.
+For a walkthrough with no backend, use an untracked `.env.demo.local` with
+`VITE_APP_ENV=development` and `VITE_APP_MODE=demo`, then start with the demo mode.
+Demo records are browser-local and must never contain real church information.
+
+### 4. Start the development server
 ```bash
 npm run dev
 ```
 
 Visit `http://localhost:5173` in your browser to see the app running!
+
+### Checks and release workflow
+
+Run the frontend unit suite and production build with `npm run test:unit` and
+`npm run build`. For Convex changes also run `npm run test:backend` and
+`npm run check:backend`. Preview deployments use an isolated staging Convex
+deployment; production release requires separately configured Vercel and Convex
+production environments. Local development never deploys or releases production.
+
+Recovery is provider-managed Convex Backup & Restore and must include file
+storage for service photos. Follow [the recovery guide](docs/recovery.md) for
+retention, isolated restore rehearsal, and destructive-restore safeguards.
+
+The staged backend/frontend order, migration safeguards, and rollback limits
+are documented in the [release runbook](docs/release.md). Passing these checks
+means the code is ready for staging verification; it is not a production
+deployment.
 
 ---
 

@@ -1,6 +1,7 @@
 <script>
-    import { onMount } from "svelte";
+    import { createPersonPopup, escapeMapText } from "$lib/utils/mapPopup.js";
     import { browser } from "$app/environment";
+    import "leaflet/dist/leaflet.css";
 
     let {
         people = [],
@@ -18,16 +19,57 @@
     let markersLayer;
     let structureLayer;
     let churchMarkerLayer;
+    let tileLayer;
+    let resizeObserver;
+    let hasFittedInitialBounds = false;
+
+    let mapLoading = $state(true);
+    let mapStatus = $state("waiting");
+    let mapError = $state("");
 
     // Map State (Default to Light Mode for better legibility)
     let isDarkTheme = $state(false);
 
-    // Initialize map
-    onMount(async () => {
-        if (browser) {
-            L = (await import("leaflet")).default;
-            initMap();
-        }
+    // This effect waits for bind:this to provide a real, visible container.
+    // Leaflet touches browser globals while loading, so it remains a
+    // client-only import.
+    $effect(() => {
+        const element = mapElement;
+        if (!browser || !element) return;
+
+        let cancelled = false;
+        mapStatus = "loading-library";
+        document.addEventListener("map-select", handleMapSelect);
+
+        void import("leaflet")
+            .then((module) => {
+                if (cancelled) return;
+                L = module.default;
+                mapStatus = "initialising";
+                initMap();
+                mapStatus = "ready";
+
+                if (typeof ResizeObserver !== "undefined") {
+                    resizeObserver = new ResizeObserver(() => refreshSize());
+                    resizeObserver.observe(element);
+                }
+            })
+            .catch((error) => {
+                console.error("Failed to initialise people map", error);
+                mapError = "The map could not be prepared. Please try again.";
+                mapLoading = false;
+                mapStatus = "error";
+            });
+
+        return () => {
+            cancelled = true;
+            resizeObserver?.disconnect();
+            document.removeEventListener("map-select", handleMapSelect);
+            if (map) {
+                map.remove();
+                map = null;
+            }
+        };
     });
 
     // Re-render layers when props change
@@ -63,25 +105,43 @@
         L.control.attribution({ position: "bottomright" }).addTo(map);
 
         updateLayers();
+        refreshSize();
     }
 
     function updateTileLayer() {
-        // Remove existing tile layers
-        map.eachLayer((layer) => {
-            if (layer instanceof L.TileLayer) {
-                map.removeLayer(layer);
-            }
+        if (!map || !L) return;
+        mapLoading = true;
+
+        if (tileLayer) map.removeLayer(tileLayer);
+
+        // Standard OpenStreetMap tiles work without a project API key. The
+        // optional dark treatment is applied locally to the tile pane below.
+        const url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+        tileLayer = L.tileLayer(url, {
+            subdomains: "abc",
+            maxZoom: 19,
+            attribution:
+                '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         });
 
-        // Voyager (Light & Detailed) vs Dark Matter (Dark & Minimal)
-        const url = isDarkTheme
-            ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+        tileLayer.on("loading", () => {
+            mapLoading = true;
+        });
 
-        L.tileLayer(url, {
-            subdomains: "abcd",
-            maxZoom: 19,
-        }).addTo(map);
+        tileLayer.on("load", () => {
+            mapLoading = false;
+            refreshSize();
+        });
+
+        tileLayer.addTo(map);
+        map.getPane("tilePane")?.classList.toggle("map-dark-tiles", isDarkTheme);
+
+        // Do not leave the interface blocked if a slow tile server only loads
+        // part of the current viewport.
+        setTimeout(() => {
+            mapLoading = false;
+        }, 2500);
     }
 
     async function updateLayers() {
@@ -183,7 +243,7 @@
                 <div class="${containerClass}">
                     ${isSelected || isPriority ? `<div class="absolute -inset-1 rounded-full ${colorClass} opacity-30 animate-pulse"></div>` : ""}
                     <div class="relative w-full h-full rounded-full border-2 border-white shadow-md ${colorClass} text-[10px] text-white font-bold flex items-center justify-center">
-                        ${initials}
+                        ${escapeMapText(initials)}
                     </div>
                 </div>
             `;
@@ -198,35 +258,11 @@
             const marker = L.marker([person.lat, person.lng], { icon: icon });
 
             // Popup
-            const popupContent = `
-                <div class="p-1 min-w-[200px]">
-                    <div class="flex items-center gap-2 mb-2">
-                        <div class="w-8 h-8 rounded-full ${colorClass} flex items-center justify-center text-xs text-white font-bold">
-                            ${initials}
-                        </div>
-                        <div>
-                            <h3 class="font-bold text-sm leading-none">${person.first_name || ""} ${person.last_name || ""}</h3>
-                            <span class="text-[10px] uppercase tracking-wider opacity-70">${person.member_status || ""}</span>
-                        </div>
-                    </div>
-                    
-                    <div class="space-y-1 text-xs text-muted-foreground mb-3">
-                        <div class="flex items-start gap-1">
-                            <svg class="w-3 h-3 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                            <span>${person.address}</span>
-                        </div>
-                        <div class="flex items-center gap-1">
-                            <svg class="w-3 h-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-                            <span>${person.role !== "no_role" ? person.role.replace("_", " ") : "No Role"}</span>
-                        </div>
-                    </div>
-
-                    <button class="w-full py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors" 
-                        onclick="document.dispatchEvent(new CustomEvent('map-select', {detail: '${person.id}'}))">
-                        ${isSelected ? "Remove from Route" : "Add to Route"}
-                    </button>
-                </div>
-            `;
+            const popupContent = createPersonPopup(person, {
+                colorClass,
+                isSelected,
+                onSelect: (id) => document.dispatchEvent(new CustomEvent("map-select", { detail: id })),
+            });
 
             marker.bindPopup(popupContent, {
                 closeButton: false,
@@ -241,6 +277,44 @@
         });
 
         markersLayer.addTo(map);
+
+        if (!hasFittedInitialBounds) {
+            hasFittedInitialBounds = true;
+            setTimeout(() => fitEveryone(false), 0);
+        }
+    }
+
+    export function refreshSize() {
+        if (!map) return;
+        requestAnimationFrame(() => {
+            if (!map) return;
+            map.invalidateSize({ pan: false });
+        });
+    }
+
+    export function fitEveryone(animate = true) {
+        if (!map || !L) return;
+        const locations = people
+            .filter((person) => Number.isFinite(person.lat) && Number.isFinite(person.lng))
+            .map((person) => [person.lat, person.lng]);
+
+        const bounds = L.latLngBounds([center, ...locations]);
+        if (!bounds.isValid()) return;
+
+        requestAnimationFrame(() => {
+            if (!map) return;
+            map.invalidateSize({ pan: false });
+            map.fitBounds(bounds, {
+                paddingTopLeft: [72, 92],
+                paddingBottomRight: [96, 72],
+                maxZoom: 14,
+                animate,
+            });
+
+            // A final pass catches width changes caused by the dashboard
+            // sidebar animation and fetches any newly exposed edge tiles.
+            setTimeout(() => map?.invalidateSize({ pan: false }), 120);
+        });
     }
 
     export function flyTo(lat, lng) {
@@ -272,38 +346,58 @@
         }
     }
 
-    onMount(() => {
-        document.addEventListener("map-select", handleMapSelect);
-
-        return () => {
-            if (map) map.remove();
-            if (browser) {
-                document.removeEventListener("map-select", handleMapSelect);
-            }
-        };
-    });
 </script>
 
-<svelte:head>
-    <link
-        rel="stylesheet"
-        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-        crossorigin=""
-    />
-</svelte:head>
+<div
+    class="relative w-full h-full overflow-hidden bg-slate-100 group"
+    data-map-state={mapStatus}
+>
+    <div bind:this={mapElement} class="w-full h-full z-0 bg-slate-100"></div>
 
-<div class="relative w-full h-full group">
-    <div bind:this={mapElement} class="w-full h-full z-0 bg-muted/20"></div>
+    {#if mapLoading}
+        <div
+            class="absolute inset-0 z-[450] flex items-center justify-center bg-background/70 backdrop-blur-[2px] transition-opacity"
+            aria-live="polite"
+        >
+            <div class="flex items-center gap-3 rounded-xl border border-border/70 bg-card px-4 py-3 shadow-lg">
+                <span class="h-5 w-5 animate-spin rounded-full border-2 border-primary/25 border-t-primary"></span>
+                <div>
+                    <p class="text-sm font-semibold text-foreground">Preparing people map</p>
+                    <p class="text-xs text-muted-foreground">Fitting locations into view…</p>
+                </div>
+            </div>
+        </div>
+    {/if}
+
+    {#if mapError}
+        <div class="absolute inset-0 z-[450] flex items-center justify-center bg-background/85 p-6">
+            <div class="max-w-sm rounded-xl border border-destructive/25 bg-card p-5 text-center shadow-lg">
+                <p class="font-semibold text-foreground">Map unavailable</p>
+                <p class="mt-1 text-sm text-muted-foreground">{mapError}</p>
+            </div>
+        </div>
+    {/if}
 
     <!-- Controls (Bottom Right) -->
     <div
         class="absolute bottom-6 right-6 z-[400] flex flex-col gap-2 pointer-events-auto"
     >
         <button
+            onclick={() => fitEveryone(true)}
+            class="w-10 h-10 bg-background/95 backdrop-blur border border-border/50 rounded-lg shadow-lg flex items-center justify-center text-foreground hover:bg-accent transition-colors"
+            title="Fit everyone in view"
+            aria-label="Fit everyone in view"
+        >
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3" />
+            </svg>
+        </button>
+
+        <button
             onclick={recenter}
             class="w-10 h-10 bg-background/95 backdrop-blur border border-border/50 rounded-lg shadow-lg flex items-center justify-center text-foreground hover:bg-accent transition-colors"
             title="Recenter on Church"
+            aria-label="Recenter on church"
         >
             <svg
                 class="w-5 h-5"
@@ -417,6 +511,12 @@
     :global(.leaflet-popup-tip) {
         background: hsl(var(--card));
         border: 1px solid hsl(var(--border));
+    }
+    :global(.leaflet-tile-pane) {
+        transition: filter 180ms ease;
+    }
+    :global(.leaflet-tile-pane.map-dark-tiles) {
+        filter: brightness(0.72) saturate(0.8) invert(0.86) hue-rotate(175deg);
     }
     :global(.leaflet-container) {
         font-family: inherit;

@@ -49,12 +49,14 @@
   let searchQuery = $state("");
   let markComplete = $state(true);
   let saving = $state(false);
+  let requestId = $state(crypto.randomUUID());
   let loadingAttendance = $state(false);
   let errors = $state({});
   let showQuickAdd = $state(false);
   let quickAddData = $state({ first_name: "", last_name: "", phone: "" });
   let quickAddSaving = $state(false);
   let initialisedFor = $state(null);
+  let initialFormSnapshot = $state("");
 
   const programOptions = $derived(
     programs
@@ -111,6 +113,7 @@
     const key = `${meeting?.id || "new"}:${initialProgramId || ""}:${initialOneOff}:${programs.length}`;
     if (initialisedFor === key) return;
     initialisedFor = key;
+    requestId = crypto.randomUUID();
     initialiseForm();
   });
 
@@ -166,7 +169,14 @@
     errors = {};
     showQuickAdd = false;
     quickAddData = { first_name: "", last_name: "", phone: "" };
+    initialFormSnapshot = JSON.stringify({ formData, recordingMode, markComplete });
     if (meeting?.id) loadAttendance(meeting.id);
+  }
+
+  function handleCancel() {
+    const snapshot = JSON.stringify({ formData, recordingMode, markComplete });
+    if (snapshot !== initialFormSnapshot && !window.confirm("Discard unsaved meeting changes?")) return;
+    isOpen = false;
   }
 
   async function loadAttendance(meetingId) {
@@ -306,8 +316,6 @@
         last_name: quickAddData.last_name.trim(),
         phone: quickAddData.phone || undefined,
         member_status: "guest",
-        first_visit_date:
-          formData.meeting_date || new Date().toISOString().split("T")[0],
         entry_point:
           recordingMode === "programme" &&
           selectedProgram()?.meeting_type === "bacenta"
@@ -354,6 +362,7 @@
   }
 
   async function handleSubmit() {
+    if (saving) return;
     if (!validate()) {
       activeTab = "details";
       return;
@@ -384,25 +393,18 @@
         status: markComplete ? "completed" : "attendance_needed",
         notes: formData.notes || null,
       };
-      const meetingResult = meeting?.id
-        ? await meetingsService.update(meeting.id, payload)
-        : await meetingsService.create(payload);
-      if (meetingResult.error) throw meetingResult.error;
-      const meetingId = meetingResult.data.id;
       const attendanceData = Array.from(selectedPersonIds).map((personId) => ({
         person_id: personId,
         status: "present",
         first_timer: firstTimerIds.has(personId),
       }));
-      const attendanceResult = await meetingsService.syncAttendance(
-        meetingId,
-        attendanceData,
-        payload.unnamed_guests_count,
-        markComplete,
-      );
-      if (attendanceResult.error) throw attendanceResult.error;
-      const freshResult = await meetingsService.getById(meetingId);
-      await onsave?.(freshResult.data || { ...meetingResult.data, ...payload });
+      const result = await meetingsService.record({
+        ...payload, id: meeting?.id || meeting?._id, request_id: requestId,
+        attendanceData, markComplete,
+      });
+      if (result.error) throw result.error;
+      await onsave?.(result.data);
+      requestId = crypto.randomUUID();
       isOpen = false;
     } catch (error) {
       errors = { submit: error.message || "Could not save attendance" };
@@ -416,6 +418,9 @@
   bind:isOpen
   title={meeting ? "Edit meeting attendance" : "Record meeting attendance"}
   size="xl"
+  closable={false}
+  closeOnBackdrop={false}
+  closeOnEscape={false}
 >
   <form
     class="space-y-5"
@@ -709,7 +714,7 @@
     {/if}
 
     <div class="flex justify-end gap-3 border-t border-border pt-4">
-      <Button variant="secondary" onclick={() => (isOpen = false)} disabled={saving}>Cancel</Button>
+      <Button variant="secondary" onclick={handleCancel} disabled={saving}>Cancel</Button>
       <Button type="submit" loading={saving}>
         {markComplete ? "Save attendance" : "Save for later"}
       </Button>

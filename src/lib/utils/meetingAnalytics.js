@@ -1,3 +1,5 @@
+import { isHeldMeeting } from "./reportingMetrics.js";
+
 const PRESENT_STATUSES = new Set([undefined, null, "", "present"]);
 
 function idOf(value) {
@@ -216,11 +218,9 @@ function unique(values) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-export function buildMeetingAnalytics(meetings, programs = []) {
+export function buildMeetingAnalytics(meetings, programs = [], now = new Date()) {
   const programmeMap = new Map(programs.map((program) => [idOf(program), program]));
-  const held = (meetings || []).filter(
-    (meeting) => (meeting.status || "completed") !== "cancelled",
-  );
+  const held = (meetings || []).filter((meeting) => isHeldMeeting(meeting, now));
   const sorted = [...held].sort((a, b) =>
     String(a.meeting_date).localeCompare(String(b.meeting_date)),
   );

@@ -796,6 +796,7 @@
                     <button
                       type="button"
                       class="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                      aria-label="Sort services by date"
                       onclick={() => handleSort("service_date")}
                     >
                       Date
@@ -824,6 +825,7 @@
                     <button
                       type="button"
                       class="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                      aria-label="Sort services by type"
                       onclick={() => handleSort("service_type")}
                     >
                       Type
@@ -841,6 +843,7 @@
                     <button
                       type="button"
                       class="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                      aria-label="Sort services by attendance"
                       onclick={() => handleSort("total_attendance")}
                     >
                       Attendance
@@ -852,6 +855,7 @@
                     <button
                       type="button"
                       class="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                      aria-label="Sort services by guest count"
                       onclick={() => handleSort("guests_count")}
                     >
                       Guests
@@ -863,6 +867,7 @@
                     <button
                       type="button"
                       class="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                      aria-label="Sort services by salvation decisions"
                       onclick={() => handleSort("salvation_decisions")}
                     >
                       Decisions
@@ -976,6 +981,7 @@
                           <button
                             type="button"
                             class="flex items-center gap-1 text-sm text-primary hover:underline"
+                            aria-label="View {service.individuals.length} individual attendees for {formatShortDate(service.service_date)}"
                             onclick={(e) => handleIndividualsClick(service, e)}
                           >
                             <div class="flex -space-x-1">
@@ -1627,7 +1633,7 @@
           : ""}</strong
       >?
     </p>
-    <p class="text-sm text-muted-foreground">This action cannot be undone.</p>
+    <p class="text-sm text-muted-foreground">Named check-ins and linked plans will be removed; matching commitments and open gathering tasks will be cancelled. A recovery snapshot is retained for an administrator.</p>
   </div>
 
   {#snippet footer()}

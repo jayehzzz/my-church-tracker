@@ -1,10 +1,23 @@
-import { describe, it, expect } from "vitest";
-import * as dashboardService from "./dashboardService.js";
-import * as peopleService from "./peopleService.js";
-import * as attendanceService from "./attendanceService.js";
-import * as evangelismService from "./evangelismService.js";
-import * as visitationsService from "./visitationsService.js";
+import { afterAll, beforeAll, describe, it, expect, vi } from "vitest";
+let dashboardService;
+let peopleService;
+let attendanceService;
+let evangelismService;
+let visitationsService;
 import { getPersonById, mockPeople, mockEvangelismContacts, mockVisitations, mockPriorityQueue, mockMeetings, mockServices } from "../data/mockData.js";
+
+beforeAll(async () => {
+    vi.stubEnv("VITE_CONVEX_URL", "");
+    vi.stubEnv("VITE_APP_ENV", "development");
+    vi.stubEnv("VITE_APP_MODE", "demo");
+    dashboardService = await import("./dashboardService.js");
+    peopleService = await import("./peopleService.js");
+    attendanceService = await import("./attendanceService.js");
+    evangelismService = await import("./evangelismService.js");
+    visitationsService = await import("./visitationsService.js");
+});
+
+afterAll(() => vi.unstubAllEnvs());
 
 describe("Dashboard Recent Activity and Person Profile Resolution", () => {
     it("resolves all member profiles in mockPeople", async () => {

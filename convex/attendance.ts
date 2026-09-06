@@ -1,8 +1,10 @@
-import { query, mutation } from "./_generated/server";
+import { queryFor, mutationFor } from "./lib/security";
+import { serviceRows, syncServiceAttendance, reconcilePeople, prepareServiceCounts, reconcileServiceCounts } from "./lib/attendanceWorkflow";
+
 import { v } from "convex/values";
 
 // Get all attendance records with person and service data
-export const getAll = query({
+export const getAll = queryFor("attendance:getAll")({
     args: {},
     handler: async (ctx) => {
         const attendanceRecords = await ctx.db.query("attendance").collect();
@@ -20,7 +22,7 @@ export const getAll = query({
 });
 
 // Get attendance by ID
-export const getById = query({
+export const getById = queryFor("attendance:getById")({
     args: { id: v.id("attendance") },
     handler: async (ctx, args) => {
         const record = await ctx.db.get(args.id);
@@ -32,7 +34,7 @@ export const getById = query({
 });
 
 // Create attendance record
-export const create = mutation({
+export const create = mutationFor("attendance:create")({
     args: {
         service_id: v.id("services"),
         person_id: v.id("people"),
@@ -43,30 +45,17 @@ export const create = mutation({
         first_timer: v.optional(v.boolean()),
     },
     handler: async (ctx, args) => {
-        const now = new Date().toISOString();
-        const today = now.split('T')[0];
+        const { service_id, ...row } = args;
+        const existing = await serviceRows(ctx, service_id);
+        const current = existing.find(r => r.person_id === row.person_id);
+        await syncServiceAttendance(ctx, service_id, [...existing.filter(r => r.person_id !== row.person_id).map(({person_id, first_timer, gave_tithe, made_salvation_decision}) => ({person_id, first_timer, gave_tithe, made_salvation_decision})), { ...current && { first_timer: current.first_timer, gave_tithe: current.gave_tithe, made_salvation_decision: current.made_salvation_decision }, ...row }]);
+        return (await serviceRows(ctx, service_id)).find(r => r.person_id === row.person_id);
 
-        // A first timer is someone attending their first-ever church gathering.
-        const person = await ctx.db.get(args.person_id);
-        if (args.first_timer && person && !person.first_visit_date) {
-            // Set their first visit date and infer entry point
-            await ctx.db.patch(args.person_id, {
-                first_visit_date: today,
-                entry_point: person.entry_point || "sunday_service",
-                updated_at: now,
-            });
-        }
-
-        const id = await ctx.db.insert("attendance", {
-            ...args,
-            created_at: now,
-        });
-        return await ctx.db.get(id);
     },
 });
 
 // Update attendance
-export const update = mutation({
+export const update = mutationFor("attendance:update")({
     args: {
         id: v.id("attendance"),
         service_id: v.optional(v.id("services")),
@@ -78,34 +67,40 @@ export const update = mutation({
     },
     handler: async (ctx, args) => {
         const { id, ...updates } = args;
+        const existing = await ctx.db.get(id);
+        if (!existing) throw new Error("Attendance not found");
+        const next = { ...existing, ...updates };
+        if (!await ctx.db.get(next.person_id)) throw new Error("Person not found");
+        await prepareServiceCounts(ctx, existing.service_id);
+        if (next.service_id !== existing.service_id) await prepareServiceCounts(ctx, next.service_id);
+        const duplicates = (await serviceRows(ctx, next.service_id)).filter(r => r.person_id === next.person_id && r._id !== id);
+        for (const duplicate of duplicates) await ctx.db.delete(duplicate._id);
         await ctx.db.patch(id, updates);
-        const record = await ctx.db.get(id);
-        if (updates.first_timer && record) {
-            const person = await ctx.db.get(record.person_id);
-            if (person && !person.first_visit_date) {
-                const now = new Date().toISOString();
-                await ctx.db.patch(record.person_id, {
-                    first_visit_date: now.split("T")[0],
-                    entry_point: person.entry_point || "sunday_service",
-                    updated_at: now,
-                });
-            }
-        }
-        return record;
+        await reconcileServiceCounts(ctx, existing.service_id);
+        if (next.service_id !== existing.service_id) await reconcileServiceCounts(ctx, next.service_id);
+        await reconcilePeople(ctx, [existing.person_id, next.person_id]);
+        return await ctx.db.get(id);
+
     },
 });
 
 // Delete attendance
-export const remove = mutation({
+export const remove = mutationFor("attendance:remove")({
     args: { id: v.id("attendance") },
     handler: async (ctx, args) => {
+        const row = await ctx.db.get(args.id);
+        if (!row) return { success: true };
+        await prepareServiceCounts(ctx, row.service_id);
         await ctx.db.delete(args.id);
+        await reconcileServiceCounts(ctx, row.service_id);
+        await reconcilePeople(ctx, [row.person_id]);
         return { success: true };
+
     },
 });
 
 // Get attendance by service
-export const getByService = query({
+export const getByService = queryFor("attendance:getByService")({
     args: { serviceId: v.id("services") },
     handler: async (ctx, args) => {
         const records = await ctx.db
@@ -122,7 +117,7 @@ export const getByService = query({
 });
 
 // Get attendance by person
-export const getByPerson = query({
+export const getByPerson = queryFor("attendance:getByPerson")({
     args: { personId: v.id("people") },
     handler: async (ctx, args) => {
         const records = await ctx.db
@@ -142,7 +137,7 @@ export const getByPerson = query({
 });
 
 // Bulk create attendance records
-export const bulkCreate = mutation({
+export const bulkCreate = mutationFor("attendance:bulkCreate")({
     args: {
         records: v.array(v.object({
             service_id: v.id("services"),
@@ -153,30 +148,21 @@ export const bulkCreate = mutation({
         }))
     },
     handler: async (ctx, args) => {
-        const now = new Date().toISOString();
-        const today = now.split('T')[0];
+        const result = [];
+        for (const serviceId of new Set(args.records.map(r => r.service_id))) {
+            const incoming = args.records.filter(r => r.service_id === serviceId);
+            const rows = new Map((await serviceRows(ctx, serviceId)).map(({person_id, first_timer, gave_tithe, made_salvation_decision}) => [person_id, {person_id, first_timer, gave_tithe, made_salvation_decision}]));
+            for (const { service_id, ...row } of incoming) rows.set(row.person_id, { first_timer: undefined, gave_tithe: undefined, made_salvation_decision: undefined, ...rows.get(row.person_id), ...row });
+            await syncServiceAttendance(ctx, serviceId, [...rows.values()]);
+            result.push(...(await serviceRows(ctx, serviceId)).filter(r => incoming.some(i => i.person_id === r.person_id)));
+        }
+        return result;
 
-        // Process each record: set first_visit_date if needed, then insert attendance
-        const ids = await Promise.all(
-            args.records.map(async (record) => {
-                // Only an explicitly marked first timer starts a guest journey.
-                const person = await ctx.db.get(record.person_id);
-                if (record.first_timer && person && !person.first_visit_date) {
-                    await ctx.db.patch(record.person_id, {
-                        first_visit_date: today,
-                        entry_point: person.entry_point || "sunday_service",
-                        updated_at: now,
-                    });
-                }
-                return ctx.db.insert("attendance", { ...record, created_at: now });
-            })
-        );
-        return await Promise.all(ids.map((id) => ctx.db.get(id)));
     },
 });
 
 // Sync attendance for a service (Smart Check-in: Upsert with Metadata)
-export const syncAttendance = mutation({
+export const syncAttendance = mutationFor("attendance:syncAttendance")({
     args: {
         serviceId: v.id("services"),
         // NOW accepts full objects with metadata!
@@ -189,88 +175,30 @@ export const syncAttendance = mutation({
         })),
     },
     handler: async (ctx, args) => {
-        // Get existing attendance for this service
-        const existing = await ctx.db
-            .query("attendance")
-            .withIndex("by_service", (q) => q.eq("service_id", args.serviceId))
-            .collect();
+        await syncServiceAttendance(ctx, args.serviceId, args.attendanceData);
+        return { success: true, upserted: new Set(args.attendanceData.map(r => r.person_id)).size };
 
-        // Create a map for fast lookup of existing records by person_id
-        const existingMap = new Map(existing.map(r => [r.person_id, r]));
-
-        // Sets for tracking IDs
-        const newPersonIds = new Set(args.attendanceData.map(d => d.person_id));
-
-        // 1. Identify Removals (Calculated from input: if in DB but not in input list, delete it)
-        const toRemove = existing.filter((r) => !newPersonIds.has(r.person_id));
-
-        // 2. Identify Upserts (Additions + Updates)
-        const upsertPromises = args.attendanceData.map(async (data) => {
-            const existingRecord = existingMap.get(data.person_id);
-
-            if (existingRecord) {
-                // UPDATE: Patch existing record with new metadata
-                // Only patch if data actually changed to save writes? 
-                // For simplicity, just patch. Convex handles no-op patches efficiently.
-                await ctx.db.patch(existingRecord._id, {
-                    made_salvation_decision: data.made_salvation_decision ?? existingRecord.made_salvation_decision,
-                    gave_tithe: data.gave_tithe ?? existingRecord.gave_tithe,
-                    first_timer: data.first_timer ?? existingRecord.first_timer,
-                    // Preserve creation time
-                });
-            } else {
-                // INSERT: Create new record
-                const now = new Date().toISOString();
-
-                await ctx.db.insert("attendance", {
-                    service_id: args.serviceId,
-                    person_id: data.person_id,
-                    made_salvation_decision: data.made_salvation_decision || false,
-                    gave_tithe: data.gave_tithe || false,
-                    first_timer: data.first_timer || false,
-                    created_at: now,
-                });
-            }
-
-            if (data.first_timer) {
-                const person = await ctx.db.get(data.person_id);
-                if (person && !person.first_visit_date) {
-                    const now = new Date().toISOString();
-                    await ctx.db.patch(data.person_id, {
-                        first_visit_date: now.split("T")[0],
-                        entry_point: person.entry_point || "sunday_service",
-                        updated_at: now,
-                    });
-                }
-            }
-        });
-
-        // Execute all operations
-        await Promise.all([
-            ...toRemove.map((r) => ctx.db.delete(r._id)),
-            ...upsertPromises
-        ]);
-
-        return {
-            success: true,
-            upserted: args.attendanceData.length,
-            removed: toRemove.length,
-        };
     },
 });
 
 
 // Check which people have attended any prior service (for first-timer detection)
-export const getAttendanceHistory = query({
-    args: { personIds: v.array(v.id("people")) },
+export const getAttendanceHistory = queryFor("attendance:getAttendanceHistory")({
+    args: { personIds: v.array(v.id("people")), beforeDate: v.optional(v.string()) },
     handler: async (ctx, args) => {
         const results: Record<string, boolean> = {};
         for (const personId of args.personIds) {
-            const record = await ctx.db
-                .query("attendance")
-                .withIndex("by_person", (q) => q.eq("person_id", personId))
-                .first();
-            results[personId] = !!record;
+            const services = await ctx.db.query("attendance").withIndex("by_person", q => q.eq("person_id", personId)).collect();
+            const meetings = await ctx.db.query("meeting_attendance").withIndex("by_person", q => q.eq("person_id", personId)).collect();
+            results[personId] = false;
+            for (const r of services) {
+                const g = await ctx.db.get(r.service_id);
+                if (g && (!args.beforeDate || g.service_date < args.beforeDate)) results[personId] = true;
+            }
+            for (const r of meetings.filter(r => r.status ? r.status === "present" : r.attended !== false)) {
+                const g = await ctx.db.get(r.meeting_id);
+                if (g && g.status !== "cancelled" && (!args.beforeDate || g.meeting_date < args.beforeDate)) results[personId] = true;
+            }
         }
         return results;
     },

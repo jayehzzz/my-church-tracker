@@ -12,9 +12,7 @@
 -->
 
 <script>
-  import { onMount } from "svelte";
   import { goto } from "$app/navigation";
-  import { browser } from "$app/environment";
 
   import DashboardLayout from "$lib/components/layout/DashboardLayout.svelte";
   import PageHeader from "$lib/components/shared/PageHeader.svelte";
@@ -25,12 +23,13 @@
   import ProfileQuickViewCard from "$lib/components/people/ProfileQuickViewCard.svelte";
   import PeopleDashboard from "./PeopleDashboard.svelte";
   import * as peopleService from "$lib/services/peopleService";
-  import { mockPeopleWithLocation } from "$lib/data/mockPeopleWithLocation";
+  import { getConfigurationError, getDataSource, isDemoMode } from "$lib/convex.js";
 
-  // State - initialize immediately with dynamic mock data so SSR and client load instantly
-  let people = $state(mockPeopleWithLocation);
+  // Live databases start empty until their first response. Demo data is loaded
+  // only after the explicitly selected demo service responds.
+  let people = $state([]);
   let loading = $state(false);
-  let error = $state(null);
+  let error = $state(getDataSource() === "unavailable" ? getConfigurationError() : null);
 
   // Filter state
   let statusFilter = $state("all");
@@ -43,8 +42,8 @@
   let selectedPerson = $state(null);
   let deleting = $state(false);
 
-  // Track if using mock data
-  let usingMockData = $state(false);
+  let usingDemoData = $state(isDemoMode());
+  let hasLoaded = $state(false);
 
   // View Mode: 'list' or 'map'
   let activeView = $state("list");
@@ -73,10 +72,6 @@
     { value: "irregular", label: "Irregular" },
     { value: "dormant", label: "Dormant" },
   ];
-
-  import { mockPeople as centralMockPeople } from "$lib/data/mockData";
-
-  const mockPeople = centralMockPeople;
 
   // Table columns configuration
   const columns = [
@@ -142,19 +137,6 @@
     return variantMap[status] || "secondary";
   }
 
-  // Helper to merge mock location data with people
-  function enhancePeopleWithLocation(list) {
-    const enhanced = list.map((p) => {
-      const loc = mockPeopleWithLocation.find((m) => String(m.id) === String(p.id));
-      return loc ? { ...p, ...loc } : p;
-    });
-    const existingIds = new Set(enhanced.map((p) => String(p.id)));
-    const extraLocationPeople = mockPeopleWithLocation.filter(
-      (p) => !existingIds.has(String(p.id)),
-    );
-    return [...enhanced, ...extraLocationPeople];
-  }
-
   // Filter people by status, role, and activity
   const filteredPeople = $derived.by(() => {
     let filtered = people || [];
@@ -176,15 +158,16 @@
     return filtered;
   });
 
-  // Load people on mount
-  onMount(async () => {
-    await loadPeople();
+  // Start on the client only; data is never substituted while it loads.
+  $effect(() => {
+    if (!hasLoaded) {
+      hasLoaded = true;
+      void loadPeople();
+    }
   });
 
   // Fetch all people from service
   async function loadPeople() {
-    if (!browser) return;
-
     loading = true;
     error = null;
 
@@ -195,23 +178,11 @@
         throw result.error;
       }
 
-      const loadedPeople = result?.data || [];
-      if (loadedPeople.length > 0) {
-        const hasCoords = loadedPeople.some((p) => p.lat && p.lng);
-        people = hasCoords ? loadedPeople : enhancePeopleWithLocation(loadedPeople);
-        usingMockData = loadedPeople.some(
-          (p) => !p._id || String(p.id).length <= 2 || String(p.id).startsWith("mock-"),
-        );
-      } else {
-        people = enhancePeopleWithLocation(mockPeople);
-        usingMockData = true;
-      }
+      people = result?.data || [];
+      usingDemoData = getDataSource() === "demo";
       error = null;
     } catch (e) {
-      console.warn("Failed to load from Convex, using mock data:", e?.message || e);
-      people = enhancePeopleWithLocation(mockPeople);
-      usingMockData = true;
-      error = null; // Clear error since we have mock data
+      error = e?.message || "People could not be loaded.";
     } finally {
       loading = false;
     }
@@ -229,26 +200,27 @@
     isFormOpen = true;
   }
 
-  // Open delete confirmation modal
+  // Open archive confirmation modal
   function handleDeleteClick(person) {
     selectedPerson = person;
     isDeleteModalOpen = true;
   }
 
-  // Confirm delete person
+  // Archive rather than deleting a record with church history.
   async function handleConfirmDelete() {
     if (!selectedPerson) return;
 
     deleting = true;
 
     try {
-      const result = await peopleService.remove(selectedPerson.id);
+      const result = await peopleService.archive(selectedPerson.id);
       if (result.error) {
         throw result.error;
       }
 
-      // Remove from local state
-      people = people.filter((p) => p.id !== selectedPerson.id);
+      people = people.map((p) =>
+        p.id === selectedPerson.id ? { ...p, ...result.data } : p,
+      );
       isDeleteModalOpen = false;
       selectedPerson = null;
     } catch (e) {
@@ -315,8 +287,8 @@
     </Button>
   </div>
 
-  <!-- Mock Data Banner -->
-  {#if usingMockData}
+  <!-- Explicit Demo Banner -->
+  {#if usingDemoData}
     <div
       class="mb-4 p-3 bg-warning/10 border border-warning/30 rounded-lg text-warning text-sm flex items-center gap-2 animate-in delay-1"
     >
@@ -334,8 +306,8 @@
         />
       </svg>
       <span
-        >Using demo data. Configure Convex environment variables to connect to
-        your database.</span
+        >Demo mode: changes are stored only in this browser and can be reset by
+        clearing site data.</span
       >
     </div>
   {/if}
@@ -514,6 +486,12 @@
           onrowclick={handleRowClick}
         />
 
+        {#if !loading && !filteredPeople.length}
+          <p class="py-10 text-center text-sm text-muted-foreground">
+            No people have been recorded in this {usingDemoData ? "demo" : "database"} yet.
+          </p>
+        {/if}
+
         <!-- Profile Quick View Cards -->
         {#if !loading && filteredPeople.length > 0}
           <div class="mt-6">
@@ -568,8 +546,8 @@
   onsave={handleSave}
 />
 
-<!-- Delete Confirmation Modal -->
-<Modal bind:isOpen={isDeleteModalOpen} title="Delete Person" size="sm">
+<!-- Archive Confirmation Modal -->
+<Modal bind:isOpen={isDeleteModalOpen} title="Archive Person" size="sm">
   <div class="text-center">
     <div
       class="w-12 h-12 mx-auto mb-4 bg-destructive/10 rounded-full flex items-center justify-center"
@@ -589,11 +567,11 @@
       </svg>
     </div>
     <p class="text-foreground mb-2">
-      Are you sure you want to delete <strong
+      Archive <strong
         >{selectedPerson?.first_name} {selectedPerson?.last_name}</strong
       >?
     </p>
-    <p class="text-sm text-muted-foreground">This action cannot be undone.</p>
+    <p class="text-sm text-muted-foreground">Their attendance, care, and follow-up history will be kept. You can restore them by changing their status later.</p>
   </div>
 
   {#snippet footer()}
@@ -625,9 +603,9 @@
             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
           />
         </svg>
-        Deleting...
+        Archiving...
       {:else}
-        Delete
+        Archive person
       {/if}
     </Button>
   {/snippet}

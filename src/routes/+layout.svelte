@@ -22,6 +22,7 @@
    */
   import "@fontsource/inter";
   import "../app.css";
+  import AuthGate from "$lib/auth/AuthGate.svelte";
 
   /**
    * Import filter store for initialization and persistence
@@ -90,5 +91,5 @@
     Render child route content
     This is where page components will be inserted
   -->
-  {@render children?.()}
+  <AuthGate>{@render children?.()}</AuthGate>
 </div>

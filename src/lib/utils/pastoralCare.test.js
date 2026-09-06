@@ -35,7 +35,7 @@ describe("pastoral care logic", () => {
     expect(candidates[0]).toMatchObject({ person_id: "p1", priority: "urgent", signal_type: "dormant" });
   });
 
-  it("does not suggest a guest before the three-day welcome threshold", () => {
+  it("does not mix guests into pastoral member-care suggestions", () => {
     const candidates = buildCareCandidates({
       people: [{ ...people[1], first_visit_date: "2026-08-31" }],
       visitations: [],
@@ -110,7 +110,7 @@ describe("pastoral care logic", () => {
     ]);
   });
 
-  it("labels absence and guest signals and suppresses recently completed care", () => {
+  it("labels member absence signals and suppresses recently completed care", () => {
     const candidates = buildCareCandidates({
       people: [
         { id: "p1", member_status: "member", activity_status: "regular" },
@@ -123,10 +123,7 @@ describe("pastoral care logic", () => {
       today: "2026-09-01",
     });
 
-    expect(candidates.map((candidate) => candidate.signal_type)).toEqual([
-      "missed_sundays",
-      "new_guest",
-    ]);
+    expect(candidates.map((candidate) => candidate.signal_type)).toEqual(["missed_sundays"]);
   });
 
   it("splits the shared task queue by due state", () => {
