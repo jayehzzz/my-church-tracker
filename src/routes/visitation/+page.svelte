@@ -11,6 +11,12 @@
   import PersonForm from "$lib/components/forms/PersonForm.svelte";
   import VisitationDetailModal from "$lib/components/visitation/VisitationDetailModal.svelte";
   import { Button, DataTable, Modal, Select } from "$lib/components/ui";
+  import {
+    mockAttendance,
+    mockPeople,
+    mockServices,
+    mockVisitations,
+  } from "$lib/data/mockData.js";
   import { dateRange } from "$lib/stores/filterStore";
   import * as peopleService from "$lib/services/peopleService.js";
   import * as visitationsService from "$lib/services/visitationsService.js";
