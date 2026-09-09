@@ -42,6 +42,10 @@ export const clearablePersonFields = [
     "zip_code",
     "preferred_name",
     "birthday",
+    "birthday_month",
+    "birthday_day",
+    "age_band",
+    "source_church_role",
     "gender",
     "marital_status",
     "employment_status",
@@ -55,6 +59,7 @@ export const clearablePersonFields = [
     "contact_date",
     "contact_method",
     "invited_by_id",
+    "collected_by_id",
     "entry_point",
     "notes",
     "first_visit_date",
@@ -99,16 +104,29 @@ function assertAllowed(field: string, value: unknown, values: readonly string[])
 /** Validates values after Convex argument validation, before database writes. */
 export function validatePersonInput(input: Record<string, unknown>, creating = false) {
     if (creating) {
-        for (const field of ["first_name", "last_name"]) {
-            if (typeof input[field] !== "string" || !input[field].trim()) {
-                throw new Error(`${field} is required`);
-            }
+        if (typeof input.first_name !== "string" || !input.first_name.trim()) {
+            throw new Error("first_name is required");
         }
     }
 
-    for (const field of ["first_name", "last_name"]) {
+    for (const field of ["first_name"]) {
         if (field in input && (typeof input[field] !== "string" || !input[field].trim())) {
             throw new Error(`${field} cannot be blank`);
+        }
+    }
+
+    if ("last_name" in input && input.last_name !== undefined && typeof input.last_name !== "string") {
+        throw new Error("last_name must be text when supplied");
+    }
+    if (input.surname_status === "missing" && typeof input.last_name === "string" && input.last_name.trim()) {
+        throw new Error("A missing surname cannot contain a surname value");
+    }
+    if (input.surname_status !== undefined && !["known", "missing"].includes(input.surname_status as string)) {
+        throw new Error("surname_status has an unsupported value");
+    }
+    for (const [field, maximum] of [["birthday_month", 12], ["birthday_day", 31]] as const) {
+        if (field in input && input[field] !== undefined && (!Number.isInteger(input[field]) || Number(input[field]) < 1 || Number(input[field]) > maximum)) {
+            throw new Error(`${field} must be a valid calendar component`);
         }
     }
 

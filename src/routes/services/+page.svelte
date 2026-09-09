@@ -57,6 +57,14 @@
 
   // Filter state
   let serviceTypeFilter = $state("all");
+  let attendanceRingVisibility = $state({ members: true, guests: true, tithers: true });
+
+  function toggleAttendanceRing(key) {
+    attendanceRingVisibility = {
+      ...attendanceRingVisibility,
+      [key]: !attendanceRingVisibility[key],
+    };
+  }
 
   // Column visibility state for Service List view
   let columnVisibility = $state({
@@ -75,6 +83,8 @@
   let isDeleteModalOpen = $state(false);
   let isDetailsModalOpen = $state(false);
   let isIndividualsModalOpen = $state(false);
+  let isOutcomeModalOpen = $state(false);
+  let selectedOutcome = $state(null);
   let selectedService = $state(null);
   let deleting = $state(false);
 
@@ -356,6 +366,7 @@
       guests: s.guests_count || 0,
       decisions: s.salvation_decisions || 0,
       firstTimers: attendanceRecords.filter((record) => String(record.service_id) === String(s.id) && record.first_timer).length,
+      tithers: s.tithers_count || 0,
       members: (s.total_attendance || 0) - (s.guests_count || 0),
         id: s.id,
         topic: s.sermon_topic,
@@ -370,6 +381,25 @@
       handleServiceClick(service);
     }
   }
+
+  function openOutcomeModal(key) {
+    selectedOutcome = key;
+    isOutcomeModalOpen = true;
+  }
+
+  const outcomeModalData = $derived(() => {
+    const isTithers = selectedOutcome === "tithers";
+    return {
+      title: isTithers ? "Tithers by service" : "Salvation decisions by service",
+      total: isTithers ? kpis().totalTithers : kpis().totalDecisions,
+      rows: [...filteredServices()]
+        .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)))
+        .map((service) => ({
+          service,
+          count: Number(isTithers ? service.tithers_count : service.salvation_decisions) || 0,
+        })),
+    };
+  });
 
   // Dashboard insights - sorted services by attendance
   const sortedByAttendance = $derived(() => {
@@ -422,14 +452,24 @@
 
   // Service type distribution
   const typeDistribution = $derived(() => {
-    const typeCounts = filteredServices().reduce((acc, s) => {
+    // Deliberately exclude the type filter. Selecting a bar must not make the
+    // selector itself disappear (and leave someone stuck on "Special").
+    const range = $dateRange;
+    const query = searchQuery.trim().toLowerCase();
+    const servicesInScope = services.filter((service) => {
+      if (!isWithinDateRange(service.service_date, range)) return false;
+      return !query || service.sermon_topic?.toLowerCase().includes(query) ||
+        service.sermon_speaker?.toLowerCase().includes(query) ||
+        service.location?.toLowerCase().includes(query);
+    });
+    const typeCounts = servicesInScope.reduce((acc, s) => {
       const type = s.service_type || "unknown";
       acc[type] = (acc[type] || 0) + 1;
       return acc;
     }, {});
     const typeEntries = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
     const maxCount = Math.max(...Object.values(typeCounts), 1);
-    return { typeCounts, typeEntries, maxCount };
+    return { typeCounts, typeEntries, maxCount, total: servicesInScope.length };
   });
 
   // Top attendees leaderboard
@@ -1156,11 +1196,13 @@
                 <AttendanceTrend
                   data={trendData()}
                   title="Attendance trend"
+                  periodLabel={$dateRange.label}
                   onPointClick={handleChartPointClick}
                   comparisonOptions={[
                     { key: "guests", label: "Guests", color: "warning" },
                     { key: "decisions", label: "Salvation decisions", color: "success" },
                     { key: "firstTimers", label: "First timers", color: "warning" },
+                    { key: "tithers", label: "Tithers", color: "warning" },
                   ]}
                 />
               </FullscreenWrapper>
@@ -1239,56 +1281,66 @@
           </section>
 
           <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <section class="rounded-2xl border border-border bg-card p-5" aria-labelledby="attendance-mix-title">
+            <section class="rounded-2xl border border-border bg-card p-5 {typeDistribution().typeEntries.length <= 1 ? 'lg:col-span-2' : ''}" aria-labelledby="attendance-mix-title">
               <div>
                 <h2 id="attendance-mix-title" class="text-sm font-semibold text-foreground">Attendance &amp; outcomes</h2>
                 <p class="mt-1 text-xs text-muted-foreground">Member and guest attendance alongside recorded ministry outcomes.</p>
               </div>
 
               <div class="mt-5 flex flex-col items-center gap-6 sm:flex-row">
-                <div class="relative h-32 w-32 shrink-0" role="img" aria-label="{donutData().memberPct}% members and {donutData().guestPct}% guests">
+                <div class="relative h-36 w-36 shrink-0" role="img" aria-label="Attendance rings: {donutData().memberPct}% members, {donutData().guestPct}% guests, and {kpis().titherRate}% tither attendances among members">
                   <svg viewBox="0 0 36 36" class="h-full w-full -rotate-90">
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-secondary" />
-                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-primary" stroke-dasharray="{donutData().memberPct} {100 - donutData().memberPct}" stroke-linecap="round" />
-                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-info" stroke-dasharray="{donutData().guestPct} {100 - donutData().guestPct}" stroke-dashoffset="-{donutData().memberPct}" stroke-linecap="round" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-primary" style="opacity: {attendanceRingVisibility.members ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.members ? `${donutData().memberPct} ${100 - donutData().memberPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-linecap="round" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-info" style="opacity: {attendanceRingVisibility.guests ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.guests ? `${donutData().guestPct} ${100 - donutData().guestPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-dashoffset="-{donutData().memberPct}" stroke-linecap="round" />
+                    <circle cx="18" cy="18" r="11.5" fill="none" stroke="currentColor" stroke-width="2.5" class="text-secondary" pathLength="100" />
+                    <circle cx="18" cy="18" r="11.5" fill="none" stroke="currentColor" stroke-width="2.5" class="text-warning" pathLength="100" style="opacity: {attendanceRingVisibility.tithers ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.tithers ? `${kpis().titherRate} ${100 - kpis().titherRate}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-linecap="round" />
                   </svg>
                   <div class="absolute inset-0 flex flex-col items-center justify-center">
                     <span class="text-xl font-semibold text-foreground">{donutData().total}</span>
                     <span class="text-[10px] uppercase tracking-wide text-muted-foreground">attendances</span>
                   </div>
                 </div>
-                <div class="w-full space-y-4">
-                  <div class="flex items-center justify-between gap-4">
+                <div class="w-full space-y-2">
+                  <button type="button" aria-pressed={attendanceRingVisibility.members} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.members ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('members')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-primary"></span>Members</span>
                     <span class="text-sm font-semibold text-foreground">{donutData().members} <span class="font-normal text-muted-foreground">({donutData().memberPct}%)</span></span>
-                  </div>
-                  <div class="flex items-center justify-between gap-4">
+                  </button>
+                  <button type="button" aria-pressed={attendanceRingVisibility.guests} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.guests ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('guests')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-info"></span>Guests</span>
                     <span class="text-sm font-semibold text-foreground">{donutData().guests} <span class="font-normal text-muted-foreground">({donutData().guestPct}%)</span></span>
-                  </div>
+                  </button>
+                  <button type="button" aria-pressed={attendanceRingVisibility.tithers} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.tithers ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('tithers')}>
+                    <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-warning"></span>Tithers <span class="text-[10px] text-muted-foreground">inner ring</span></span>
+                    <span class="text-sm font-semibold text-foreground">{kpis().totalTithers} <span class="font-normal text-muted-foreground">({kpis().titherRate}% of members)</span></span>
+                  </button>
+                  <p class="px-2 text-[11px] text-muted-foreground">Select a label to show or hide its ring. Tithers are a subset of member attendances, so they use the inner ring.</p>
                 </div>
               </div>
 
               <div class="mt-6 grid grid-cols-2 gap-3 border-t border-border pt-4">
-                <div class="rounded-xl bg-secondary/25 p-3">
+                <button type="button" class="rounded-xl bg-secondary/25 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openOutcomeModal('decisions')}>
                   <div class="flex items-center justify-between gap-2">
                     <span class="text-xs text-muted-foreground">Salvation decisions</span>
                     <span class="h-2 w-2 rounded-full bg-success"></span>
                   </div>
                   <p class="mt-2 text-2xl font-semibold text-foreground">{kpis().totalDecisions}</p>
                   <p class="mt-1 text-[11px] text-muted-foreground">{kpis().decisionRate}% of attendances</p>
-                </div>
-                <div class="rounded-xl bg-secondary/25 p-3">
+                  <span class="mt-2 block text-[10px] font-semibold text-primary">View service breakdown →</span>
+                </button>
+                <button type="button" class="rounded-xl bg-secondary/25 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openOutcomeModal('tithers')}>
                   <div class="flex items-center justify-between gap-2">
                     <span class="text-xs text-muted-foreground">Tithers</span>
                     <span class="h-2 w-2 rounded-full bg-warning"></span>
                   </div>
                   <p class="mt-2 text-2xl font-semibold text-foreground">{kpis().totalTithers}</p>
                   <p class="mt-1 text-[11px] text-muted-foreground">{kpis().titherRate}% of members</p>
-                </div>
+                  <span class="mt-2 block text-[10px] font-semibold text-primary">View service breakdown →</span>
+                </button>
               </div>
             </section>
 
+            {#if typeDistribution().typeEntries.length > 1}
             <section class="rounded-2xl border border-border bg-card p-5" aria-labelledby="service-mix-title">
               <div>
                 <h2 id="service-mix-title" class="text-sm font-semibold text-foreground">Service mix</h2>
@@ -1296,8 +1348,8 @@
               </div>
               <div class="mt-5 space-y-4">
                 {#each typeDistribution().typeEntries as [type, count]}
-                  {@const pct = Math.round((count / filteredServices().length) * 100)}
-                  <button type="button" class="w-full rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-primary" onclick={() => (serviceTypeFilter = type)}>
+                  {@const pct = Math.round((count / Math.max(typeDistribution().total, 1)) * 100)}
+                  <button type="button" aria-pressed={serviceTypeFilter === type} class="w-full rounded-lg text-left outline-none transition-colors hover:bg-secondary/30 focus-visible:ring-2 focus-visible:ring-primary" onclick={() => (serviceTypeFilter = serviceTypeFilter === type ? "all" : type)}>
                     <span class="mb-2 flex items-center justify-between text-sm">
                       <span class="font-medium text-foreground">{formatServiceType(type)}</span>
                       <span class="text-muted-foreground">{count} · {pct}%</span>
@@ -1309,6 +1361,7 @@
                 {/each}
               </div>
             </section>
+            {/if}
           </div>
 
           <details class="overflow-hidden rounded-2xl border border-border bg-card">
@@ -1320,7 +1373,9 @@
               <span class="text-xs font-semibold text-primary">Show matrix</span>
             </summary>
             <div class="border-t border-border p-4">
-              <WeeklyAttendanceMatrix services={filteredServices()} {people} onServiceClick={handleServiceClick} />
+              <FullscreenWrapper title="Weekly attendance by person">
+                <WeeklyAttendanceMatrix services={services} {people} maxServices={24} initialServiceCount={16} onServiceClick={handleServiceClick} />
+              </FullscreenWrapper>
             </div>
           </details>
         {/if}
@@ -1328,6 +1383,43 @@
     {/if}
   {/if}
 </DashboardLayout>
+
+<Modal bind:isOpen={isOutcomeModalOpen} title={outcomeModalData().title} size="md">
+  <div class="space-y-4">
+    <div class="rounded-xl border border-primary/20 bg-primary/10 p-4">
+      <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Selected period total</p>
+      <p class="mt-1 text-3xl font-semibold text-foreground">{outcomeModalData().total}</p>
+    </div>
+    <div>
+      <h3 class="mb-2 text-sm font-semibold text-foreground">Service breakdown</h3>
+      {#if outcomeModalData().rows.length}
+        <div class="max-h-[360px] divide-y divide-border overflow-y-auto rounded-xl border border-border">
+          {#each outcomeModalData().rows as row (row.service.id)}
+            <button
+              type="button"
+              class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-secondary/35"
+              onclick={() => {
+                isOutcomeModalOpen = false;
+                handleServiceClick(row.service);
+              }}
+            >
+              <span class="min-w-0">
+                <span class="block text-sm font-medium text-foreground">{formatShortDate(row.service.service_date)}</span>
+                <span class="mt-0.5 block truncate text-xs text-muted-foreground">{row.service.sermon_topic || formatServiceType(row.service.service_type)}</span>
+              </span>
+              <span class="flex items-center gap-2 text-lg font-semibold {selectedOutcome === 'tithers' ? 'text-warning' : 'text-success'}">
+                {row.count}
+                <svg class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 5 7 7-7 7" /></svg>
+              </span>
+            </button>
+          {/each}
+        </div>
+      {:else}
+        <p class="rounded-xl border border-border p-5 text-sm text-muted-foreground">No services match the selected period.</p>
+      {/if}
+    </div>
+  </div>
+</Modal>
 
 <!-- Service Details Modal -->
 <Modal bind:isOpen={isDetailsModalOpen} title="Service Details" size="lg">

@@ -10,6 +10,8 @@
 
 import type * as access from "../access.js";
 import type * as attendance from "../attendance.js";
+import type * as churchImport from "../churchImport.js";
+import type * as churchSettings from "../churchSettings.js";
 import type * as crm from "../crm.js";
 import type * as crons from "../crons.js";
 import type * as evangelism from "../evangelism.js";
@@ -22,6 +24,7 @@ import type * as lib_security from "../lib/security.js";
 import type * as maintenance from "../maintenance.js";
 import type * as meetingPrograms from "../meetingPrograms.js";
 import type * as meetings from "../meetings.js";
+import type * as memories from "../memories.js";
 import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
 import type * as people from "../people.js";
@@ -42,6 +45,8 @@ import type {
 declare const fullApi: ApiFromModules<{
   access: typeof access;
   attendance: typeof attendance;
+  churchImport: typeof churchImport;
+  churchSettings: typeof churchSettings;
   crm: typeof crm;
   crons: typeof crons;
   evangelism: typeof evangelism;
@@ -54,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   maintenance: typeof maintenance;
   meetingPrograms: typeof meetingPrograms;
   meetings: typeof meetings;
+  memories: typeof memories;
   migrations: typeof migrations;
   notifications: typeof notifications;
   people: typeof people;

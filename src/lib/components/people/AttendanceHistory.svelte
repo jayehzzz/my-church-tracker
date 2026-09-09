@@ -3,6 +3,9 @@
 
     let { attendanceHistory, onRecordClick } = $props();
 
+    let visibleCount = $state(15);
+    $effect(() => { attendanceHistory; visibleCount = 15; });
+
     function formatDate(dateStr) {
         if (!dateStr) return "";
         return new Date(dateStr).toLocaleDateString("en-US", {
@@ -82,8 +85,22 @@
                 </p>
             </div>
         {:else}
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm">
+            <ul class="mobile-attendance divide-y divide-border">
+                {#each attendanceHistory.slice(0, visibleCount) as record}
+                    <li class="p-5 space-y-2">
+                        <div class="flex items-start justify-between gap-3">
+                            <p class="font-medium text-foreground">{gatheringName(record)}</p>
+                            <span class="text-xs text-muted-foreground whitespace-nowrap">{gatheringTime(record)}</span>
+                        </div>
+                        <p class="text-sm text-muted-foreground">{formatDate(gatheringDate(record))}</p>
+                        {#if gathering(record).sermon_topic || gathering(record).notes}<p class="text-xs text-muted-foreground break-words">{gathering(record).sermon_topic || gathering(record).notes}</p>{/if}
+                        {#if record.first_timer || record.first_program_attendance}<p class="text-xs text-primary">First attendance</p>{/if}
+                        {#if !record.meeting && onRecordClick}<button type="button" class="text-sm text-primary hover:underline" onclick={() => onRecordClick(record)} aria-label="View service on {formatDate(gatheringDate(record))}">View service →</button>{/if}
+                    </li>
+                {/each}
+            </ul>
+            <div class="desktop-attendance overflow-x-auto">
+                <table class="w-full min-w-[600px] text-left text-sm">
                     <thead class="bg-secondary/50 border-b border-border">
                         <tr>
                             <th class="px-6 py-4 font-semibold text-foreground"
@@ -101,15 +118,18 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-border">
-                        {#each attendanceHistory as record}
+                        {#each attendanceHistory.slice(0, visibleCount) as record}
                             <tr
-                                class="group hover:bg-secondary/30 transition-colors cursor-pointer"
-                                onclick={() => onRecordClick?.(record)}
+                                class="group hover:bg-secondary/30 transition-colors"
                             >
                                 <td
                                     class="px-6 py-4 font-medium text-foreground group-hover:text-primary transition-colors"
                                 >
-                                    {formatDate(gatheringDate(record))}
+                                    {#if !record.meeting && onRecordClick}
+                                        <button type="button" class="text-primary hover:underline text-left" onclick={() => onRecordClick(record)} aria-label="View service on {formatDate(gatheringDate(record))}">{formatDate(gatheringDate(record))}</button>
+                                    {:else}
+                                        {formatDate(gatheringDate(record))}
+                                    {/if}
                                 </td>
                                 <td class="px-6 py-4">
                                     <div class="flex flex-wrap items-center gap-1.5">
@@ -138,6 +158,15 @@
                     </tbody>
                 </table>
             </div>
+            <div class="flex flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-4 text-sm text-muted-foreground">
+                <span>Showing {Math.min(visibleCount, attendanceHistory.length)} of {attendanceHistory.length} records</span>
+                {#if visibleCount < attendanceHistory.length}<button type="button" class="text-primary hover:underline" onclick={() => visibleCount += 15}>Show more attendance</button>{/if}
+            </div>
         {/if}
     </div>
 </div>
+
+<style>
+    .mobile-attendance { display: none; }
+    @media(max-width: 639px) { .mobile-attendance { display: block; } .desktop-attendance { display: none; } }
+</style>

@@ -25,6 +25,7 @@
         disabled = false,
         error = "",
         required = false,
+        ariaLabel = "",
         onchange,
         id = `searchable-select-${Math.random().toString(36).slice(2, 9)}`,
         ...restProps
@@ -156,6 +157,7 @@
         }}
         role="button"
         tabindex="0"
+        aria-label={ariaLabel || label || placeholder}
         onkeydown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
                 if (!disabled) {

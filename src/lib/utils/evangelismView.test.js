@@ -42,7 +42,7 @@ describe("evangelism view model", () => {
     expect(rows.find((row) => row.id === "c1")).toMatchObject({
       invited_by_name: "Samuel Owusu",
       journey_key: "engaged",
-      journey_label: "Saved · Visited",
+      journey_label: "Saved · Attended",
       follow_up_key: "scheduled",
     });
     expect(rows.find((row) => row.id === "c2")).toMatchObject({ journey_key: "joined", follow_up_key: "complete" });

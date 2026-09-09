@@ -1,7 +1,9 @@
-import { queryFor, mutationFor } from "./lib/security";
+import { developmentGatherings, developmentPresent } from "../src/lib/utils/developmentRecords.js";
+import { queryFor, mutationFor, authenticatedUser, forbidden, isAdmin } from "./lib/security";
 
 import { v } from "convex/values";
 import {
+    assertDate,
     canonicalMemberStatus,
     clearablePersonFields,
     normalizeEmail,
@@ -35,7 +37,8 @@ async function historyCounts(ctx: any, personId: any) {
         attendance, meetingAttendance, programmeLeaders, programmeMembers,
         visitations, visitsLed, followUps, followUpsLed, assignments,
         assignmentsLed, tasks, tasksAssigned, commitments, commitmentsLed,
-        plans, plansLed, invitedPeople,
+        plans, plansLed, invitedPeople, agreements, agreementReviews, collectedPeople, supportedAgreements,
+        collectorCredits, collectedContactCredits, registerEntries, visitEvidence, importRows,
     ] = await Promise.all([
         ctx.db.query("attendance").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
         ctx.db.query("meeting_attendance").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
@@ -54,13 +57,23 @@ async function historyCounts(ctx: any, personId: any) {
         ctx.db.query("attendance_plans").withIndex("by_person_date", (q: any) => q.eq("person_id", personId)).collect(),
         ctx.db.query("attendance_plans").withIndex("by_leader_date", (q: any) => q.eq("leader_id", personId)).collect(),
         ctx.db.query("people").withIndex("by_invited_by", (q: any) => q.eq("invited_by_id", personId)).collect(),
+        ctx.db.query("growth_agreements").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
+        ctx.db.query("growth_agreement_reviews").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
+        ctx.db.query("people").withIndex("by_collected_by", (q: any) => q.eq("collected_by_id", personId)).collect(),
+        ctx.db.query("growth_agreements").withIndex("by_supporter", (q: any) => q.eq("supporting_person_id", personId)).collect(),
+        ctx.db.query("contact_collectors").withIndex("by_collector", (q: any) => q.eq("collector_id", personId)).collect(),
+        ctx.db.query("contact_collectors").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
+        ctx.db.query("service_register_entries").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
+        ctx.db.query("attendance_visit_evidence").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
+        ctx.db.query("church_import_rows").collect().then((rows: any[]) => rows.filter(row => row.target_person_id === personId)),
     ]);
 
     return {
         attendance, meetingAttendance, programmeLeaders, programmeMembers,
         visitations, visitsLed, followUps, followUpsLed, assignments,
         assignmentsLed, tasks, tasksAssigned, commitments, commitmentsLed,
-        plans, plansLed, invitedPeople,
+        plans, plansLed, invitedPeople, agreements, agreementReviews, collectedPeople, supportedAgreements,
+        collectorCredits, collectedContactCredits, registerEntries, visitEvidence, importRows,
     };
 }
 
@@ -75,7 +88,7 @@ export const getAll = queryFor("people:getAll")({
         const people = await ctx.db.query("people").collect();
         return people
             .map(canonicalPerson)
-            .sort((a, b) => a.last_name.localeCompare(b.last_name));
+            .sort((a, b) => (a.last_name || "").localeCompare(b.last_name || ""));
     },
 });
 
@@ -106,7 +119,8 @@ export const getById = queryFor("people:getById")({
 export const create = mutationFor("people:create")({
     args: {
         first_name: v.string(),
-        last_name: v.string(),
+        last_name: v.optional(v.string()),
+        surname_status: v.optional(v.union(v.literal("known"), v.literal("missing"))),
         email: v.optional(v.string()),
         phone: v.optional(v.string()),
 
@@ -119,6 +133,10 @@ export const create = mutationFor("people:create")({
         // Demographics
         preferred_name: v.optional(v.string()),
         birthday: v.optional(v.string()),
+        birthday_month: v.optional(v.float64()),
+        birthday_day: v.optional(v.float64()),
+        age_band: v.optional(v.string()),
+        source_church_role: v.optional(v.string()),
         date_of_birth: v.optional(v.string()), // Alias
         gender: v.optional(v.string()),
         marital_status: v.optional(v.string()),
@@ -138,6 +156,7 @@ export const create = mutationFor("people:create")({
         contact_date: v.optional(v.string()),
         contact_method: v.optional(v.string()),
         invited_by_id: v.optional(v.id("people")),
+        collected_by_id: v.optional(v.id("people")),
         entry_point: v.optional(v.string()), // How they found the church
         notes: v.optional(v.string()),
 
@@ -161,7 +180,8 @@ export const create = mutationFor("people:create")({
         const peopleData: any = {
             ...rest,
             first_name: rest.first_name.trim(),
-            last_name: rest.last_name.trim(),
+            last_name: rest.last_name?.trim() || "",
+            surname_status: rest.surname_status || (rest.last_name?.trim() ? "known" : "missing"),
             email: normalizeEmail(rest.email),
             phone: rest.phone?.trim() || undefined,
             member_status: canonicalMemberStatus(rest.member_status),
@@ -186,6 +206,7 @@ export const update = mutationFor("people:update")({
         // Identity
         first_name: v.optional(v.string()),
         last_name: v.optional(v.string()),
+        surname_status: v.optional(v.union(v.literal("known"), v.literal("missing"))),
         email: v.optional(v.string()),
         phone: v.optional(v.string()),
 
@@ -198,6 +219,10 @@ export const update = mutationFor("people:update")({
         // Demographics
         preferred_name: v.optional(v.string()),
         birthday: v.optional(v.string()),
+        birthday_month: v.optional(v.float64()),
+        birthday_day: v.optional(v.float64()),
+        age_band: v.optional(v.string()),
+        source_church_role: v.optional(v.string()),
         date_of_birth: v.optional(v.string()), // Alias for birthday
         gender: v.optional(v.string()),
         marital_status: v.optional(v.string()),
@@ -217,6 +242,7 @@ export const update = mutationFor("people:update")({
         contact_date: v.optional(v.string()),
         contact_method: v.optional(v.string()),
         invited_by_id: v.optional(v.id("people")),
+        collected_by_id: v.optional(v.id("people")),
         entry_point: v.optional(v.string()), // How they found the church
         notes: v.optional(v.string()),
 
@@ -248,6 +274,8 @@ export const update = mutationFor("people:update")({
 
         if (updates.first_name !== undefined) updates.first_name = updates.first_name.trim();
         if (updates.last_name !== undefined) updates.last_name = updates.last_name.trim();
+        if (updates.last_name === "") updates.surname_status = "missing";
+        if (updates.last_name && updates.surname_status === undefined) updates.surname_status = "known";
         if (updates.email !== undefined) updates.email = normalizeEmail(updates.email);
         if (updates.phone !== undefined) updates.phone = updates.phone.trim() || undefined;
 
@@ -367,6 +395,12 @@ async function mergeSafety(ctx: any, sourceId: any, targetId: any) {
     if (hasSame(sourceReferences.plans, targetReferences.plans, (row) => row.service_date)) {
         conflicts.push("Both records have an attendance plan for the same service date.");
     }
+    if (hasSame(sourceReferences.registerEntries, targetReferences.registerEntries, (row) => String(row.service_id))) {
+        conflicts.push("Both records have a source register entry for the same service.");
+    }
+    if (hasSame(sourceReferences.collectorCredits, targetReferences.collectorCredits, (row) => String(row.person_id))) {
+        conflicts.push("Both records are credited as collectors for the same contact.");
+    }
     if (hasSame(
         sourceReferences.assignments.filter((row: any) => row.status === "active"),
         targetReferences.assignments.filter((row: any) => row.status === "active"),
@@ -460,6 +494,15 @@ export const mergeReviewed = mutationFor("people:mergeReviewed")({
         await patchAll(refs.plans, { person_id: args.targetId });
         await patchAll(refs.plansLed, { leader_id: args.targetId });
         await patchAll(refs.invitedPeople, { invited_by_id: args.targetId });
+        await patchAll(refs.agreements, { person_id: args.targetId });
+        await patchAll(refs.agreementReviews, { person_id: args.targetId });
+        await patchAll(refs.collectedPeople, { collected_by_id: args.targetId });
+        await patchAll(refs.collectorCredits, { collector_id: args.targetId });
+        await patchAll(refs.collectedContactCredits, { person_id: args.targetId });
+        await patchAll(refs.registerEntries, { person_id: args.targetId });
+        await patchAll(refs.visitEvidence, { person_id: args.targetId });
+        await patchAll(refs.importRows, { target_person_id: args.targetId });
+        await patchAll(refs.supportedAgreements, { supporting_person_id: args.targetId });
         await patchAll(review.allAssignments.filter((row: any) => row.assigned_by_id === args.sourceId), { assigned_by_id: args.targetId });
         await patchAll(review.allTasks.filter((row: any) => row.created_by_id === args.sourceId), { created_by_id: args.targetId });
         await patchAll(review.allTasks.filter((row: any) => row.completed_by_id === args.sourceId), { completed_by_id: args.targetId });
@@ -494,7 +537,7 @@ export const getByStatus = queryFor("people:getByStatus")({
         ).flat();
         return people
             .map(canonicalPerson)
-            .sort((a, b) => a.last_name.localeCompare(b.last_name));
+            .sort((a, b) => (a.last_name || "").localeCompare(b.last_name || ""));
     },
 });
 
@@ -508,9 +551,210 @@ export const search = queryFor("people:search")({
             .filter(
                 (p) =>
                     p.first_name.toLowerCase().includes(term) ||
-                    p.last_name.toLowerCase().includes(term)
+                    (p.last_name || "").toLowerCase().includes(term)
             )
             .map(canonicalPerson)
-            .sort((a, b) => a.last_name.localeCompare(b.last_name));
+            .sort((a, b) => (a.last_name || "").localeCompare(b.last_name || ""));
+    },
+});
+
+// Shared collection credit remains deliberately independent from both an
+// inviter and follow-up assignment. This replaces the single legacy field for
+// new shared-attribution work without rewriting existing records.
+export const getCollectors = queryFor("people:getCollectors")({
+    args: { personId: v.id("people") },
+    handler: async (ctx, args) => {
+        const rows = await ctx.db.query("contact_collectors")
+            .withIndex("by_person", q => q.eq("person_id", args.personId)).collect();
+        return (await Promise.all(rows.map(async row => {
+            const collector = await ctx.db.get(row.collector_id);
+            return collector ? { id: collector._id, first_name: collector.first_name, last_name: collector.last_name, source_key: row.source_key } : null;
+        }))).filter(Boolean);
+    },
+});
+
+export const setCollectors = mutationFor("people:setCollectors")({
+    args: { personId: v.id("people"), collectorIds: v.array(v.id("people")) },
+    handler: async (ctx, args) => {
+        const user = authenticatedUser(ctx);
+        if (!isAdmin(user)) forbidden();
+        if (!await ctx.db.get(args.personId)) throw new Error("Person not found");
+        const ids = [...new Set(args.collectorIds.map(String))];
+        if (ids.length !== args.collectorIds.length) throw new Error("Choose each collector once");
+        if (ids.includes(String(args.personId))) throw new Error("A contact cannot collect themselves");
+        for (const collectorId of args.collectorIds) if (!await ctx.db.get(collectorId)) throw new Error("Collector not found");
+        const existing = await ctx.db.query("contact_collectors")
+            .withIndex("by_person", q => q.eq("person_id", args.personId)).collect();
+        const wanted = new Set(ids);
+        for (const row of existing) if (!wanted.has(String(row.collector_id))) await ctx.db.delete(row._id);
+        for (const collectorId of args.collectorIds) {
+            if (!existing.some(row => row.collector_id === collectorId)) {
+                await ctx.db.insert("contact_collectors", { person_id: args.personId, collector_id: collectorId, created_at: new Date().toISOString() });
+            }
+        }
+        return await ctx.db.query("contact_collectors").withIndex("by_person", q => q.eq("person_id", args.personId)).collect();
+    },
+});
+
+// Reviews preserve earlier conversations; account roles and membership never change here.
+export const addDiscipleshipReview = mutationFor("people:addDiscipleshipReview")({
+    args: {
+        id: v.id("people"),
+        focus: v.union(v.literal("getting_connected"), v.literal("foundations"), v.literal("growing_in_faith"), v.literal("serving"), v.literal("preparing_to_lead"), v.literal("leading")),
+        understanding: v.string(),
+        next_step: v.string(),
+        conversation_date: v.string(),
+        next_review_date: v.optional(v.string()),
+    },
+    handler: async (ctx, args) => {
+        const user = authenticatedUser(ctx);
+        if (!user.can_view_confidential) forbidden();
+        const person = await ctx.db.get(args.id);
+        if (!person) throw new Error("Person not found or unavailable");
+        assertDate("Conversation date", args.conversation_date);
+        const now = new Date().toISOString();
+        if (args.conversation_date > now.slice(0, 10)) throw new Error("The conversation date cannot be in the future");
+        if (args.next_review_date) {
+            assertDate("Next review date", args.next_review_date);
+            if (args.next_review_date < args.conversation_date) throw new Error("Next review must be on or after the conversation");
+        }
+        const understanding = args.understanding.trim();
+        const next_step = args.next_step.trim();
+        if (!understanding || !next_step) throw new Error("Record the conversation and an agreed next step");
+        if (understanding.length > 3000 || next_step.length > 1500) throw new Error("Keep the conversation within 3000 characters and next step within 1500");
+        const review = {
+            focus: args.focus, understanding, next_step,
+            conversation_date: args.conversation_date,
+            ...(args.next_review_date ? { next_review_date: args.next_review_date } : {}),
+            recorded_at: now, recorded_by_user_id: user._id,
+            recorded_by_name: user.display_name || "Church leader",
+        };
+        await ctx.db.patch(args.id, {
+            discipleship_reviews: [...(person.discipleship_reviews || []), review],
+            updated_at: now,
+        });
+        return await ctx.db.get(args.id);
+    },
+});
+
+const developmentDate = (label: string, value: string) => assertDate(label, value);
+const developmentText = (label: string, value: string, max: number) => {
+    const text = value.trim();
+    if (!text) throw new Error(`${label} is required`);
+    if (text.length > max) throw new Error(`${label} must be ${max} characters or fewer`);
+    return text;
+};
+
+// This is intentionally a person-scoped evidence response, not a replacement
+// for the admin gathering APIs. RLS has already established that every person
+// and attendance row is in the caller's scope before this handler runs.
+export const getDevelopmentSummary = queryFor("people:getDevelopmentSummary")({
+    args: { ids: v.array(v.id("people")), from: v.optional(v.string()), to: v.optional(v.string()) },
+    handler: async (ctx, args) => {
+        if (args.ids.length < 1 || args.ids.length > 2) throw new Error("Choose one or two people");
+        const ids = [...new Set(args.ids.map(String))];
+        if (ids.length !== args.ids.length) throw new Error("Choose each person once");
+        const people = await Promise.all(args.ids.map(id => ctx.db.get(id)));
+        if (people.some(person => !person || person.member_status === "archived")) throw new Error("Person not found or unavailable");
+        const user = authenticatedUser(ctx);
+        const now = new Date();
+        const from = args.from || new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 3, 1)).toISOString().slice(0, 10);
+        const to = args.to || new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)).toISOString().slice(0, 10);
+        developmentDate("Period start", from); developmentDate("Period end", to);
+        if (from > to || to > now.toISOString().slice(0, 10) || Number(to.slice(0,4)) - Number(from.slice(0,4)) >= 10) throw new Error("Invalid reporting period");
+        const [allServices, allMeetings] = await Promise.all([
+            ctx.db.query("services").withIndex("by_service_date", q => q.gte("service_date", from).lte("service_date", to)).collect(),
+            ctx.db.query("meetings").withIndex("by_meeting_date", q => q.gte("meeting_date", from).lte("meeting_date", to)).collect(),
+        ]);
+        const programmes = (await Promise.all([
+            ...[...new Set(allMeetings.flatMap(m => m.program_id ? [m.program_id] : []))].map(id => ctx.db.get(id)),
+            ...[...new Set(allMeetings.filter(m => !m.program_id).map(m => ({ flow_prayer:"flow_service", farley_prayer:"acts_prayer" }[m.meeting_type] || m.meeting_type)))].map(type => ctx.db.query("meeting_programs").withIndex("by_meeting_type", q => q.eq("meeting_type",type)).first()),
+        ])).filter(Boolean);
+        const opportunities = developmentGatherings(allServices, allMeetings, programmes);
+        const services = new Map(opportunities.filter(g => g.kind === "service").map(g => [g.id, g]));
+        return await Promise.all(people.map(async person => {
+            const id = person!._id;
+            const [serviceRows, meetingRows, collected, sharedCollectorRows, invited, agreements] = await Promise.all([
+                ctx.db.query("attendance").withIndex("by_person", q => q.eq("person_id", id)).collect(),
+                ctx.db.query("meeting_attendance").withIndex("by_person", q => q.eq("person_id", id)).collect(),
+                ctx.db.query("people").withIndex("by_collected_by", q => q.eq("collected_by_id", id)).collect(),
+                ctx.db.query("contact_collectors").withIndex("by_collector", q => q.eq("collector_id", id)).collect(),
+                ctx.db.query("people").withIndex("by_invited_by", q => q.eq("invited_by_id", id)).collect(),
+                ctx.db.query("growth_agreements").withIndex("by_person", q => q.eq("person_id", id)).collect(),
+            ]);
+            const agreementReviews = (await Promise.all(agreements.map(a => ctx.db.query("growth_agreement_reviews").withIndex("by_agreement", q => q.eq("agreement_id", a._id)).collect()))).flat();
+            return {
+                person: canonicalPerson(person!),
+                opportunities: [...new Map([...opportunities, ...developmentGatherings(
+                    (await Promise.all(serviceRows.filter(r => !services.has(String(r.service_id))).map(r => ctx.db.get(r.service_id)))).filter(Boolean),
+                    (await Promise.all(meetingRows.filter(r => !opportunities.some(g => g.id === String(r.meeting_id))).map(r => ctx.db.get(r.meeting_id)))).filter(Boolean),
+                    programmes,
+                )].map(g => [g.id, g])).values()],
+                attendance: [
+                    ...serviceRows.map(r => ({ event_id: String(r.service_id), present: true, gave_tithe: user.can_view_confidential ? r.gave_tithe === true : undefined })),
+                    ...meetingRows.map(r => ({ event_id: String(r.meeting_id), present: developmentPresent(r), gave_tithe: user.can_view_confidential ? r.gave_tithe === true : undefined })),
+                ],
+                givingAvailable: Boolean(user.can_view_confidential),
+                // RLS can expose only a subset of an inviter's contacts. Label this
+                // response explicitly; never present partial scope as church totals.
+                outreachComplete: user.role === "owner" || user.role === "admin",
+                collectedContacts: [...new Map([
+                    ...collected.filter(c => c.member_status !== "archived").map(c => [String(c._id), { id: c._id, contact_date: c.contact_date }] as const),
+                    ...(await Promise.all(sharedCollectorRows.map(async row => {
+                        const contact = await ctx.db.get(row.person_id);
+                        return contact && contact.member_status !== "archived" ? [String(contact._id), { id: contact._id, contact_date: contact.contact_date }] as const : null;
+                    }))).filter(Boolean) as Array<readonly [string, { id: any; contact_date: string | undefined }]>,
+                ]).values()],
+                invitedPeople: await Promise.all(invited.filter(c => c.member_status !== "archived").map(async contact => {
+                    const rows = await ctx.db.query("attendance").withIndex("by_person", q => q.eq("person_id", contact._id)).collect();
+                    const gatherings = await Promise.all(rows.map(async r => services.get(String(r.service_id)) || developmentGatherings([await ctx.db.get(r.service_id)].filter(Boolean))[0]));
+                    const dates = gatherings.filter(g => g && g.category === "sunday").map(g => g!.date).sort();
+                    return { id: contact._id, service_dates: [...new Set(dates)] };
+                })),
+                agreements, agreementReviews,
+            };
+        }));
+    },
+});
+
+export const createGrowthAgreement = mutationFor("people:createGrowthAgreement")({
+    args: { personId: v.id("people"), requestId: v.optional(v.string()), action: v.string(), supportingPersonId: v.optional(v.id("people")), agreedDate: v.string(), dueDate: v.optional(v.string()), nextReviewDate: v.optional(v.string()), notes: v.optional(v.string()) },
+    handler: async (ctx, args) => {
+        const user = authenticatedUser(ctx);
+        if (!user.can_view_confidential) forbidden();
+        if (!await ctx.db.get(args.personId)) throw new Error("Person not found or unavailable");
+        if (args.supportingPersonId && !await ctx.db.get(args.supportingPersonId)) throw new Error("Supporting person not found or unavailable");
+        developmentDate("Agreed date", args.agreedDate);
+        if (args.agreedDate > new Date().toISOString().slice(0, 10)) throw new Error("Agreed date cannot be in the future");
+        if (args.nextReviewDate && args.nextReviewDate < args.agreedDate) throw new Error("Next review cannot be before the agreement");
+        if (args.requestId) {
+            const existing = await ctx.db.query("growth_agreements").withIndex("by_person_request", q => q.eq("person_id", args.personId).eq("request_id", args.requestId)).unique();
+            if (existing) return existing;
+        }
+        for (const [label, value] of [["Due date", args.dueDate], ["Next review date", args.nextReviewDate]] as const) if (value) developmentDate(label, value);
+        if (args.dueDate && args.dueDate < args.agreedDate) throw new Error("Due date cannot be before the agreed date");
+        const now = new Date().toISOString();
+        const id = await ctx.db.insert("growth_agreements", { person_id: args.personId, ...(args.requestId ? { request_id: args.requestId } : {}), action: developmentText("Agreed action", args.action, 1500), ...(args.supportingPersonId ? { supporting_person_id: args.supportingPersonId } : {}), agreed_date: args.agreedDate, ...(args.dueDate ? { due_date: args.dueDate } : {}), ...(args.nextReviewDate ? { next_review_date: args.nextReviewDate } : {}), ...(args.notes?.trim() ? { notes: developmentText("Notes", args.notes, 3000) } : {}), status: "in_progress", created_at: now, created_by_user_id: user._id, created_by_name: user.display_name || "Church leader" });
+        return await ctx.db.get(id);
+    },
+});
+
+export const reviewGrowthAgreement = mutationFor("people:reviewGrowthAgreement")({
+    args: { agreementId: v.id("growth_agreements"), note: v.string(), reviewDate: v.string(), nextReviewDate: v.optional(v.string()), status: v.union(v.literal("in_progress"), v.literal("completed")), requestId: v.optional(v.string()) },
+    handler: async (ctx, args) => {
+        const user = authenticatedUser(ctx);
+        if (!user.can_view_confidential) forbidden();
+        const agreement = await ctx.db.get(args.agreementId);
+        if (!agreement) throw new Error("Agreement not found or unavailable");
+        developmentDate("Review date", args.reviewDate);
+        if (args.reviewDate < agreement.agreed_date || args.reviewDate > new Date().toISOString().slice(0, 10)) throw new Error("Review date must be between agreement date and today");
+        if (args.nextReviewDate) developmentDate("Next review date", args.nextReviewDate);
+        if (args.nextReviewDate && args.nextReviewDate < args.reviewDate) throw new Error("Next review cannot be before this review");
+        if (args.requestId) { const duplicate = await ctx.db.query("growth_agreement_reviews").withIndex("by_agreement_request", (q: any) => q.eq("agreement_id", args.agreementId).eq("request_id", args.requestId)).unique(); if (duplicate) return duplicate; }
+        const now = new Date().toISOString();
+        const review = { agreement_id: args.agreementId, person_id: agreement.person_id, note: developmentText("Progress note", args.note, 3000), review_date: args.reviewDate, ...(args.nextReviewDate ? { next_review_date: args.nextReviewDate } : {}), status: args.status, ...(args.requestId ? { request_id: args.requestId } : {}), created_at: now, created_by_user_id: user._id, created_by_name: user.display_name || "Church leader" };
+        const reviewId = await ctx.db.insert("growth_agreement_reviews", review);
+        await ctx.db.patch(args.agreementId, { status: args.status, next_review_date: args.nextReviewDate || undefined, completed_at: args.status === "completed" ? now : undefined });
+        return await ctx.db.get(reviewId);
     },
 });

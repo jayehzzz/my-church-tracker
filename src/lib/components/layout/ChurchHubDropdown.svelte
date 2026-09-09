@@ -76,7 +76,7 @@
               {isDemoMode() ? "Demo church profile" : "Church profile unavailable"}
             </h2>
             <div class="flex items-center space-x-1.5 mt-0.5">
-              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
               <span class="text-xs text-muted-foreground font-medium">
                 {isDemoMode() ? "Local demo hub" : "Organization profile not connected"}
               </span>

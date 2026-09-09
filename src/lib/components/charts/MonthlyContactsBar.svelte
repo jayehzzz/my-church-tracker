@@ -15,6 +15,7 @@
     let {
         data = [],
         title = "Contacts by Month",
+        periodLabel = "Selected period",
         onMonthClick = null,
         filterContent = null,
     } = $props();
@@ -192,7 +193,7 @@
                         <div class="text-lg font-bold text-foreground">
                             {data.reduce((sum, d) => sum + d.count, 0)}
                         </div>
-                        <div class="text-xs text-muted-foreground">Total</div>
+                        <div class="text-xs text-muted-foreground">Total contacts in period</div>
                     </div>
                     <div>
                         <div class="text-lg font-bold text-foreground">
@@ -202,14 +203,15 @@
                             )}
                         </div>
                         <div class="text-xs text-muted-foreground">
-                            Avg/Month
+                            Average monthly contacts
                         </div>
+                        <div class="text-[10px] text-muted-foreground">{periodLabel}</div>
                     </div>
                     <div>
                         <div class="text-lg font-bold text-primary">
                             {maxCount()}
                         </div>
-                        <div class="text-xs text-muted-foreground">Peak</div>
+                        <div class="text-xs text-muted-foreground">Highest monthly contacts</div>
                     </div>
                 </div>
             {/if}

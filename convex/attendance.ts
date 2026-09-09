@@ -127,6 +127,7 @@ export const getByPerson = queryFor("attendance:getByPerson")({
         const results = await Promise.all(
             records.map(async (record) => {
                 const service = await ctx.db.get(record.service_id);
+                if (!service) throw new Error("Service history is unavailable for this profile.");
                 return { ...record, services: service };
             })
         );

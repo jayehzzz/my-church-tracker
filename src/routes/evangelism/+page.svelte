@@ -42,6 +42,7 @@
   let responseFilter = $state([]);
   let journeyFilter = $state([]);
   let followUpFilter = $state([]);
+  let selectedMonth = $state("");
 
   let isFormOpen = $state(false);
   let isDetailModalOpen = $state(false);
@@ -69,8 +70,8 @@
   const journeyOptions = [
     { value: "outreach", label: "Outreach" },
     { value: "saved", label: "Salvation decision" },
-    { value: "visited", label: "First visit" },
-    { value: "engaged", label: "Saved and visited" },
+    { value: "visited", label: "First-time attendee" },
+    { value: "engaged", label: "Saved and attended" },
     { value: "joined", label: "Joined church" },
     { value: "closed", label: "Closed" },
   ];
@@ -100,7 +101,7 @@
     responses: responseFilter,
     journeys: journeyFilter,
     followUp: followUpFilter,
-  }));
+  }).filter((row) => !selectedMonth || String(row.contact_date || "").startsWith(selectedMonth)));
   const insightRows = $derived(outreachRows.filter((row) => isWithinDateRange(row.contact_date, $dateRange)));
   const insightMetrics = $derived(outreachMetrics(insightRows));
   const monthlyData = $derived(monthlyOutreach(insightRows));
@@ -240,6 +241,11 @@
     selectedInviter = people.find((person) => String(contactId(person)) === String(inviter.id)) || null;
     isInviterPopupOpen = Boolean(selectedInviter);
   }
+
+  function showMonthContacts(point) {
+    selectedMonth = point.month || "";
+    activeView = "contacts";
+  }
 </script>
 
 <DashboardLayout>
@@ -259,6 +265,13 @@
         Add contact
       </Button>
     </div>
+
+    {#if selectedMonth}
+      <div class="mb-4 flex items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 text-sm">
+        <span>Showing contacts reached in <strong>{new Date(`${selectedMonth}-01T12:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" })}</strong>.</span>
+        <button type="button" class="text-xs font-semibold text-primary hover:underline" onclick={() => selectedMonth = ""}>Clear month</button>
+      </div>
+    {/if}
   </div>
 
   <nav class="mb-6 flex gap-6 border-b border-border" aria-label="Evangelism sections">
@@ -330,9 +343,11 @@
     <EvangelismInsights
       metrics={insightMetrics}
       {monthlyData}
+      rows={insightRows}
       topInviters={inviterLeaders}
       periodLabel={$dateRange.label}
       onInviterClick={openInviter}
+      onMonthClick={showMonthContacts}
     />
   {/if}
 </DashboardLayout>

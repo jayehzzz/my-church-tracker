@@ -165,7 +165,7 @@
                             <!-- Pulse animation for recent -->
                             {#if index === 0}
                                 <div
-                                    class="absolute inset-0 rounded-full bg-success/20 animate-ping"
+                                    class="absolute inset-0 rounded-full bg-success/20"
                                 ></div>
                             {/if}
                         </div>

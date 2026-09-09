@@ -6,7 +6,7 @@
   Features:
   - Summary KPIs across all modules
   - Date range filter integration
-  - Module-specific data tables
+  - Module-specific operational summaries
   - CSV export for each module
 -->
 
@@ -21,12 +21,16 @@
     import { dateRange } from "$lib/stores/filterStore";
     import { exportToCSV, exportColumns } from "$lib/utils/exportUtils";
     import {
+        buildReportSummary,
         completedCareCount,
+        hasOpenCareFollowUp,
         isCompletedService,
         isHeldMeeting,
         isWithinReportingRange,
+        meetingAttendance,
         prayerHours,
     } from "$lib/utils/reportingMetrics";
+    import { isDemoMode } from "$lib/convex";
     import {
         mockPeople,
         mockEvangelismContacts,
@@ -35,13 +39,14 @@
         mockVisitations
     } from "$lib/data/mockData";
 
-    // Data state - initialize immediately with dynamic mock data so SSR and client load instantly
-    let people = $state(mockPeople);
-    let contacts = $state(mockEvangelismContacts);
-    let services = $state(mockServices);
-    let meetings = $state(mockMeetings);
-    let visitations = $state(mockVisitations);
-    let loading = $state(false);
+    const demoMode = isDemoMode();
+    let people = $state(demoMode ? mockPeople : []);
+    let contacts = $state(demoMode ? mockEvangelismContacts : []);
+    let services = $state(demoMode ? mockServices : []);
+    let meetings = $state(demoMode ? mockMeetings : []);
+    let visitations = $state(demoMode ? mockVisitations : []);
+    let loading = $state(!demoMode);
+    let error = $state(null);
 
     // Active report tab
     let activeTab = $state("overview");
@@ -69,11 +74,6 @@
         );
     });
 
-    function hasOpenCareFollowUp(visitation) {
-        return visitation.follow_up_required &&
-            (!visitation.next_task || visitation.next_task.status === "open");
-    }
-
     // Calculate summary KPIs
     const summaryKPIs = $derived(() => {
         const fContacts = filteredContacts();
@@ -81,30 +81,19 @@
         const fMeetings = filteredMeetings();
         const fVisitations = filteredVisitations();
 
-        return {
-            totalPeople: people.length,
-            newContacts: fContacts.length,
-            conversions: fContacts.filter((c) => c.converted).length,
-            totalAttendance: fServices.reduce(
-                (sum, s) => sum + (s.total_attendance || 0),
-                0,
-            ),
-            salvationDecisions: fServices.reduce(
-                (sum, s) => sum + (s.salvation_decisions || 0),
-                0,
-            ),
-            prayerHours: prayerHours(fMeetings),
-            visitsCompleted: completedCareCount(fVisitations),
-            followUpsNeeded: fVisitations.filter(hasOpenCareFollowUp)
-                .length,
-        };
+        return buildReportSummary({
+            people,
+            contacts: fContacts,
+            services: fServices,
+            meetings: fMeetings,
+            visitations: fVisitations,
+        });
     });
 
-    // Load all data on mount
-    onMount(async () => {
+    async function loadReports() {
         if (!browser) return;
-
         loading = true;
+        error = null;
 
         try {
             // Load all services in parallel
@@ -136,22 +125,30 @@
                 visitationsModule.getAll(),
             ]);
 
+            const failedResult = [
+                peopleResult,
+                contactsResult,
+                servicesResult,
+                meetingsResult,
+                visitationsResult,
+            ].find((result) => result.error);
+            if (failedResult) throw failedResult.error;
+
             people = peopleResult.data || [];
             contacts = contactsResult.data || [];
             services = servicesResult.data || [];
             meetings = meetingsResult.data || [];
             visitations = visitationsResult.data || [];
-        } catch (e) {
-            console.warn("Using mock data for reports:", e.message);
-            // Mock data fallback
-            people = mockPeople;
-            contacts = mockEvangelismContacts;
-            services = mockServices;
-            meetings = mockMeetings;
-            visitations = mockVisitations;
+        } catch (loadError) {
+            error = loadError?.message || "Could not load reports.";
         } finally {
             loading = false;
         }
+    }
+
+    // Load all report sources together so the totals describe one consistent snapshot.
+    onMount(() => {
+        void loadReports();
     });
 
     // Export handlers
@@ -225,10 +222,10 @@
     >
         <PageHeader
             title="Reports"
-            subtitle="View summaries and export data across all modules"
+            subtitle="Review ministry activity and export the records behind each summary."
         />
 
-        <Button onclick={handleExportAll}>
+        <Button onclick={handleExportAll} disabled={loading || Boolean(error)}>
             <svg
                 class="w-4 h-4 mr-2"
                 fill="none"
@@ -271,33 +268,47 @@
             <span class="ml-3 text-muted-foreground">Loading reports...</span>
         </div>
     {:else}
+        {#if error}
+            <div class="mb-6 flex flex-col gap-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-4 text-sm sm:flex-row sm:items-center sm:justify-between" role="alert">
+                <div>
+                    <p class="font-medium text-warning">Reports could not be refreshed</p>
+                    <p class="mt-1 text-muted-foreground">{error}</p>
+                </div>
+                <Button size="sm" variant="secondary" onclick={loadReports}>Try again</Button>
+            </div>
+        {/if}
+
         <!-- Tab Navigation -->
-        <div class="mb-6">
-            <div class="flex flex-wrap gap-2 border-b border-border pb-2">
+        <nav class="mb-6 flex gap-6 overflow-x-auto border-b border-border" aria-label="Report sections">
                 {#each tabs as tab}
                     <button
                         type="button"
                         onclick={() => (activeTab = tab.id)}
-                        class="px-4 py-2 text-sm rounded-t-lg transition-premium {activeTab ===
+                        aria-current={activeTab === tab.id ? "page" : undefined}
+                        class="relative shrink-0 px-1 pb-3 text-sm font-medium transition-colors {activeTab ===
                         tab.id
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}"
+                            ? 'text-foreground'
+                            : 'text-muted-foreground hover:text-foreground'}"
                     >
                         {tab.label}
+                        {#if activeTab === tab.id}
+                            <span class="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary"></span>
+                        {/if}
                     </button>
                 {/each}
-            </div>
-        </div>
+        </nav>
 
         <!-- Overview Tab -->
         {#if activeTab === "overview"}
-            <div
-                class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
-            >
+            <p class="mb-4 text-sm text-muted-foreground">
+                Activity totals use <span class="font-medium text-foreground">{$dateRange.label}</span>. The people-directory total is all time.
+            </p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <KPICard
                     title="Total People"
                     value={summaryKPIs().totalPeople}
                     icon="users"
+                    description="All-time directory"
                     trend={null}
                 />
                 <KPICard
@@ -305,6 +316,7 @@
                     value={summaryKPIs().newContacts}
                     icon="user-plus"
                     variant="info"
+                    description={$dateRange.label}
                     trend={null}
                 />
                 <KPICard
@@ -312,6 +324,7 @@
                     value={summaryKPIs().conversions}
                     icon="check-circle"
                     variant="success"
+                    description={$dateRange.label}
                     trend={null}
                 />
                 <KPICard
@@ -319,17 +332,14 @@
                     value={summaryKPIs().salvationDecisions}
                     icon="heart"
                     variant="success"
+                    description={$dateRange.label}
                     trend={null}
                 />
-            </div>
-
-            <div
-                class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
-            >
                 <KPICard
                     title="Total Attendance"
                     value={summaryKPIs().totalAttendance}
                     icon="users"
+                    description={$dateRange.label}
                     trend={null}
                 />
                 <KPICard
@@ -337,6 +347,7 @@
                     value={summaryKPIs().prayerHours}
                     icon="clock"
                     suffix="hrs"
+                    description={$dateRange.label}
                     trend={null}
                 />
                 <KPICard
@@ -344,6 +355,7 @@
                     value={summaryKPIs().visitsCompleted}
                     icon="home"
                     variant="success"
+                    description={$dateRange.label}
                     trend={null}
                 />
                 <KPICard
@@ -353,6 +365,7 @@
                     variant={summaryKPIs().followUpsNeeded > 0
                         ? "warning"
                         : "default"}
+                    description={$dateRange.label}
                     trend={null}
                 />
             </div>
@@ -372,6 +385,7 @@
                         size="sm"
                         variant="secondary"
                         onclick={handleExportPeople}
+                        disabled={Boolean(error)}
                     >
                         Export CSV
                     </Button>
@@ -390,6 +404,7 @@
                         size="sm"
                         variant="secondary"
                         onclick={handleExportContacts}
+                        disabled={Boolean(error)}
                     >
                         Export CSV
                     </Button>
@@ -408,6 +423,7 @@
                         size="sm"
                         variant="secondary"
                         onclick={handleExportServices}
+                        disabled={Boolean(error)}
                     >
                         Export CSV
                     </Button>
@@ -426,6 +442,7 @@
                         size="sm"
                         variant="secondary"
                         onclick={handleExportMeetings}
+                        disabled={Boolean(error)}
                     >
                         Export CSV
                     </Button>
@@ -444,6 +461,7 @@
                         size="sm"
                         variant="secondary"
                         onclick={handleExportVisitations}
+                        disabled={Boolean(error)}
                     >
                         Export CSV
                     </Button>
@@ -458,7 +476,7 @@
                     <h3 class="text-lg font-semibold text-foreground">
                         People Directory
                     </h3>
-                    <Button size="sm" onclick={handleExportPeople}>
+                    <Button size="sm" onclick={handleExportPeople} disabled={Boolean(error)}>
                         <svg
                             class="w-4 h-4 mr-2"
                             fill="none"
@@ -523,7 +541,7 @@
                     <h3 class="text-lg font-semibold text-foreground">
                         Evangelism Contacts
                     </h3>
-                    <Button size="sm" onclick={handleExportContacts}>
+                    <Button size="sm" onclick={handleExportContacts} disabled={Boolean(error)}>
                         <svg
                             class="w-4 h-4 mr-2"
                             fill="none"
@@ -588,7 +606,7 @@
                     <h3 class="text-lg font-semibold text-foreground">
                         Services
                     </h3>
-                    <Button size="sm" onclick={handleExportServices}>
+                    <Button size="sm" onclick={handleExportServices} disabled={Boolean(error)}>
                         <svg
                             class="w-4 h-4 mr-2"
                             fill="none"
@@ -669,7 +687,7 @@
                     <h3 class="text-lg font-semibold text-foreground">
                         Meetings & Attendance
                     </h3>
-                    <Button size="sm" onclick={handleExportMeetings}>
+                    <Button size="sm" onclick={handleExportMeetings} disabled={Boolean(error)}>
                         <svg
                             class="w-4 h-4 mr-2"
                             fill="none"
@@ -704,7 +722,7 @@
                         </p>
                         <p class="text-xl font-semibold text-foreground">
                             {filteredMeetings().reduce(
-                                (sum, m) => sum + (m.attendance_count || 0),
+                                (sum, m) => sum + meetingAttendance(m),
                                 0,
                             )}
                         </p>
@@ -729,7 +747,7 @@
                                 ? Math.round(
                                       filteredMeetings().reduce(
                                           (sum, m) =>
-                                              sum + (m.attendance_count || 0),
+                                              sum + meetingAttendance(m),
                                           0,
                                       ) / filteredMeetings().length,
                                   )
@@ -747,7 +765,7 @@
                     <h3 class="text-lg font-semibold text-foreground">
                         Pastoral Care
                     </h3>
-                    <Button size="sm" onclick={handleExportVisitations}>
+                    <Button size="sm" onclick={handleExportVisitations} disabled={Boolean(error)}>
                         <svg
                             class="w-4 h-4 mr-2"
                             fill="none"

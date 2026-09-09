@@ -1,5 +1,8 @@
 <script>
   import { Modal, Button, Input, SearchableSelect } from "$lib/components/ui";
+  import { session } from "$lib/auth/session.js";
+  const restrictedLeader = $derived($session.status !== "demo" && $session.user?.role === "leader");
+  const confidential = $derived($session.status === "demo" || $session.user?.canViewConfidential === true);
   import { browser } from "$app/environment";
 
   let { isOpen = $bindable(false), contact = null, onsave, ...restProps } = $props();
@@ -53,7 +56,7 @@
     return {
       first_name: "", last_name: "", phone: "", email: "", address: "",
       contact_date: new Date().toISOString().slice(0, 10), contact_method: "in_person",
-      response: "not_assessed", invited_by_id: "", assigned_leader_id: "",
+      response: "not_assessed", collected_by_id: "", invited_by_id: "", assigned_leader_id: "",
       follow_up_date: "", first_visit_date: "", salvation_decision: false,
       converted: false, conversion_date: "", notes: "",
     };
@@ -90,6 +93,7 @@
       contact_date: contact.contact_date || new Date().toISOString().slice(0, 10),
       contact_method: contact.contact_method || "",
       response: contact.response || contact.contact_category || "not_assessed",
+      collected_by_id: contact.collected_by_id || "",
       invited_by_id: contact.invited_by_id || "",
       assigned_leader_id: contact.assigned_leader_id || "",
       follow_up_date: contact.follow_up_date || "",
@@ -122,10 +126,19 @@
     try {
       const evangelismService = await import("$lib/services/evangelismService");
       const cleanData = { ...formData };
+      if (!confidential) delete cleanData.notes;
+      if (restrictedLeader) {
+        delete cleanData.converted;
+        delete cleanData.conversion_date;
+        delete cleanData.assigned_leader_id;
+        delete cleanData.collected_by_id;
+        delete cleanData.invited_by_id;
+      }
       Object.keys(cleanData).forEach((key) => {
         if (cleanData[key] === "" || cleanData[key] === null) delete cleanData[key];
       });
       if (mode === "edit") {
+        if (!restrictedLeader && contact.collected_by_id && !formData.collected_by_id) cleanData.collected_by_id = null;
         delete cleanData.assigned_leader_id;
         delete cleanData.follow_up_date;
       }
@@ -166,14 +179,17 @@
         <Input label="Contact Date" type="date" bind:value={formData.contact_date} error={errors.contact_date} required disabled={saving} />
         <SearchableSelect label="Follow-up Posture" bind:value={formData.response} options={responseOptions} disabled={saving} />
         <SearchableSelect label="Contact Method" bind:value={formData.contact_method} options={contactMethodOptions} disabled={saving} />
+        {#if !restrictedLeader}
+        <SearchableSelect label="Contact collected by" bind:value={formData.collected_by_id} options={peopleOptions().map(o => o.value ? o : {value:"",label:"Not recorded"})} disabled={saving || loadingPeople} placeholder="Not recorded" />
         <SearchableSelect label="Invited By" bind:value={formData.invited_by_id} options={peopleOptions()} disabled={saving || loadingPeople} placeholder="Search people..." />
+        {/if}
         {#if mode === "create"}
-          <SearchableSelect label="Follow-up Owner" bind:value={formData.assigned_leader_id} options={leaderOptions()} disabled={saving || loadingPeople} placeholder="Choose a leader..." />
+          {#if !restrictedLeader}<SearchableSelect label="Follow-up Owner" bind:value={formData.assigned_leader_id} options={leaderOptions()} disabled={saving || loadingPeople} placeholder="Choose a leader..." />{/if}
           <Input label="First Task Due" type="date" min={formData.contact_date} bind:value={formData.follow_up_date} disabled={saving} />
         {/if}
       </div>
       {#if mode === "create"}
-        <p class="text-xs text-muted-foreground">Choosing an owner creates the leader’s first-contact task. If left unassigned, the contact appears in the CRM delegation queue.</p>
+        <p class="text-xs text-muted-foreground">{restrictedLeader ? "New contacts are assigned to you. Contacts who request no contact or already have a church receive no automatic call task." : "Choosing an owner creates the leader’s first-contact task. If left unassigned, the contact appears in the CRM delegation queue."}</p>
       {:else}
         <p class="text-xs text-muted-foreground">Ownership and future tasks are managed from the Follow-Up CRM. If you meet this person again, update the Contact Date; that makes them fresh again and returns them to their leader’s work when needed.</p>
       {/if}
@@ -187,9 +203,9 @@
           <label class="flex items-start gap-3 rounded-lg border border-border bg-secondary/20 p-3"><input type="checkbox" bind:checked={formData.salvation_decision} disabled={saving} class="mt-0.5 h-4 w-4 rounded" /><span><span class="block text-sm font-medium text-foreground">Salvation decision</span><span class="text-xs text-muted-foreground">They prayed to receive Christ.</span></span></label>
           <div class="rounded-lg border border-border bg-secondary/20 p-3"><Input label="First Visit Date" type="date" bind:value={formData.first_visit_date} disabled={saving} /><p class="mt-2 text-xs text-muted-foreground">Usually filled automatically from Sunday or meeting attendance. Use this only for an earlier visit already known.</p></div>
         </div>
-        <label class="flex items-start gap-3 rounded-lg border border-border bg-secondary/20 p-3"><input type="checkbox" bind:checked={formData.converted} disabled={saving} class="mt-0.5 h-4 w-4 rounded" /><span class="flex-1"><span class="block text-sm font-medium text-foreground">Promote to member</span><span class="text-xs text-muted-foreground">Use only when this person has joined the church.</span></span></label>
-        {#if formData.converted}<Input label="Membership Date" type="date" bind:value={formData.conversion_date} disabled={saving} />{/if}
-        <div><label for="evangelism-notes" class="mb-1.5 block text-sm font-medium text-foreground">Notes</label><textarea id="evangelism-notes" bind:value={formData.notes} rows="3" disabled={saving} placeholder="Useful context for the follow-up leader..." class="w-full resize-none rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"></textarea></div>
+        {#if !restrictedLeader}<label class="flex items-start gap-3 rounded-lg border border-border bg-secondary/20 p-3"><input type="checkbox" bind:checked={formData.converted} disabled={saving} class="mt-0.5 h-4 w-4 rounded" /><span class="flex-1"><span class="block text-sm font-medium text-foreground">Promote to member</span><span class="text-xs text-muted-foreground">Use only when this person has joined the church.</span></span></label>
+        {#if formData.converted}<Input label="Membership Date" type="date" bind:value={formData.conversion_date} disabled={saving} />{/if}{/if}
+        {#if confidential}<div><label for="evangelism-notes" class="mb-1.5 block text-sm font-medium text-foreground">Notes</label><textarea id="evangelism-notes" bind:value={formData.notes} rows="3" disabled={saving} placeholder="Useful context for the follow-up leader..." class="w-full resize-none rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"></textarea></div>{/if}
       </div>
     </details>
   </form>

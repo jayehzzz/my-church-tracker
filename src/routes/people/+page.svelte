@@ -15,12 +15,11 @@
   import { goto } from "$app/navigation";
 
   import DashboardLayout from "$lib/components/layout/DashboardLayout.svelte";
-  import PageHeader from "$lib/components/shared/PageHeader.svelte";
-  import FilterBar from "$lib/components/filters/FilterBar.svelte";
+  import { page } from "$app/state";
   import { DataTable, Modal, Button, Badge } from "$lib/components/ui";
   import PersonForm from "$lib/components/forms/PersonForm.svelte";
 
-  import ProfileQuickViewCard from "$lib/components/people/ProfileQuickViewCard.svelte";
+
   import PeopleDashboard from "./PeopleDashboard.svelte";
   import * as peopleService from "$lib/services/peopleService";
   import { getConfigurationError, getDataSource, isDemoMode } from "$lib/convex.js";
@@ -46,7 +45,13 @@
   let hasLoaded = $state(false);
 
   // View Mode: 'list' or 'map'
-  let activeView = $state("list");
+  let activeView = $derived(page.url.searchParams.get("view") === "map" ? "map" : "list");
+
+  function setView(view) {
+    const url = new URL(page.url);
+    url.searchParams.set("view", view);
+    goto(url, { noScroll: true, keepFocus: true });
+  }
 
   // Status options for filter
   const statusOptions = [
@@ -149,7 +154,7 @@
       );
     }
     if (roleFilter !== "all") {
-      filtered = filtered.filter((p) => p.role === roleFilter);
+      filtered = filtered.filter((p) => roleFilter === "no_role" ? !p.role || p.role === "no_role" : p.role === roleFilter);
     }
     if (activityFilter !== "all") {
       filtered = filtered.filter((p) => p.activity_status === activityFilter);
@@ -256,18 +261,13 @@
 </script>
 
 <DashboardLayout>
-  <!-- Filters in the named snippet slot -->
-  {#snippet filters()}
-    <FilterBar />
-  {/snippet}
-
   <div
     class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 animate-in"
   >
-    <PageHeader
-      title="People Directory"
-      subtitle="Manage church members, guests, and contacts"
-    />
+    <header>
+      <h1 class="text-3xl font-semibold tracking-tight text-foreground">People</h1>
+      <p class="mt-2 text-sm text-muted-foreground">Your church directory, contact details and recorded locations.</p>
+    </header>
 
     <Button onclick={handleAddPerson}>
       <svg
@@ -306,8 +306,7 @@
         />
       </svg>
       <span
-        >Demo mode: changes are stored only in this browser and can be reset by
-        clearing site data.</span
+        >Demo mode: sample people. Changes here do not update church records.</span
       >
     </div>
   {/if}
@@ -333,7 +332,8 @@
       'list'
         ? 'text-primary-foreground'
         : 'text-muted-foreground hover:text-foreground'}"
-      onclick={() => (activeView = "list")}
+      aria-pressed={activeView === "list"}
+      onclick={() => setView("list")}
     >
       <svg
         class="w-4 h-4 inline-block mr-1.5 -mt-0.5"
@@ -348,7 +348,7 @@
           d="M4 6h16M4 10h16M4 14h16M4 18h16"
         />
       </svg>
-      List View
+      Directory
     </button>
     <button
       type="button"
@@ -356,7 +356,8 @@
       'map'
         ? 'text-primary-foreground'
         : 'text-muted-foreground hover:text-foreground'}"
-      onclick={() => (activeView = "map")}
+      aria-pressed={activeView === "map"}
+      onclick={() => setView("map")}
     >
       <svg
         class="w-4 h-4 inline-block mr-1.5 -mt-0.5"
@@ -371,7 +372,7 @@
           d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0121 18.382V7.618a1 1 0 01-.553-.894L15 4m0 13V4m0 0L9 7"
         />
       </svg>
-      Map Dashboard
+      People map
     </button>
   </div>
 
@@ -488,53 +489,14 @@
 
         {#if !loading && !filteredPeople.length}
           <p class="py-10 text-center text-sm text-muted-foreground">
-            No people have been recorded in this {usingDemoData ? "demo" : "database"} yet.
+            {people.length ? "No people match these filters. Try a different status, role, or activity." : "No people recorded yet. Add a person to start your directory."}
           </p>
         {/if}
 
-        <!-- Profile Quick View Cards -->
-        {#if !loading && filteredPeople.length > 0}
-          <div class="mt-6">
-            <h4
-              class="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2"
-            >
-              <svg
-                class="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                />
-              </svg>
-              Quick View
-            </h4>
-            <div
-              class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"
-            >
-              {#each filteredPeople.slice(0, 8) as person}
-                <ProfileQuickViewCard
-                  {person}
-                  onclick={() => handleRowClick(person)}
-                />
-              {/each}
-            </div>
-            {#if filteredPeople.length > 8}
-              <p class="text-xs text-muted-foreground text-center py-3">
-                Showing 8 of {filteredPeople.length} people. Use the table above
-                for full list.
-              </p>
-            {/if}
-          </div>
-        {/if}
       </div>
     {:else}
       <!-- MAP VIEW -->
-      <PeopleDashboard people={activeView === "map" ? filteredPeople : []} />
+      <PeopleDashboard people={filteredPeople} {loading} />
     {/if}
   {/if}
 </DashboardLayout>

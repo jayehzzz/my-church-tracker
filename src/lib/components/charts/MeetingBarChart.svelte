@@ -13,16 +13,24 @@
     onBarClick = null,
     onFilterClick = null,
     activeFilterCount = 0,
+    metricOptions = [],
+    periodLabel = "Selected period",
   } = $props();
 
   let hoveredIndex = $state(null);
+  let metricKey = $state("value");
 
   const chartWidth = 100;
   const labelWidth = 31;
   const valueWidth = 10;
   const rowHeight = 13;
   const topPadding = 4;
-  const visibleData = $derived((data || []).slice(0, 8));
+  const selectedMetric = $derived(metricOptions.find((option) => option.key === metricKey));
+  const visibleData = $derived((data || []).slice(0, 8).map((item) => ({
+    ...item,
+    value: Number(item[metricKey] ?? item.value) || 0,
+  })));
+  const displayUnit = $derived(selectedMetric?.unit ?? unit);
   const chartHeight = $derived(
     Math.max(42, topPadding * 2 + visibleData.length * rowHeight),
   );
@@ -36,6 +44,12 @@
         ? "hsl(var(--warning))"
         : "hsl(var(--primary))",
   );
+
+  $effect(() => {
+    if (metricOptions.length && !metricOptions.some((option) => option.key === metricKey)) {
+      metricKey = metricOptions[0].key;
+    }
+  });
 
   function barWidth(value) {
     return (
@@ -61,7 +75,7 @@
     <div class="flex items-center gap-2">
       {#if hoveredIndex !== null}
         <span class="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-foreground">
-          {visibleData[hoveredIndex].value}{unit}
+          {visibleData[hoveredIndex].value}{displayUnit}
         </span>
       {/if}
       {#if onFilterClick}
@@ -79,6 +93,12 @@
             <span class="rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none text-primary-foreground">{activeFilterCount}</span>
           {/if}
         </button>
+      {/if}
+      {#if metricOptions.length}
+        <label class="sr-only" for="{title.replace(/\W+/g, '-').toLowerCase()}-metric">Comparison measure</label>
+        <select id="{title.replace(/\W+/g, '-').toLowerCase()}-metric" bind:value={metricKey} class="h-9 rounded-lg border border-border bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-primary" aria-label="Comparison measure">
+          {#each metricOptions as option}<option value={option.key}>{option.label}</option>{/each}
+        </select>
       {/if}
     </div>
   </div>
@@ -121,7 +141,7 @@
           class={onBarClick ? "cursor-pointer" : ""}
           role={onBarClick ? "button" : "presentation"}
           tabindex={onBarClick ? 0 : -1}
-          aria-label={onBarClick ? `${item.label}: ${item.value}${unit}. View people.` : undefined}
+          aria-label={onBarClick ? `${item.label}: ${item.value}${displayUnit}. View people.` : undefined}
           onmouseenter={() => (hoveredIndex = index)}
           onmouseleave={() => (hoveredIndex = null)}
           onfocus={() => (hoveredIndex = index)}
@@ -135,12 +155,12 @@
           y={y + 6.1}
           class="fill-foreground text-[3.5px] font-semibold"
         >
-          {item.value}{unit}
+          {item.value}{displayUnit}
         </text>
       {/each}
     </svg>
     <div class="mt-3 flex items-center justify-between border-t border-border pt-3 text-xs text-muted-foreground">
-      <span>{visibleData.length} group{visibleData.length === 1 ? "" : "s"}</span>
+      <span>{selectedMetric?.label || title} · {periodLabel}</span>
       {#if onBarClick}<span>Click a bar to see people</span>{/if}
     </div>
   {:else}

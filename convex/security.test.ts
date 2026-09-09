@@ -46,6 +46,79 @@ async function fixture() {
 afterEach(() => vi.unstubAllEnvs());
 
 describe("public backend boundaries", () => {
+  it("distinguishes same-name sign-ins and marks the current account without exposing identity IDs", async () => {
+    const { t, as } = await fixture();
+    const identity = { issuer: "https://identity.example/", subject: "auth0|new-password", email: "jayden@example.test", emailVerified: true };
+    const password = t.withIdentity(identity);
+    await password.mutation(api.access.requestAccess, {});
+    const [request] = await as("owner").query(api.access.listAccessRequests, {});
+    const accountId = await as("owner").mutation(api.access.approveAccessRequest, {
+      requestId: request.id, role: "owner", status: "active", displayName: "Jayden", canViewConfidential: true,
+    });
+    await t.run(async ctx => {
+      await ctx.db.insert("crm_users", { external_auth_id: "https://identity.example/|google-oauth2|old", display_name: "Jayden", role: "owner", status: "active", created_at: now, updated_at: now });
+      // Existing approvals may predate email persistence.
+      await ctx.db.patch(accountId, { email: undefined });
+    });
+    const accounts = await password.query(api.access.listManagedAccounts, {});
+    expect(accounts.find(a => a.id === accountId)).toMatchObject({ email: identity.email, signInMethod: "Email and password", isCurrentAccount: true });
+    expect(accounts.find(a => a.signInMethod === "Google")).toMatchObject({ displayName: "Jayden", isCurrentAccount: false });
+    expect(accounts.every(a => !("external_auth_id" in a))).toBe(true);
+    expect(accounts.filter(a => a.isCurrentAccount)).toHaveLength(1);
+    await expect(as("leader").query(api.access.listManagedAccounts, {})).rejects.toThrow();
+  });
+
+  it("requires verified email for password accounts without merging identities by email", async () => {
+    const { t, as } = await fixture();
+    const identity = { issuer: "https://identity.example/", subject: "auth0|password-user", email: "owner@example.test", emailVerified: false };
+    await expect(t.withIdentity(identity).mutation(api.access.requestAccess, {})).rejects.toThrow(/EMAIL_VERIFICATION_REQUIRED/);
+    const verified = t.withIdentity({ ...identity, emailVerified: true });
+    await expect(verified.query(api.access.me, {})).rejects.toThrow(/ACCOUNT_NOT_APPROVED/);
+    await verified.mutation(api.access.requestAccess, {});
+    const requests = await as("owner").query(api.access.listAccessRequests, {});
+    await as("owner").mutation(api.access.approveAccessRequest, { requestId: requests[0].id, role: "viewer", status: "active", canViewConfidential: false });
+    expect(await verified.query(api.access.me, {})).toHaveProperty("role", "viewer");
+    await expect(t.withIdentity(identity).query(api.access.me, {})).rejects.toThrow(/EMAIL_VERIFICATION_REQUIRED/);
+  });
+
+  it("hides giving evidence on all assigned-person projections and rejects giving edits", async () => {
+    const { t, as, ids } = await fixture();
+    await t.run(async ctx => {
+      await ctx.db.patch(ids.assigned, { is_tither: true, contact_date: "2026-09-01" });
+      const service = await ctx.db.insert("services", { service_date: "2026-09-01", service_type: "sunday", created_at: now, updated_at: now });
+      await ctx.db.insert("attendance", { service_id: service, person_id: ids.assigned, gave_tithe: true, created_at: now });
+    });
+    for (const name of ["leader", "admin"]) {
+      expect(JSON.stringify(await as(name).query(api.people.getAll, {}))).not.toContain('is_tither');
+      expect(JSON.stringify(await as(name).query(api.evangelism.getAll, {}))).not.toContain('is_tither');
+      const attendance = await as(name).query(api.attendance.getAll, {});
+      expect(attendance).toHaveLength(1);
+      expect(JSON.stringify(attendance)).not.toMatch(/gave_tithe|is_tither/);
+      await expect(as(name).mutation(api.people.update, { id: ids.assigned, is_tither: false })).rejects.toThrow(/FORBIDDEN/);
+      await expect(as(name).mutation(api.people.update, { id: ids.assigned, clear_fields: ["is_tither"] })).rejects.toThrow(/FORBIDDEN/);
+    }
+    expect(await as("owner").query(api.people.getById, { id: ids.assigned })).toHaveProperty("is_tither", true);
+  });
+
+  it("lets a leader collect a new contact with self-owned follow-up, never claim existing contacts", async () => {
+    const { t, as, ids } = await fixture();
+    const input = { first_name: "New contact", contact_date: "2026-09-05", response: "not_assessed" };
+    const contact = await as("leader").mutation(api.evangelism.create, input);
+    expect(contact).toMatchObject({ collected_by_id: ids.leaderPerson, member_status: "guest" });
+    expect(await as("leader").query(api.evangelism.getById, { id: contact!._id })).not.toBeNull();
+    const tasks = await t.run(ctx => ctx.db.query("follow_up_tasks").withIndex("by_person", q => q.eq("person_id", contact!._id)).collect());
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].assigned_leader_id).toBe(ids.leaderPerson);
+    await as("leader").mutation(api.crm.completeTask, { taskId: tasks[0]._id, outcome: "no_response", nextActionDate: "2026-09-07", nextTaskType: "follow_up", skipAutomaticNextTask: true });
+    await expect(as("leader").mutation(api.evangelism.create, { ...input, assigned_leader_id: ids.otherLeader })).rejects.toThrow(/FORBIDDEN/);
+    await expect(as("leader").mutation(api.evangelism.create, { ...input, collected_by_id: ids.otherLeader })).rejects.toThrow(/FORBIDDEN/);
+    await expect(as("leader").mutation(api.evangelism.create, { ...input, converted: true })).rejects.toThrow(/FORBIDDEN/);
+    await expect(as("leader").mutation(api.crm.assignContact, { personId: ids.outside, assignedLeaderId: ids.leaderPerson })).rejects.toThrow(/FORBIDDEN/);
+    const quiet = await as("leader").mutation(api.evangelism.create, { ...input, response: "do_not_contact" });
+    expect(await as("leader").query(api.evangelism.getById, { id: quiet!._id })).not.toBeNull();
+    expect(await t.run(ctx => ctx.db.query("follow_up_tasks").withIndex("by_person", q => q.eq("person_id", quiet!._id)).collect())).toHaveLength(0);
+  });
+
   it("every public handler rejects unauthenticated access before reading arguments or data", async () => {
     const t = convexTest(schema, modules);
     let checked = 0;

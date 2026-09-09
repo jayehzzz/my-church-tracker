@@ -54,13 +54,13 @@
 </script>
 
 <section class="chart-card" aria-labelledby="attendance-title">
-  <header class="flex flex-col gap-4 border-b border-border px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+  <header class="flex flex-col gap-4 border-b border-border px-5 py-4 pr-14 sm:flex-row sm:items-start sm:justify-between">
     <div>
       <p class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Church health</p>
       <h2 id="attendance-title" class="mt-1.5 text-lg font-semibold text-foreground">{title}</h2>
       <p class="mt-1 text-xs text-muted-foreground">{contextLabel}</p>
     </div>
-    <div class="flex flex-wrap items-center justify-end gap-3 text-xs text-muted-foreground" aria-label="Chart legend">
+    <div class="flex flex-wrap items-center gap-3 text-xs text-muted-foreground sm:justify-end" aria-label="Chart legend">
       <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-primary"></span>Attendance</span>
       <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-warning"></span>Guests</span>
       <ChartViewToggle value={chartType} onChange={(next) => (chartType = next)} />
@@ -81,7 +81,7 @@
                 <span class="relative flex min-h-0 items-end justify-center">
                   <span class="flex h-full w-full max-w-16 items-end justify-center gap-1">
                     <span class="relative flex h-full w-1/2 max-w-8 flex-col justify-end" style={`height: ${barHeight(item.attendance)}%`}>
-                      <span class="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-semibold tabular-nums text-foreground sm:text-xs">{item.attendance}</span>
+                      <span class="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-semibold tabular-nums text-primary sm:text-xs">{item.attendance}</span>
                       <span class="h-full w-full rounded-t-lg bg-gradient-to-t from-primary/55 to-primary transition-all duration-200 group-hover:brightness-110"></span>
                     </span>
                     <span class="relative flex h-full w-1/2 max-w-8 flex-col justify-end" style={`height: ${barHeight(item.guests)}%`}>
@@ -108,7 +108,7 @@
               {#each chartData as item}<span class="min-w-0 flex-1 truncate text-center text-[10px] font-medium text-muted-foreground sm:text-xs">{item.label}</span>{/each}
             </div>
             <div class="absolute inset-x-0 -top-6 flex justify-between gap-2">
-              {#each chartData as item}<span class="min-w-0 flex-1 text-center text-xs font-semibold tabular-nums text-foreground">{item.attendance}</span>{/each}
+              {#each chartData as item}<span class="min-w-0 flex-1 text-center text-xs font-semibold tabular-nums text-primary">{item.attendance}</span>{/each}
             </div>
           </div>
         {/if}
@@ -126,12 +126,14 @@
 
   <footer class="grid grid-cols-3 divide-x divide-border border-t border-border bg-secondary/10">
     <div class="px-4 py-4 text-center">
-      <p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Average</p>
-      <p class="mt-1 text-xl font-semibold text-foreground">{averageAttendance}</p>
+      <p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Average attendance per gathering</p>
+      <p class="mt-0.5 text-[10px] text-muted-foreground">{contextLabel}</p>
+      <p class="mt-1 text-xl font-semibold text-primary">{averageAttendance}</p>
     </div>
     <div class="px-4 py-4 text-center">
-      <p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Guests</p>
-      <p class="mt-1 text-xl font-semibold text-foreground">{guestTotal}</p>
+      <p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total guest attendance</p>
+      <p class="mt-0.5 text-[10px] text-muted-foreground">{contextLabel}</p>
+      <p class="mt-1 text-xl font-semibold text-warning">{guestTotal}</p>
     </div>
     <div class="px-4 py-4 text-center">
       <p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Trend</p>

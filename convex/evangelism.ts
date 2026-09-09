@@ -1,4 +1,4 @@
-import { queryFor, mutationFor } from "./lib/security";
+import { queryFor, mutationFor, authenticatedUser, isAdmin } from "./lib/security";
 
 import { v } from "convex/values";
 import { normalizeEmail, validatePersonInput } from "./peopleValidation";
@@ -100,6 +100,7 @@ export const create = mutationFor("evangelism:create")({
         contact_date: v.string(),
         response: v.string(), // Maps to contact_category
         invited_by_id: v.optional(v.id("people")),
+        collected_by_id: v.optional(v.id("people")),
         assigned_leader_id: v.optional(v.id("people")),
         comments: v.optional(v.array(v.string())),
 
@@ -124,6 +125,7 @@ export const create = mutationFor("evangelism:create")({
             ...(args.first_visit_date ? { first_visit_date: args.first_visit_date } : {}),
             ...(args.conversion_date ? { membership_date: args.conversion_date } : {}),
         });
+        if (args.collected_by_id && !await ctx.db.get(args.collected_by_id)) throw new Error("Collector not found or unavailable");
         const now = new Date().toISOString();
 
         // If 'converted' is true, set status to member
@@ -132,6 +134,7 @@ export const create = mutationFor("evangelism:create")({
         const id = await ctx.db.insert("people", {
             first_name: args.first_name.trim(),
             last_name: args.last_name?.trim() || "",
+            surname_status: args.last_name?.trim() ? "known" : "missing",
             email: normalizeEmail(args.email),
             phone: args.phone?.trim() || undefined,
             address: args.address?.trim() || undefined,
@@ -141,6 +144,7 @@ export const create = mutationFor("evangelism:create")({
             contact_date: args.contact_date,
             contact_method: args.contact_method,
             invited_by_id: args.invited_by_id,
+            collected_by_id: args.collected_by_id,
             salvation_decision: args.salvation_decision,
             first_visit_date: args.first_visit_date || (args.attended_church ? args.contact_date : undefined),
             notes: args.notes,
@@ -163,10 +167,9 @@ export const create = mutationFor("evangelism:create")({
         // A new evangelism contact can enter the CRM immediately. Ownership is
         // separate from invited_by_id because the inviter is not always the
         // leader responsible for follow-up.
-        if (args.assigned_leader_id && status === "guest"
-            && !["do_not_contact", "has_church"].includes(args.response)) {
+        if (args.assigned_leader_id && status === "guest") {
             const leader = await ctx.db.get(args.assigned_leader_id);
-            if (!leader || leader.member_status !== "leader") {
+            if (!leader || (isAdmin(authenticatedUser(ctx)) && leader.member_status !== "leader")) {
                 throw new Error("The follow-up owner must be a leader");
             }
             await ctx.db.insert("follow_up_assignments", {
@@ -177,7 +180,7 @@ export const create = mutationFor("evangelism:create")({
                 created_at: now,
                 updated_at: now,
             });
-            await ctx.db.insert("follow_up_tasks", {
+            if (!["do_not_contact", "has_church"].includes(args.response)) await ctx.db.insert("follow_up_tasks", {
                 person_id: id,
                 assigned_leader_id: args.assigned_leader_id,
                 due_date: args.follow_up_date || args.contact_date,
@@ -205,6 +208,7 @@ export const update = mutationFor("evangelism:update")({
 
         response: v.optional(v.string()),
         invited_by_id: v.optional(v.id("people")),
+        collected_by_id: v.optional(v.union(v.id("people"), v.null())),
         contact_date: v.optional(v.string()),
 
         contact_method: v.optional(v.string()),
@@ -218,6 +222,7 @@ export const update = mutationFor("evangelism:update")({
     },
     handler: async (ctx, args) => {
         const { id, response, converted, conversion_date, attended_church, ...rest } = args;
+        if (args.collected_by_id && !await ctx.db.get(args.collected_by_id)) throw new Error("Collector not found or unavailable");
         validatePersonInput({
             ...rest,
             ...(response ? { contact_category: response } : {}),
@@ -239,6 +244,7 @@ export const update = mutationFor("evangelism:update")({
             updated_at: new Date().toISOString(),
         };
 
+        if (updates.collected_by_id === null) updates.collected_by_id = undefined;
         if (updates.first_name !== undefined) updates.first_name = updates.first_name.trim();
         if (updates.last_name !== undefined) updates.last_name = updates.last_name.trim();
         if (updates.email !== undefined) updates.email = normalizeEmail(updates.email);

@@ -7,6 +7,7 @@ import {
   formatMonthLabel,
   formatChartDate,
   getChartColor,
+  groupChartPoints,
 } from "./chartUtils.js";
 
 describe("chartUtils", () => {
@@ -107,6 +108,26 @@ describe("chartUtils", () => {
       expect(getChartColor("info")).toBe("hsl(var(--info))");
       expect(getChartColor("warning")).toBe("hsl(var(--warning))");
       expect(getChartColor("nonexistent")).toBe("hsl(var(--primary))");
+    });
+  });
+
+  describe("groupChartPoints", () => {
+    const points = [
+      { date: "2026-08-03", total: 100, guests: 10, id: "a" },
+      { date: "2026-08-05", total: 140, guests: 20, id: "b" },
+      { date: "2026-08-17", total: 160, guests: 30, id: "c" },
+    ];
+
+    it("keeps actual values for individual dates", () => {
+      expect(groupChartPoints(points, "day")).toEqual(points);
+    });
+
+    it("uses per-gathering averages for week and month buckets", () => {
+      const weeks = groupChartPoints(points, "week", "average");
+      const months = groupChartPoints(points, "month", "average");
+
+      expect(weeks[0]).toMatchObject({ date: "2026-08-03", total: 120, guests: 15, label: "Week of 3 Aug" });
+      expect(months[0]).toMatchObject({ date: "2026-08-01", total: 133, guests: 20, label: "Aug 2026" });
     });
   });
 });

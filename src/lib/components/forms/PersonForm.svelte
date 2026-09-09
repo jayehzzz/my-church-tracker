@@ -10,6 +10,9 @@
 -->
 
 <script>
+  import { session } from "$lib/auth/session.js";
+  const confidential = $derived($session.status === "demo" || $session.user?.canViewConfidential === true);
+  import { untrack } from "svelte";
   import {
     Modal,
     Button,
@@ -41,6 +44,7 @@
     city: "",
     state: "",
     zip_code: "",
+    notes: "",
     date_of_birth: "",
     gender: "",
     marital_status: "",
@@ -160,6 +164,7 @@
           city: person.city || "",
           state: person.state || "",
           zip_code: person.zip_code || "",
+          notes: person.notes || "",
           date_of_birth: person.date_of_birth || person.birthday || "",
           gender: person.gender || "",
           marital_status: person.marital_status || "",
@@ -190,6 +195,7 @@
           city: "",
           state: "",
           zip_code: "",
+          notes: "",
           date_of_birth: "",
           gender: "",
           marital_status: "",
@@ -209,7 +215,7 @@
       errors = {};
       duplicateCandidates = [];
       duplicateAcknowledged = false;
-      initialFormSnapshot = JSON.stringify(formData);
+      initialFormSnapshot = untrack(() => JSON.stringify(formData));
     }
   });
 
@@ -219,10 +225,6 @@
 
     if (!formData.first_name.trim()) {
       newErrors.first_name = "First name is required";
-    }
-
-    if (!formData.last_name.trim()) {
-      newErrors.last_name = "Last name is required";
     }
 
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
@@ -260,10 +262,12 @@
 
     try {
       let result;
+      const payload = { ...formData, surname_status: formData.last_name.trim() ? "known" : "missing" };
+      if (!confidential) { delete payload.is_tither; delete payload.notes; }
       if (mode === "edit") {
-        result = await peopleService.update(person.id || person._id, formData);
+        result = await peopleService.update(person.id || person._id, payload);
       } else {
-        result = await peopleService.create(formData);
+        result = await peopleService.create(payload);
       }
 
       if (result.error) {
@@ -363,10 +367,9 @@
           disabled={saving}
         />
         <Input
-          label="Last Name"
+          label="Last Name (if known)"
           bind:value={formData.last_name}
           error={errors.last_name}
-          required
           disabled={saving}
         />
       </div>
@@ -554,6 +557,7 @@
             class="h-4 w-4 rounded border-border text-primary focus:ring-primary"
           />
         </label>
+        {#if confidential}
         <label
           class="flex cursor-pointer items-center justify-between gap-4 rounded-lg border border-border/60 bg-secondary/20 p-4"
         >
@@ -568,6 +572,7 @@
             class="h-4 w-4 rounded border-border text-primary focus:ring-primary"
           />
         </label>
+        {/if}
       </div>
     </div>
 
@@ -619,6 +624,11 @@
         {formData.completed_schools.length} of {CHURCH_SCHOOL_OPTIONS.length} completed
       </p>
     </fieldset>
+    <hr class="border-border" />
+    {#if confidential}<div class="space-y-2">
+      <label for="person-notes" class="text-sm font-medium text-foreground">Notes</label>
+      <textarea id="person-notes" bind:value={formData.notes} disabled={saving} rows="4" class="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" placeholder="Add useful background information"></textarea>
+    </div>{/if}
   </form>
 
   {#snippet footer()}

@@ -12,9 +12,10 @@ owner or administrator; it never downloads a partial browser JSON file.
 
 In the Convex dashboard, select the intended deployment and open **Backup &
 Restore**. Create a backup with **file storage included**. This is required:
-service images are stored in Convex file storage and `service_photos` records
-link their storage IDs to their service. A data-only backup cannot restore those
-images.
+service images are stored in Convex file storage and linked through
+`service_photos`. Standalone Memories albums use `memory_albums` and
+`memory_media`; their photos and videos are also Convex file-storage objects.
+An export that contains only database rows cannot restore either kind of media.
 
 Convex documents the following provider retention defaults: manual and daily
 backups are retained for seven days; weekly backups are retained for fourteen
@@ -23,6 +24,19 @@ plan, schedule, backup inclusion setting, access roster, and any organisation
 retention obligations in the Convex dashboard before relying on these defaults.
 
 ## Routine backup
+
+As of 9 September 2026, the confirmed shared deployment is `elated-bee-284`
+(`jayden-ayeh:church-tracker:production`). A file-inclusive provider backup and
+private local export are complete; **regular backups are not yet enabled**.
+The user is choosing between Mac-dependent automation and a paid provider
+schedule. Current evidence and expiration: [shared launch handoff](implementation/shared-launch-handoff.md).
+
+For an operator-requested private local backup from this saved project, run
+`python3 scripts/backup-live.py`. It verifies the named live destination,
+includes file storage, checks archive integrity and saves a manifest under
+`~/.codex/private/church-backups/elated-bee-284/`. It does not restore, delete,
+or schedule anything. Keep snapshots out of this public repository. The Mac
+copy alone does not provide off-device disaster recovery or a recurring policy.
 
 1. Confirm the deployment name and environment; never back up, restore, or
    import into a deployment merely because its URL resembles a test name.

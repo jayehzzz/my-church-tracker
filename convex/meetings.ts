@@ -464,7 +464,7 @@ export const getByPerson = queryFor("meetings:getByPerson")({
         const results = await Promise.all(
             records.map(async (record) => {
                 const meeting = await ctx.db.get(record.meeting_id);
-                if (!meeting) return null;
+                if (!meeting) throw new Error("Meeting history is unavailable for this profile.");
                 const hydrated = await hydrateMeeting(ctx, meeting);
                 return { ...record, meeting: hydrated };
             }),

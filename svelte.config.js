@@ -6,8 +6,8 @@ const config = {
   preprocess: vitePreprocess(),
   kit: {
     adapter: adapter({
-      // Use edge functions for faster global response times
-      runtime: 'nodejs20.x'
+      // Match the shared site's configured Node.js runtime.
+      runtime: 'nodejs24.x'
     })
   }
 };

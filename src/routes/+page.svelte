@@ -1,8 +1,9 @@
 <script>
+  import { goto } from "$app/navigation";
   import DashboardLayout from "$lib/components/layout/DashboardLayout.svelte";
   import FilterBar from "$lib/components/filters/FilterBar.svelte";
   import KPICard from "$lib/components/dashboard/KPICard.svelte";
-  import AttendanceChart from "$lib/components/dashboard/AttendanceChart.svelte";
+  import AttendanceTrend from "$lib/components/charts/AttendanceTrend.svelte";
   import RecentActivityList from "$lib/components/dashboard/RecentActivityList.svelte";
   import Motion from "$lib/components/ui/Motion.svelte";
   import FullscreenWrapper from "$lib/components/ui/FullscreenWrapper.svelte";
@@ -16,6 +17,15 @@
   let workspace = $state(getDemoDashboard());
   let loading = $state(true);
   let error = $state("");
+
+  const attendanceTrendData = $derived(
+    attendanceChart.data.map((point) => ({
+      date: point.date || point.key,
+      total: Number(point.attendance) || 0,
+      guests: Number(point.guests) || 0,
+      id: point.id || point.service_id || "",
+    })),
+  );
 
   const today = dateOnly(new Date());
   const todayLabel = new Intl.DateTimeFormat("en-GB", {
@@ -182,7 +192,14 @@
             {#snippet filters()}
               <FilterBar compact />
             {/snippet}
-            <AttendanceChart data={attendanceChart.data} contextLabel={attendanceChart.contextLabel} />
+            <AttendanceTrend
+              data={attendanceTrendData}
+              title="Attendance & guests"
+              itemLabel={attendanceChart.isFallback ? "recent Sundays" : "periods"}
+              periodLabel={attendanceChart.contextLabel}
+              comparisonOptions={[{ key: "guests", label: "Guests", color: "warning" }]}
+              onPointClick={(point) => goto(`/services?service=${encodeURIComponent(point.id)}`)}
+            />
           </FullscreenWrapper>
         {/if}
       </Motion>

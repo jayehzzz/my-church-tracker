@@ -144,4 +144,13 @@
     height: min(62vh, 640px) !important;
     min-height: 360px;
   }
+
+  .fullscreen-content :global(.fullscreen-chart) {
+    min-height: 0;
+  }
+
+  .fullscreen-content :global(.fullscreen-chart-svg) {
+    height: max(360px, calc(100vh - 25rem)) !important;
+    max-height: none;
+  }
 </style>

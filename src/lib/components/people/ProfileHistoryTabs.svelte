@@ -9,6 +9,7 @@
     import VisitationHistory from "./VisitationHistory.svelte";
 
     let {
+        errors = {},
         attendanceHistory = [],
         outreachContacts = [],
         visitations = [],
@@ -48,10 +49,11 @@
 
 <div class="space-y-4">
     <!-- Tab Navigation -->
-    <div class="flex gap-2 p-1.5 bg-secondary/50 border border-border/70 rounded-lg w-fit">
+    <div class="flex flex-wrap gap-2 p-1.5 bg-secondary/50 border border-border/70 rounded-lg w-fit">
         {#each tabs as tab}
             <button
                 type="button"
+                aria-pressed={activeTab === tab.id}
                 class="relative px-4 py-2 text-sm font-semibold rounded-md border transition-all duration-200 flex items-center gap-2
                        {activeTab === tab.id
                     ? 'bg-primary text-primary-foreground border-primary shadow-md'
@@ -59,7 +61,7 @@
                 onclick={() => setActiveTab(tab.id)}
             >
                 {tab.label}
-                {#if tab.count > 0}
+                {#if tab.count > 0 && !errors[tab.id === "visitation" ? "care" : tab.id]}
                     <span
                         class="text-xs px-1.5 py-0.5 rounded-full {activeTab ===
                         tab.id
@@ -75,7 +77,9 @@
 
     <!-- Tab Content -->
     <div class="animate-in fade-in duration-200">
-        {#if activeTab === "attendance"}
+        {#if errors[activeTab === "visitation" ? "care" : activeTab]}
+            <p class="rounded-xl border border-border p-6 text-sm text-muted-foreground">This history is unavailable. Use Retry history above to try again.</p>
+        {:else if activeTab === "attendance"}
             <AttendanceHistory {attendanceHistory} {onRecordClick} />
         {:else if activeTab === "outreach"}
             <OutreachHistory {outreachContacts} />

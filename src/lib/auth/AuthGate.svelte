@@ -17,7 +17,7 @@
   });
   async function login() {
     error = '';
-    try { await signIn(); } catch { error = 'Unable to open Google sign-in. Please try again.'; }
+    try { await signIn(); } catch { error = 'Unable to open sign-in. Please try again.'; }
   }
   async function requestApproval() {
     error = '';
@@ -51,7 +51,7 @@
         <p class="text-muted-foreground">{$session.error}</p>
       {:else if $session.status === 'approval-required' || $session.status === 'requesting-approval'}
         <h1 id="access-title" class="text-2xl font-bold">Owner approval required</h1>
-        <p class="text-muted-foreground">Your Google sign-in is verified by the service, but it does not grant access on its own. Ask a church owner to review your request.</p>
+        <p class="text-muted-foreground">Your sign-in is verified by the service, but it does not grant access on its own. Ask a church owner to review your request.</p>
         {#if $session.error}<p role="status">{$session.error}</p>{/if}
         <div class="flex flex-wrap gap-3">
           <button class="px-5 py-3 bg-primary text-primary-foreground font-semibold rounded-lg" disabled={$session.status === 'requesting-approval'} onclick={requestApproval}>
@@ -61,9 +61,9 @@
         </div>
       {:else}
         <h1 id="access-title" class="text-2xl font-bold">Sign in to your church</h1>
-        <p class="text-muted-foreground">Use your approved Google account to continue.</p>
+        <p class="text-muted-foreground">Sign in with your email and password. New accounts need approval from a church owner.</p>
         {#if $session.error}<p role="alert">{$session.error}</p>{/if}
-        <button class="px-5 py-3 bg-primary text-primary-foreground font-semibold rounded-lg" onclick={login}>Continue with Google</button>
+        <button class="px-5 py-3 bg-primary text-primary-foreground font-semibold rounded-lg" onclick={login}>Sign in or create account</button>
         {#if $session.status === 'access-denied'}
           <button class="px-4 py-2 border border-border rounded-lg" onclick={signOut}>Sign out</button>
         {/if}

@@ -47,7 +47,9 @@
     "/evangelism": "Evangelism",
     "/services": "Sunday Services",
     "/meetings": "Meetings & Attendance",
+    "/memories": "Memories",
     "/people": "People Directory",
+    "/development": "Development",
     "/visitation": "Pastoral Care",
     "/reports": "Reports",
   };
@@ -59,6 +61,10 @@
 
   function goBack() {
     window.history.back();
+  }
+
+  function goForward() {
+    window.history.forward();
   }
 
   // Handle mobile sidebar toggle
@@ -239,17 +245,33 @@
 
       <!-- Page Title -->
       <div class="ml-2 flex min-w-0 items-center gap-1 sm:ml-4 sm:gap-2">
-        <button
-          type="button"
-          onclick={goBack}
-          class="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-          aria-label="Go back to the previous page"
-          title="Go back to the previous page"
-        >
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
+        <div class="flex shrink-0 items-center rounded-lg border border-border bg-secondary/25 p-0.5" aria-label="Page history controls">
+          <button
+            type="button"
+            onclick={goBack}
+            class="flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+            aria-label="Go back to the previous page"
+            title="Back"
+          >
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 19l-7-7 7-7" />
+            </svg>
+            <span class="hidden lg:inline">Back</span>
+          </button>
+          <span class="h-5 w-px bg-border" aria-hidden="true"></span>
+          <button
+            type="button"
+            onclick={goForward}
+            class="flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+            aria-label="Go forward to the next page"
+            title="Forward"
+          >
+            <span class="hidden lg:inline">Forward</span>
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="m9 5 7 7-7 7" />
+            </svg>
+          </button>
+        </div>
         <p class="min-w-0 truncate text-lg font-semibold text-foreground">
           {currentTitle}
         </p>
@@ -342,7 +364,7 @@
           <!-- Notification Badge -->
           {#if $unreadCount > 0}
             <span
-              class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center shadow-md animate-pulse"
+              class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center shadow-md"
             >
               {$unreadCount}
             </span>

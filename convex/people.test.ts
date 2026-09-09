@@ -83,6 +83,10 @@ describe("person records", () => {
         }));
         await t.run((ctx) => ctx.db.insert("attendance", { service_id: serviceId, person_id: source!._id, created_at: now }));
 
+        const contact = await owner.mutation(api.people.create, { first_name:"Collected",last_name:"Contact",member_status:"guest",collected_by_id:source!._id });
+        const supported = await owner.mutation(api.people.createGrowthAgreement, { personId:contact!._id,action:"Meet together",supportingPersonId:source!._id,agreedDate:"2026-01-01" });
+        const ownAgreement = await owner.mutation(api.people.createGrowthAgreement, { personId:source!._id,action:"Read together",agreedDate:"2026-01-01" });
+        await owner.mutation(api.people.reviewGrowthAgreement, { agreementId:ownAgreement!._id,note:"Started reading",reviewDate:"2026-01-02",status:"in_progress" });
         const preview = await owner.query(api.people.getMergePreview, { sourceId: source!._id, targetId: target!._id });
         expect(preview.canMerge).toBe(true);
         expect(preview.relationshipCounts.attendance).toBe(1);
@@ -99,5 +103,10 @@ describe("person records", () => {
         expect(mergedSource).toMatchObject({ member_status: "archived", merged_into_id: target!._id });
         expect(attendance).toHaveLength(1);
         expect(attendance[0].person_id).toBe(target!._id);
+        expect((await t.run(ctx=>ctx.db.get(contact!._id)))?.collected_by_id).toBe(target!._id);
+        expect((await t.run(ctx=>ctx.db.get(supported!._id)))?.supporting_person_id).toBe(target!._id);
+        const [summary] = await owner.query(api.people.getDevelopmentSummary,{ids:[target!._id]});
+        expect(summary.agreements.map(a=>a._id)).toContain(ownAgreement!._id);
+        expect(summary.agreementReviews[0].person_id).toBe(target!._id);
     });
 });

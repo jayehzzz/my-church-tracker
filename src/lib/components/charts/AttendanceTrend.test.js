@@ -29,6 +29,7 @@ describe("AttendanceTrend", () => {
     // Summary footer & values
     expect(getAllByText("150").length).toBeGreaterThan(0);
     expect(getAllByText("135").length).toBeGreaterThan(0);
+    expect(getByText("Overall average attendance").previousElementSibling?.classList.contains("text-primary")).toBe(true);
   });
 
   it("switches between line and bar views cleanly", async () => {
@@ -48,17 +49,17 @@ describe("AttendanceTrend", () => {
   });
 
   it("handles comparison selection and shows legend", async () => {
-    const { getByLabelText, getByText, getAllByText } = render(AttendanceTrend, {
+    const { getByRole, getByText, getAllByText } = render(AttendanceTrend, {
       props: {
         data: mockAttendanceData,
         comparisonOptions,
       },
     });
 
-    const select = getByLabelText("Compare attendance with");
-    await fireEvent.change(select, { target: { value: "guests" } });
+    await fireEvent.click(getByRole("button", { name: "Compare attendance with" }));
+    await fireEvent.click(getByRole("button", { name: "Guests" }));
 
-    expect(getByText("Total attendance")).toBeDefined();
+    expect(getByText("Actual attendance")).toBeDefined();
     expect(getAllByText("Guests").length).toBeGreaterThan(0);
   });
 

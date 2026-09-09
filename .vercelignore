@@ -1,0 +1,11 @@
+.env
+.env.*
+.git
+.agent
+.agents
+.github
+docs
+coverage
+test-results
+playwright-report
+AGENTS.md

@@ -21,6 +21,7 @@
   let attendanceMetadata = $state({});
   let priorAttendance = $state({});
   let loadingPeople = $state(false);
+  let attendanceDataLoaded = $state(false);
   let attendeeFilter = $state("members");
   let searchQuery = $state("");
 
@@ -100,7 +101,7 @@
       isNew: false,
     }));
     initialFormSnapshot = JSON.stringify(formData);
-    void loadData();
+    attendanceDataLoaded = false;
   });
 
   function emptyForm() {
@@ -172,6 +173,7 @@
       errors = { ...errors, attendance: "The people directory could not be loaded." };
     } finally {
       loadingPeople = false;
+      attendanceDataLoaded = true;
     }
   }
 
@@ -194,7 +196,7 @@
     };
   }
 
-  function goToStep(step) {
+  async function goToStep(step) {
     if (step > 1) {
       const setupErrors = validateServiceSetup(formData);
       if (Object.keys(setupErrors).length) {
@@ -205,6 +207,9 @@
     }
     errors = {};
     activeStep = step;
+    if (step > 1 && !attendanceDataLoaded && !loadingPeople) {
+      await loadData();
+    }
   }
 
   function applyNamedTotals() {

@@ -34,17 +34,6 @@
     ...restProps
   } = $props();
 
-  // Track focus state for floating label
-  let isFocused = $state(false);
-
-  // Determine if label should float
-  const shouldFloat = $derived(() => {
-    if (multiple) {
-      return isFocused || (Array.isArray(value) && value.length > 0);
-    }
-    return isFocused || value !== "";
-  });
-
   // Compute wrapper classes
   const wrapperClasses = $derived(() => {
     let classes =
@@ -63,27 +52,6 @@
     return classes;
   });
 
-  // Compute label classes
-  const labelClasses = $derived(() => {
-    let classes =
-      "absolute left-3 transition-all duration-200 pointer-events-none";
-
-    if (shouldFloat()) {
-      classes += " -top-2.5 text-xs px-1 bg-background";
-      if (error) {
-        classes += " text-destructive";
-      } else if (isFocused) {
-        classes += " text-primary";
-      } else {
-        classes += " text-muted-foreground";
-      }
-    } else {
-      classes += " top-1/2 -translate-y-1/2 text-sm text-muted-foreground";
-    }
-
-    return classes;
-  });
-
   // Compute select classes
   const selectClasses = $derived(
     `flex-1 h-10 px-3 pr-10 bg-transparent text-foreground
@@ -94,12 +62,10 @@
 
   // Handle focus
   function handleFocus() {
-    isFocused = true;
   }
 
   // Handle blur
   function handleBlur() {
-    isFocused = false;
   }
 
   // Handle change for multi-select
@@ -122,17 +88,14 @@
   }
 </script>
 
-<div class="w-full">
+<div class="w-full space-y-1.5">
+  {#if label}
+    <label for={id} class="block text-xs font-medium text-foreground">
+      {label}
+      {#if required}<span class="ml-0.5 text-destructive" aria-hidden="true">*</span>{/if}
+    </label>
+  {/if}
   <div class={wrapperClasses()}>
-    {#if label}
-      <label for={id} class={labelClasses()}>
-        {label}
-        {#if required}
-          <span class="text-destructive ml-0.5" aria-hidden="true">*</span>
-        {/if}
-      </label>
-    {/if}
-
     <select
       {id}
       {name}
@@ -142,7 +105,6 @@
       aria-invalid={error ? "true" : undefined}
       aria-describedby={error ? `${id}-error` : undefined}
       class={selectClasses}
-      style:color={shouldFloat() && !value ? "transparent" : ""}
       onfocus={handleFocus}
       onblur={handleBlur}
       onchange={handleChange}

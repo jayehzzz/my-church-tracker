@@ -1,5 +1,7 @@
+import { developmentGatherings, developmentPresent } from "../utils/developmentRecords.js";
+import { mockMeetingPrograms } from "./meetingProgramsService.js";
 import { api } from "../../../convex/_generated/api.js";
-import { mockPeople, mockEvangelismContacts, getPersonById as getMockPersonById } from "../data/mockData.js";
+import { mockPeople, mockEvangelismContacts, mockServices, mockMeetings, mockAttendance, getPersonById as getMockPersonById } from "../data/mockData.js";
 import { getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
 
 export { getMockPersonById };
@@ -80,8 +82,10 @@ export async function getById(id) {
 const CLEARABLE_FIELDS = new Set([
   "email", "phone", "address", "city", "state", "zip_code", "preferred_name",
   "birthday", "date_of_birth", "gender", "marital_status", "employment_status",
+  "birthday_month", "birthday_day", "age_band",
   "degree_status", "basontas", "church_role", "role", "activity_status", "leader_id",
   "contact_category", "contact_date", "contact_method", "invited_by_id", "entry_point",
+  "collected_by_id",
   "notes", "first_visit_date", "membership_date", "is_baptised", "is_tither",
   "completed_schools", "lat", "lng", "avatar_url",
 ]);
@@ -92,6 +96,10 @@ export function preparePersonPayload(obj, { forUpdate = false } = {}) {
   for (const [rawKey, rawValue] of Object.entries(obj || {})) {
     const key = rawKey === "date_of_birth" ? "birthday" : rawKey;
     const value = typeof rawValue === "string" ? rawValue.trim() : rawValue;
+    if (rawKey === "last_name" && value === "" && obj?.surname_status === "missing") {
+      payload.last_name = "";
+      continue;
+    }
     if (value === null || value === undefined || value === "") {
       if (forUpdate && CLEARABLE_FIELDS.has(rawKey)) clearFields.push(key);
       continue;
@@ -252,4 +260,85 @@ export async function search(searchTerm) {
   } catch (error) {
     return { data: null, error };
   }
+}
+
+/** Append a leader-authored review; identity and audit timestamps come from the server. */
+export async function addDiscipleshipReview(id, review) {
+  const client = getClient();
+  const payload = {
+    focus: review.focus, understanding: review.understanding.trim(),
+    next_step: review.next_step.trim(), conversation_date: review.conversation_date,
+    ...(review.next_review_date ? { next_review_date: review.next_review_date } : {}),
+  };
+  if (!client) {
+    if (!isDemoMode()) return unavailable();
+    const index = mockPeople.findIndex(p => String(p.id) === String(id));
+    if (index < 0) return { data: null, error: new Error("Person not found") };
+    const person = mockPeople[index];
+    mockPeople[index] = { ...person, discipleship_reviews: [...(person.discipleship_reviews || []), { ...payload, recorded_at: new Date().toISOString(), recorded_by_name: "Demo leader" }] };
+    return { data: mapDoc(mockPeople[index]), error: null };
+  }
+  try {
+    return { data: mapDoc(await withTimeout(client.mutation(api.people.addDiscipleshipReview, { id, ...payload }), 10000)), error: null };
+  } catch (error) { return { data: null, error }; }
+}
+
+export async function getDevelopmentSummary(ids, range = {}) {
+  const client = getClient();
+  if (!client) {
+    if (!isDemoMode()) return unavailable();
+    const opportunities = developmentGatherings(mockServices, mockMeetings, mockMeetingPrograms);
+    const contacts = [...new Map([...mockPeople, ...mockEvangelismContacts].map(p => [String(p.id), p])).values()];
+    const serviceDates = personId => [...new Set(mockAttendance.filter(r => String(r.person_id) === String(personId)).map(r => opportunities.find(g => g.kind === 'service' && g.id === String(r.service_id))).filter(g => g?.category === 'sunday').map(g => g.date))].sort();
+    const rows = ids.map(id => mockPeople.find(person => String(person.id) === String(id))).filter(Boolean).map(person => ({
+      person: mapDoc(person), opportunities, givingAvailable: true, outreachComplete: true,
+      attendance: [
+        ...mockAttendance.filter(r => String(r.person_id) === String(person.id)).map(r => ({ event_id: String(r.service_id), present: true, gave_tithe: r.gave_tithe === true })),
+        ...mockMeetings.flatMap(m => (m.attendance_records || (m.attendees || []).map(id => ({ person_id: typeof id === 'object' ? id.person_id : id, attended: true }))).filter(r => String(r.person_id) === String(person.id)).map(r => ({ event_id: String(m.id), present: developmentPresent(r), gave_tithe: r.gave_tithe === true }))),
+      ],
+      collectedContacts: contacts.filter(c => String(c.collected_by_id) === String(person.id)),
+      invitedPeople: contacts.filter(c => String(c.invited_by_id) === String(person.id)).map(c => ({ id: c.id, service_dates: serviceDates(c.id) })),
+      agreements: person.growth_agreements || [], agreementReviews: person.growth_agreement_reviews || [],
+    }));
+    if (rows.length !== ids.length) return { data: null, error: new Error('Person not found or unavailable') };
+    return { data: rows, error: null };
+  }
+  try { return { data: await withTimeout(client.query(api.people.getDevelopmentSummary, { ids, from: range.from, to: range.to }), 10000), error: null }; }
+  catch (error) { return { data: null, error }; }
+}
+
+export async function createGrowthAgreement(personId, agreement) {
+  const client = getClient();
+  const payload = { personId, requestId: agreement.requestId, action: agreement.action.trim(), supportingPersonId: agreement.supportingPersonId || undefined, agreedDate: agreement.agreedDate, dueDate: agreement.dueDate || undefined, nextReviewDate: agreement.nextReviewDate || undefined, notes: agreement.notes?.trim() || undefined };
+  if (!client) {
+    if (!isDemoMode()) return unavailable();
+    const person = mockPeople.find(row => String(row.id) === String(personId));
+    if (!person) return { data: null, error: new Error('Person not found') };
+    const existing = person.growth_agreements?.find(a => a.request_id === agreement.requestId && agreement.requestId);
+    if (existing) return { data: existing, error: null };
+    const row = { ...payload, request_id: agreement.requestId, supporting_person_id: payload.supportingPersonId, _id: `agreement-${crypto.randomUUID()}`, person_id: personId, agreed_date: payload.agreedDate, due_date: payload.dueDate, next_review_date: payload.nextReviewDate, status: 'in_progress', created_at: new Date().toISOString(), created_by_name: 'Demo leader' };
+    person.growth_agreements = [...(person.growth_agreements || []), row];
+    return { data: row, error: null };
+  }
+  try { return { data: await withTimeout(client.mutation(api.people.createGrowthAgreement, payload), 10000), error: null }; } catch (error) { return { data: null, error }; }
+}
+
+export async function reviewGrowthAgreement(agreementId, review) {
+  const client = getClient();
+  const payload = { agreementId, note: review.note.trim(), reviewDate: review.reviewDate, nextReviewDate: review.nextReviewDate || undefined, status: review.status, requestId: review.requestId };
+  if (!client) {
+    if (!isDemoMode()) return unavailable();
+    const person = mockPeople.find(p => p.growth_agreements?.some(a => a._id === agreementId));
+    const agreement = person?.growth_agreements.find(a => a._id === agreementId);
+    if (!agreement) return { data: null, error: new Error('Agreement not found') };
+    const existing = person.growth_agreement_reviews?.find(r => r.request_id === review.requestId && review.requestId);
+    if (existing) return { data: existing, error: null };
+    const row = { _id: `review-${crypto.randomUUID()}`, agreement_id: agreementId, person_id: person.id, note: payload.note, review_date: review.reviewDate, next_review_date: review.nextReviewDate, status: review.status, request_id: review.requestId, created_at: new Date().toISOString(), created_by_name: 'Demo leader' };
+    person.growth_agreement_reviews = [...(person.growth_agreement_reviews || []), row];
+    agreement.status = review.status;
+    agreement.next_review_date = review.nextReviewDate;
+    return { data: row, error: null };
+  }
+
+  try { return { data: await withTimeout(client.mutation(api.people.reviewGrowthAgreement, payload), 10000), error: null }; } catch (error) { return { data: null, error }; }
 }

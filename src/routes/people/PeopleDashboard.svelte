@@ -1,436 +1,152 @@
 <script>
-    import LeafletMap from "$lib/components/map/LeafletMap.svelte";
-    import { churchLocation, mockPriorityQueue } from "$lib/data/mockData";
-    import { isDemoMode } from "$lib/convex.js";
-    import { Button } from "$lib/components/ui";
+  import LeafletMap from "$lib/components/map/LeafletMap.svelte";
+  import { hasMapLocation, personAddress } from "$lib/utils/peopleView.js";
+  import { isDemoMode } from "$lib/convex.js";
 
-    let { people } = $props();
+  let { people = [], loading = false } = $props();
+  let mapComponent = $state();
+  let query = $state("");
+  let locationFilter = $state("all");
+  let focusedId = $state(null);
+  let routeEstimate = $state(null);
+  let routeRequest = null;
+  const churchLocation = isDemoMode() ? { lat: 51.8787, lng: -0.42, name: "Demo church" } : null;
+  let mapped = $derived(people.filter(hasMapLocation));
+  let missing = $derived(people.length - mapped.length);
+  let results = $derived(people.filter((person) => {
+    const matchesLocation = locationFilter !== "missing" || !hasMapLocation(person);
+    return matchesLocation && `${person.first_name || ""} ${person.last_name || ""} ${personAddress(person)}`
+      .toLowerCase().includes(query.trim().toLowerCase());
+  }));
+  let visibleMapped = $derived(results.filter(hasMapLocation));
 
-    // An empty live database remains empty; only explicit demo mode has sample data.
-    let allPeople = $derived(people || []);
+  function formatDuration(seconds) {
+    const minutes = Math.max(1, Math.round(seconds / 60));
+    return minutes >= 60 ? `${Math.floor(minutes / 60)} hr ${minutes % 60 ? `${minutes % 60} min` : ""}`.trim() : `${minutes} min`;
+  }
 
-    // State
-    let mapComponent = $state();
-    let selectedPeopleIds = $state([]);
-    let isRoutePanelOpen = $state(false);
-
-    // Pro Features
-    let searchQuery = $state("");
-    let showStructure = $state(false);
-    let visitationMode = $state(false);
-    let searchResults = $state([]);
-
-    // Derived: Visitation Queue IDs
-    let visitationQueueIds = $derived(
-        visitationMode && isDemoMode() ? mockPriorityQueue.map((item) => item.personId) : [],
-    );
-
-    // Calculate distances & Process Data
-    let peopleWithDistance = $derived.by(() => {
-        if (!allPeople || allPeople.length === 0) return [];
-
-        return allPeople
-            .map((person) => {
-                if (!person.lat || !person.lng)
-                    return { ...person, distance: Infinity };
-
-                const dist = calculateDistance(
-                    churchLocation.lat,
-                    churchLocation.lng,
-                    person.lat,
-                    person.lng,
-                );
-                return { ...person, distance: dist };
-            })
-            .sort((a, b) => a.distance - b.distance);
-    });
-
-    // Handle Search
-    $effect(() => {
-        if (!searchQuery) {
-            searchResults = [];
-            return;
-        }
-        const lower = searchQuery.toLowerCase();
-        searchResults = allPeople
-            .filter((p) =>
-                `${p.first_name || ""} ${p.last_name || ""}`
-                    .toLowerCase()
-                    .includes(lower),
-            )
-            .slice(0, 5);
-    });
-
-    function handleSearchSelect(person) {
-        searchQuery = `${person.first_name || ""} ${person.last_name || ""}`.trim();
-        searchResults = [];
-        if (mapComponent && person.lat && person.lng) {
-            mapComponent.flyTo(person.lat, person.lng);
-            // Auto open popup via marker click simulation if possible, or just fly
-        }
+  async function focusPerson(person) {
+    const personId = person.id || person._id;
+    focusedId = personId;
+    if (routeEstimate?.personId === personId && routeEstimate.status !== "error") {
+      mapComponent?.flyTo(person.lat, person.lng, personId);
+      return;
     }
-
-    // KPIs
-    let kpis = $derived(() => {
-        const targetIds = visitationMode
-            ? visitationQueueIds
-            : selectedPeopleIds;
-        const selected = peopleWithDistance.filter((p) =>
-            targetIds.includes(p.id),
-        );
-
-        const totalDistance = selected.reduce(
-            (acc, p) => acc + (p.distance !== Infinity ? p.distance : 0),
-            0,
-        );
-        const avgDistance =
-            selected.length && totalDistance > 0
-                ? (totalDistance / selected.length).toFixed(1)
-                : 0;
-
-        return { count: selected.length, avgDistance };
-    });
-
-    function calculateDistance(lat1, lon1, lat2, lon2) {
-        const R = 3959;
-        const dLat = toRad(lat2 - lat1);
-        const dLon = toRad(lon2 - lon1);
-        const a =
-            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(toRad(lat1)) *
-                Math.cos(toRad(lat2)) *
-                Math.sin(dLon / 2) *
-                Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return parseFloat((R * c).toFixed(1));
+    routeRequest?.abort();
+    const controller = new AbortController();
+    routeRequest = controller;
+    routeEstimate = churchLocation ? { personId, status: "loading" } : null;
+    mapComponent?.flyTo(person.lat, person.lng, personId);
+    if (!churchLocation) return;
+    try {
+      const start = `${churchLocation.lng},${churchLocation.lat}`;
+      const end = `${person.lng},${person.lat}`;
+      const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${start};${end}?overview=false`, { signal: controller.signal });
+      if (!response.ok) throw new Error("Route request failed");
+      const route = (await response.json()).routes?.[0];
+      if (!route || controller.signal.aborted) throw new Error("Route unavailable");
+      routeEstimate = {
+        personId,
+        status: "ready",
+        distanceLabel: route.distance >= 1609 ? `${(route.distance / 1609.344).toFixed(1)} miles` : `${Math.round(route.distance)} m`,
+        durationLabel: formatDuration(route.duration),
+      };
+      mapComponent?.flyTo(person.lat, person.lng, personId);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        routeEstimate = { personId, status: "error" };
+        mapComponent?.flyTo(person.lat, person.lng, personId);
+      }
     }
-    function toRad(deg) {
-        return deg * (Math.PI / 180);
-    }
-
-    function togglePersonSelection(person) {
-        if (visitationMode) return;
-        if (selectedPeopleIds.includes(person.id)) {
-            selectedPeopleIds = selectedPeopleIds.filter(
-                (id) => id !== person.id,
-            );
-        } else {
-            selectedPeopleIds = [...selectedPeopleIds, person.id];
-            if (!isRoutePanelOpen) isRoutePanelOpen = true;
-        }
-    }
-
-    function handleMarkerClick(person) {
-        if (visitationMode) return;
-        togglePersonSelection(person);
-        if (mapComponent) mapComponent.flyTo(person.lat, person.lng);
-    }
-
-    function openGoogleMapsRoute() {
-        const targetIds = visitationMode
-            ? visitationQueueIds
-            : selectedPeopleIds;
-        if (targetIds.length === 0) return;
-
-        const selected = peopleWithDistance.filter((p) =>
-            targetIds.includes(p.id),
-        );
-        const sortedWaypoints = [...selected].sort(
-            (a, b) => a.distance - b.distance,
-        );
-
-        const origin = encodeURIComponent(churchLocation.address);
-        const description = sortedWaypoints[sortedWaypoints.length - 1];
-
-        const waypoints = sortedWaypoints
-            .slice(0, -1)
-            .map((p) => encodeURIComponent(p.address || `${p.lat},${p.lng}`))
-            .join("|");
-
-        let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${encodeURIComponent(description.address || `${description.lat},${description.lng}`)}`;
-        if (waypoints) url += `&waypoints=${waypoints}`;
-        window.open(url, "_blank");
-    }
+  }
 </script>
 
-<div
-    class="h-[min(700px,calc(100vh-11rem))] min-h-[540px] w-full relative overflow-hidden rounded-2xl border border-border/60 shadow-lg bg-card group"
->
-    <!-- Top Controls: Search & Modes -->
-    <div
-        class="absolute top-4 left-4 z-[400] flex flex-col gap-2 w-64 pointer-events-auto"
-    >
-        <!-- Map Search (FlyTo) -->
-        <div class="relative group/search">
-            <div
-                class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"
-            >
-                <svg
-                    class="h-4 w-4 text-muted-foreground"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    ><path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                    /></svg
-                >
-            </div>
-            <input
-                type="text"
-                placeholder="Find on map..."
-                bind:value={searchQuery}
-                class="block w-full pl-10 pr-3 py-2 border border-border/60 rounded-lg text-sm bg-background/95 backdrop-blur shadow-sm focus:outline-none focus:ring-1 focus:ring-primary transition-all"
-            />
-
-            {#if searchResults.length > 0}
-                <div
-                    class="absolute mt-1 w-full bg-popover rounded-md shadow-lg py-1 ring-1 ring-black/5 overflow-auto max-h-60 z-50"
-                >
-                    {#each searchResults as result}
-                        <button
-                            class="w-full text-left px-3 py-2 hover:bg-accent hover:text-accent-foreground flex items-center gap-2 text-sm"
-                            onclick={() => handleSearchSelect(result)}
-                        >
-                            <span
-                                class="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0"
-                            >
-                                {(
-                                    (result.first_name?.[0] || "") + (result.last_name?.[0] || "")
-                                ).toUpperCase() || "?"}
-                            </span>
-                            <span class="truncate"
-                                >{result.first_name || ""} {result.last_name || ""}</span
-                            >
-                        </button>
-                    {/each}
-                </div>
-            {/if}
+<section class="people-map" aria-label="People locations">
+  <header class="map-heading">
+    <div>
+      <h2>People locations</h2>
+      <p>Find someone nearby or open their profile to arrange care.</p>
+    </div>
+    <p class="coverage" aria-live="polite">{loading ? "Loading locations…" : `${mapped.length} of ${people.length} have a saved location`}</p>
+  </header>
+  {#if loading}
+    <div class="empty" role="status">Loading people…</div>
+  {:else}
+    <div class="map-layout">
+      <div class="map-canvas">
+        {#if visibleMapped.length}
+          <LeafletMap bind:this={mapComponent} people={visibleMapped} {churchLocation} {routeEstimate} onPersonSelected={focusPerson} scrollWheelZoom={false} />
+        {:else}
+          <div class="empty">
+            <span class="empty-icon" aria-hidden="true">⌖</span>
+            <h3>{mapped.length ? "No locations match this view" : "No recorded map locations"}</h3>
+            <p>{mapped.length ? "Change your search or choose All people to see locations again." : "People appear here when their profile has saved coordinates. An address alone does not place a pin."}</p>
+          </div>
+        {/if}
+      </div>
+      <aside class="location-list" aria-label="Find a person">
+        <div class="list-controls">
+          <label for="map-search">Find a person or area</label>
+          <input id="map-search" type="search" placeholder="Name, town or postcode" bind:value={query} />
+          <div class="location-tabs" aria-label="Location filter">
+            <button type="button" aria-pressed={locationFilter === "all"} onclick={() => locationFilter = "all"}>All people</button>
+            <button type="button" aria-pressed={locationFilter === "missing"} onclick={() => locationFilter = "missing"}>Without a pin ({missing})</button>
+          </div>
+          <p class="result-count" aria-live="polite">{results.length} {results.length === 1 ? "person" : "people"}</p>
         </div>
-
-        <!-- Mode Toggles -->
-        <div class="flex gap-2">
-            <button
-                class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border shadow-sm transition-all {visitationMode
-                    ? 'bg-rose-500 text-white border-rose-600'
-                    : 'bg-background/90 backdrop-blur border-border/60 hover:bg-background'}"
-                onclick={() => {
-                    visitationMode = !visitationMode;
-                    if (visitationMode) isRoutePanelOpen = true;
-                }}
-            >
-                Visitation
-                {#if isDemoMode() && mockPriorityQueue.length > 0}
-                    <span class="bg-white/20 px-1 rounded-full text-[9px]"
-                        >{mockPriorityQueue.length}</span
-                    >
+        <ul>
+          {#each results as person (person.id || person._id)}
+            <li class:focused={focusedId === (person.id || person._id)}>
+              <a class="person-name" href="/people/{encodeURIComponent(person.id || person._id)}">{person.first_name} {person.last_name}</a>
+              <p>{personAddress(person) || "No address recorded"}</p>
+              <div class="person-actions">
+                {#if hasMapLocation(person)}
+                  <button type="button" onclick={() => focusPerson(person)} aria-label="Show {person.first_name} {person.last_name} on map">Show on map</button>
+                {:else}
+                  <span>No map location</span>
                 {/if}
-            </button>
-
-            <button
-                class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border shadow-sm transition-all {showStructure
-                    ? 'bg-indigo-500 text-white border-indigo-600'
-                    : 'bg-background/90 backdrop-blur border-border/60 hover:bg-background'}"
-                onclick={() => (showStructure = !showStructure)}
-            >
-                Network
-            </button>
-        </div>
+                <a href="/people/{encodeURIComponent(person.id || person._id)}">View profile →</a>
+              </div>
+              {#if routeEstimate?.personId === (person.id || person._id)}
+                <p class="route-estimate" aria-live="polite">
+                  {routeEstimate.status === "loading" ? "Calculating car journey from church…" : routeEstimate.status === "ready" ? `By car from church: ${routeEstimate.distanceLabel} · about ${routeEstimate.durationLabel}` : "Car journey estimate is unavailable right now."}
+                </p>
+              {/if}
+            </li>
+          {:else}
+            <li class="no-results">No people match. Try another name or area.</li>
+          {/each}
+        </ul>
+      </aside>
     </div>
+    <footer aria-label="Map legend">
+      <span><i class="leader"></i>Leader</span><span><i class="member"></i>Member</span><span><i class="guest"></i>Guest</span><span><i class="archived"></i>Archived</span>
+      {#if churchLocation}<span><i class="church"></i>{churchLocation.name}</span>{/if}<span class="map-hint">Select a pin to view a profile. Use + / − to zoom.</span>
+    </footer>
+  {/if}
+</section>
 
-    <!-- Top Right: Route Button -->
-    <div class="absolute top-4 right-4 z-[400] pointer-events-auto">
-        <Button
-            variant="outline"
-            size="sm"
-            class="bg-background/95 backdrop-blur shadow-sm h-9 border-border/60 hover:bg-background"
-            onclick={() => (isRoutePanelOpen = !isRoutePanelOpen)}
-        >
-            <svg
-                class="w-4 h-4 mr-2"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                ><path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0121 18.382V7.618a1 1 0 01-.553-.894L15 4m0 13V4m0 0L9 7"
-                /></svg
-            >
-            Route
-            {#if kpis().count > 0}
-                <span
-                    class="ml-2 bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full text-[10px] font-bold h-5 min-w-[20px] inline-flex items-center justify-center"
-                >
-                    {kpis().count}
-                </span>
-            {/if}
-        </Button>
-    </div>
-
-    <!-- Static Legend (Visual Key Only, No Actions) -->
-    <div class="absolute bottom-6 left-6 z-[400] pointer-events-none">
-        <div
-            class="bg-background/90 backdrop-blur border border-border/60 rounded-lg p-2.5 shadow-lg text-[11px] space-y-2 pointer-events-auto"
-        >
-            <div class="flex items-center gap-2">
-                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm"
-                ></span>
-                <span class="font-medium opacity-80">Leader</span>
-            </div>
-            <div class="flex items-center gap-2">
-                <span class="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-sm"
-                ></span>
-                <span class="font-medium opacity-80">Member</span>
-            </div>
-            <div class="flex items-center gap-2">
-                <span class="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm"
-                ></span>
-                <span class="font-medium opacity-80">Guest</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Map Area -->
-    <div class="w-full h-full z-0 bg-muted/20">
-        <LeafletMap
-            bind:this={mapComponent}
-            people={peopleWithDistance}
-            center={[churchLocation.lat, churchLocation.lng]}
-            selectedIds={visitationMode
-                ? visitationQueueIds
-                : selectedPeopleIds}
-            {visitationQueueIds}
-            {showStructure}
-            onMarkerClick={handleMarkerClick}
-            scrollWheelZoom={true}
-        />
-    </div>
-
-    <!-- Route Drawer (Right Side) -->
-    <div
-        class="absolute top-2 bottom-2 left-2 right-2 sm:left-auto sm:w-80 bg-background/95 backdrop-blur border border-border/60 shadow-2xl rounded-xl z-[400] transition-all duration-300 ease-out flex flex-col overflow-hidden text-sm {isRoutePanelOpen
-            ? 'translate-x-0 opacity-100'
-            : 'translate-x-full opacity-0 pointer-events-none'}"
-    >
-        <div
-            class="p-3 border-b border-border/60 flex justify-between items-center bg-muted/40 shrink-0"
-        >
-            <div>
-                <h2 class="font-semibold text-foreground">
-                    {visitationMode ? "Visitation Queue" : "Route Planner"}
-                </h2>
-                <div
-                    class="flex gap-2 text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5"
-                >
-                    <span>{kpis().count} Stops</span>
-                    <span>•</span>
-                    <span>{kpis().avgDistance} mi avg</span>
-                </div>
-            </div>
-            <button
-                class="text-muted-foreground hover:text-foreground p-1"
-                onclick={() => (isRoutePanelOpen = false)}
-                aria-label="Close route panel"
-            >
-                <svg
-                    class="w-4 h-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    ><path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M6 18L18 6M6 6l12 12"
-                    /></svg
-                >
-            </button>
-        </div>
-
-        <div class="flex-1 overflow-y-auto p-2 space-y-2 scrollbar-thin">
-            {#if kpis().count === 0}
-                <div
-                    class="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center"
-                >
-                    <p class="text-xs">No stops selected.</p>
-                </div>
-            {:else}
-                {#each peopleWithDistance.filter( (p) => (visitationMode ? visitationQueueIds : selectedPeopleIds).includes(p.id), ) as person}
-                    <div
-                        class="flex items-center justify-between p-2 rounded-lg bg-card border border-border/50 shadow-sm"
-                    >
-                        <div class="min-w-0">
-                            <div
-                                class="font-medium truncate text-xs flex items-center gap-1.5"
-                            >
-                                {person.first_name}
-                                {person.last_name}
-                                {#if visitationMode}
-                                    <span
-                                        class="text-[9px] bg-rose-100 text-rose-600 px-1 rounded font-bold"
-                                        >REQ</span
-                                    >
-                                {/if}
-                            </div>
-                            <div
-                                class="text-[10px] text-muted-foreground flex items-center gap-1"
-                            >
-                                <span class="truncate max-w-[140px]"
-                                    >{person.address}</span
-                                >
-                                <span class="w-0.5 h-0.5 rounded-full bg-border"
-                                ></span>
-                                <span>{person.distance} mi</span>
-                            </div>
-                        </div>
-                        {#if !visitationMode}
-                            <button
-                                class="text-muted-foreground hover:text-destructive p-1"
-                                onclick={() => togglePersonSelection(person)}
-                                aria-label="Remove {person.first_name} {person.last_name} from route"
-                            >
-                                <svg
-                                    class="w-3.5 h-3.5"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    ><path
-                                        stroke-linecap="round"
-                                        stroke-linejoin="round"
-                                        stroke-width="2"
-                                        d="M6 18L18 6M6 6l12 12"
-                                    /></svg
-                                >
-                            </button>
-                        {/if}
-                    </div>
-                {/each}
-            {/if}
-        </div>
-
-        <div
-            class="p-3 border-t border-border/60 bg-muted/40 shrink-0 space-y-2"
-        >
-            {#if !visitationMode && kpis().count > 0}
-                <button
-                    class="w-full text-xs text-muted-foreground hover:text-destructive transition-colors text-center"
-                    onclick={() => (selectedPeopleIds = [])}
-                >
-                    Clear Route
-                </button>
-            {/if}
-            <Button
-                size="sm"
-                class="w-full font-semibold shadow-sm"
-                disabled={kpis().count === 0}
-                onclick={openGoogleMapsRoute}
-            >
-                Open in Google Maps
-            </Button>
-        </div>
-    </div>
-</div>
+<style>
+  .people-map { border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--card)); overflow: hidden; }
+  .map-heading { padding: 20px 24px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid hsl(var(--border)); }
+  h2 { font-size: 18px; font-weight: 600; } p { color: hsl(var(--muted-foreground)); font-size: 13px; line-height: 1.6; }
+  .coverage { font-size: 12px; padding: 6px 10px; border-radius: 8px; background: hsl(var(--secondary)); }
+  .map-layout { display: grid; grid-template-columns: minmax(0, 1fr) 310px; }
+  .map-canvas { height: 540px; min-width: 0; background: hsl(var(--background)); }
+  .location-list { min-width: 0; border-left: 1px solid hsl(var(--border)); display: flex; flex-direction: column; height: 540px; }
+  .list-controls { padding: 16px; border-bottom: 1px solid hsl(var(--border)); }
+  label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 8px; }
+  input { width: 100%; border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--background)); padding: 10px 12px; font-size: 13px; }
+  .location-tabs { display: flex; gap: 8px; margin-top: 12px; } .location-tabs button { padding: 6px 8px; border-radius: 6px; font-size: 12px; color: hsl(var(--muted-foreground)); }
+  .location-tabs button[aria-pressed="true"] { background: hsl(var(--primary) / .12); color: hsl(var(--primary)); }
+  .result-count { margin-top: 10px; font-size: 12px; }
+  ul { overflow-y: auto; flex: 1; } li { padding: 16px; border-bottom: 1px solid hsl(var(--border)); } li.focused { background: hsl(var(--primary) / .06); }
+  .person-name { font-size: 14px; font-weight: 600; } li p { font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
+  .person-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; font-size: 12px; } .person-actions a, .person-actions button { color: hsl(var(--primary)); } .person-actions span { color: hsl(var(--muted-foreground)); }
+  .route-estimate { margin-top: 10px; color: hsl(var(--primary)); font-size: 12px; font-weight: 500; }
+  a:hover, .person-actions button:hover { text-decoration: underline; }
+  .empty { height: 100%; min-height: 240px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 32px; gap: 8px; } .empty p { max-width: 340px; } .empty h3 { font-weight: 600; } .empty-icon { color: hsl(var(--primary)); font-size: 32px; }
+  .no-results { font-size: 13px; color: hsl(var(--muted-foreground)); }
+  footer { display: flex; flex-wrap: wrap; gap: 12px 20px; padding: 14px 24px; border-top: 1px solid hsl(var(--border)); font-size: 12px; color: hsl(var(--muted-foreground)); } footer span { display: inline-flex; align-items: center; gap: 6px; } i { width: 8px; height: 8px; border-radius: 50%; } .leader { background: #10b981; } .member { background: #3b82f6; } .guest { background: #f59e0b; } .archived { background: #64748b; } .church { background: #0f172a; border-radius: 2px; } .map-hint { margin-left: auto; }
+  @media(max-width: 1000px) { .map-layout { display: flex; flex-direction: column; } .map-canvas { height: 340px; flex-shrink: 0; } .location-list { display: contents; } .list-controls { order: -1; } .location-list ul { max-height: 300px; flex: auto; border-top: 1px solid hsl(var(--border)); } .map-hint { margin-left: 0; } }
+</style>

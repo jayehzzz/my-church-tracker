@@ -6,25 +6,22 @@
 <script>
   let {
     data = [],
-    title = "Attendance journey",
+    title = "People by attendance experience",
     onSegmentClick = null,
     onFilterClick = null,
     activeFilterCount = 0,
   } = $props();
 
-  let hoveredIndex = $state(null);
   const colors = [
     "hsl(var(--warning))",
     "hsl(var(--success))",
     "hsl(var(--primary))",
   ];
-  const maxValue = $derived(
-    Math.max(...(data || []).map((item) => Number(item.value) || 0), 1),
-  );
-
-  function heightFor(value) {
-    return (Math.max(0, Number(value) || 0) / maxValue) * 35;
-  }
+  const descriptions = {
+    "First timers": "Their first recorded church gathering",
+    "Programme firsts": "Their first time at this meeting programme",
+    Established: "They had attended this programme before",
+  };
 
   function activate(item, event) {
     event.stopPropagation();
@@ -36,9 +33,7 @@
   <div class="mb-4 flex items-start justify-between gap-3 pr-12">
     <div>
       <h3 class="text-sm font-semibold text-foreground">{title}</h3>
-      <p class="mt-1 text-xs text-muted-foreground">
-        Unique people in the selected period
-      </p>
+      <p class="mt-1 text-xs text-muted-foreground">A simple count of where each person was in their attendance journey.</p>
     </div>
     {#if onFilterClick}
       <button
@@ -59,72 +54,20 @@
   </div>
 
   {#if data.length}
-    <div class="relative">
-      <svg
-        viewBox="0 0 100 55"
-        class="chart-svg h-52 w-full overflow-visible"
-        role="img"
-        aria-label={title}
-      >
-        {#each [0.25, 0.5, 0.75, 1] as ratio}
-          <line
-            x1="8"
-            y1={43 - 35 * ratio}
-            x2="94"
-            y2={43 - 35 * ratio}
-            stroke="currentColor"
-            stroke-opacity="0.1"
-            stroke-dasharray="1 2"
-          />
-        {/each}
-        {#each data as item, index}
-          {@const x = 14 + index * 29}
-          {@const height = heightFor(item.value)}
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-          <rect
-            x={x}
-            y={43 - height}
-            width="17"
-            height={height}
-            rx="2.5"
-            fill={colors[index % colors.length]}
-            fill-opacity={hoveredIndex === index ? 1 : 0.8}
-            class={onSegmentClick ? "cursor-pointer" : ""}
-            role={onSegmentClick ? "button" : "presentation"}
-            tabindex={onSegmentClick ? 0 : -1}
-            aria-label={onSegmentClick ? `${item.label}: ${item.value}. View people.` : undefined}
-            onmouseenter={() => (hoveredIndex = index)}
-            onmouseleave={() => (hoveredIndex = null)}
-            onfocus={() => (hoveredIndex = index)}
-            onblur={() => (hoveredIndex = null)}
-            onclick={(event) => activate(item, event)}
-            onkeydown={(event) =>
-              (event.key === "Enter" || event.key === " ") && activate(item, event)}
-          />
-          <text
-            x={x + 8.5}
-            y={Math.max(6, 41 - height)}
-            text-anchor="middle"
-            class="fill-foreground text-[4px] font-semibold"
-          >{item.value}</text>
-          <text
-            x={x + 8.5}
-            y="49"
-            text-anchor="middle"
-            class="fill-muted-foreground text-[3.2px]"
-          >{item.label === "Programme firsts" ? "Programme 1sts" : item.label}</text>
-        {/each}
-      </svg>
-    </div>
-    <div class="mt-2 grid grid-cols-3 gap-2 border-t border-border pt-3">
+    <div class="grid gap-3 sm:grid-cols-3">
       {#each data as item, index}
         <button
           type="button"
           onclick={(event) => activate(item, event)}
-          class="rounded-lg p-2 text-center hover:bg-secondary/40"
+          class="rounded-xl border border-border bg-secondary/15 p-4 text-left transition-colors hover:border-primary/40 hover:bg-secondary/35"
         >
-          <span class="mx-auto mb-1 block h-2 w-2 rounded-full" style="background: {colors[index % colors.length]}"></span>
-          <span class="block text-[11px] text-muted-foreground">{item.label}</span>
+          <span class="flex items-center justify-between gap-3">
+            <span class="block text-xs font-semibold text-foreground">{item.label}</span>
+            <span class="h-2.5 w-2.5 rounded-full" style="background: {colors[index % colors.length]}"></span>
+          </span>
+          <span class="mt-3 block text-3xl font-semibold text-foreground">{item.value}</span>
+          <span class="mt-1 block text-[11px] leading-4 text-muted-foreground">{descriptions[item.label] || "Unique people in this group"}</span>
+          {#if onSegmentClick}<span class="mt-3 block text-[11px] font-medium text-primary">View people →</span>{/if}
         </button>
       {/each}
     </div>

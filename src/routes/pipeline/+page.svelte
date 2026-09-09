@@ -1,4 +1,6 @@
 <script>
+  import { session } from "$lib/auth/session.js";
+  const confidential = $derived($session.status === "demo" || $session.user?.canViewConfidential === true);
   import GatheringAttendanceDialog from "$lib/components/crm/GatheringAttendanceDialog.svelte";
   import { onMount } from 'svelte';
   import DashboardLayout from '$lib/components/layout/DashboardLayout.svelte';
@@ -210,10 +212,10 @@
     const notes = taskForm.notes.trim();
     const resumeDate = taskForm.snoozeDate || (taskForm.snoozePeriod === '14' ? addDays(today, 14) : taskForm.snoozePeriod === '30' ? addDays(today, 30) : addDays(today, 90));
     const result = await completeTask(selectedTask._id || selectedTask.id, {
-      leaderId: selectedTask.assigned_leader_id || personId(selectedTask.assigned_leader), method: taskForm.method, outcome: taskForm.outcome, notes: notes || undefined, skipAutomaticNextTask: true,
-      ...(taskForm.decision === 'schedule' ? { nextActionDate: taskForm.nextActionDate, nextTaskType: taskForm.nextTaskType, nextReason: 'Leader planned the next call' } : {}),
+      leaderId: selectedTask.assigned_leader_id || personId(selectedTask.assigned_leader), method: taskForm.method, outcome: taskForm.outcome, ...(confidential && notes ? { notes } : {}), skipAutomaticNextTask: true,
+      ...(taskForm.decision === 'schedule' ? { nextActionDate: taskForm.nextActionDate, nextTaskType: taskForm.nextTaskType, ...(confidential ? { nextReason: 'Leader planned the next call' } : {}) } : {}),
       ...(taskForm.decision === 'expected' ? { attendanceResponse: 'yes', gatheringType: 'sunday_service', gatheringDate: workspace.service_date } : {}),
-      ...(taskForm.decision === 'later' ? { moveToLater: true, resumeDate, nextReason: notes || 'Not ready for weekly follow-up' } : {}),
+      ...(taskForm.decision === 'later' ? { moveToLater: true, resumeDate, ...(confidential ? { nextReason: notes || 'Not ready for weekly follow-up' } : {}) } : {}),
       ...(taskForm.decision === 'close' ? { closeContact: true, closeReason: taskForm.closeReason } : {}),
     });
     savingTask = false;
@@ -267,6 +269,10 @@
   }
   async function handleViewLeader(leaderId) { selectedLeaderId = String(leaderId); activeTab = 'week'; await loadWorkspace({ quiet: true }); }
   async function clearLeader() { selectedLeaderId = 'all'; await loadWorkspace({ quiet: true }); }
+  async function handleLeaderChange() {
+    activeTab = 'week';
+    await loadWorkspace({ quiet: true });
+  }
   async function handleReactivate(contact) {
     const leaderId = currentLeaderId(contact.assigned_leader_id || personId(contact.assigned_leader));
     if (!leaderId) { errorMessage = 'Assign a worker before returning this person to weekly follow-up.'; return; }
@@ -352,8 +358,8 @@
   <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
     <PageHeader title="Follow-Up" subtitle="Weekly calls with new people until they settle. Every person has one worker and one next call." />
     <div class="flex items-center gap-2">
-      <label class="flex items-center gap-2 text-sm font-medium text-foreground"><span class="sr-only sm:not-sr-only">Worker</span><select bind:value={selectedLeaderId} onchange={() => loadWorkspace({ quiet: true })} class="min-w-44 rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground"><option value="all">Everyone</option>{#each workspace.leaders || [] as leader (personId(leader))}<option value={personId(leader)}>{personName(leader)}</option>{/each}</select></label>
-      <Button variant="secondary" size="sm" onclick={() => loadWorkspace({ quiet: true })}>{refreshing ? 'Checking…' : 'Refresh'}</Button>
+      <label class="flex items-center gap-2 text-sm font-medium text-foreground"><span class="sr-only sm:not-sr-only">Worker</span><select bind:value={selectedLeaderId} onchange={handleLeaderChange} class="min-w-44 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground shadow-sm focus:border-primary"><option value="all">Everyone</option>{#each workspace.leaders || [] as leader (personId(leader))}<option value={personId(leader)}>{personName(leader)}</option>{/each}</select></label>
+      <Button variant="secondary" size="sm" loading={refreshing} onclick={() => loadWorkspace({ quiet: true })}>Refresh</Button>
     </div>
   </div>
 
@@ -374,7 +380,7 @@
     <div class="rounded-xl border border-border bg-card py-20 text-center text-sm text-muted-foreground">Loading follow-up…</div>
   {:else if activeTab === 'week'}
     <FollowUpBoard
-      unassigned={workspace.unassigned_contacts || []}
+      unassigned={selectedLeaderId === 'all' ? workspace.unassigned_contacts || [] : []}
       tasks={workspace.tasks || []}
       commitments={workspace.sunday_commitments || workspace.confirmed_commitments || []}
       leaders={workspace.leaders || []}
@@ -466,13 +472,13 @@
           <label class="text-sm font-medium text-foreground">Outcome<select bind:value={taskForm.outcome} class="mt-1.5 w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm">{#each OUTCOMES as option (option.value)}<option value={option.value}>{option.label}</option>{/each}</select></label>
           <label class="text-sm font-medium text-foreground">How<select bind:value={taskForm.method} class="mt-1.5 w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm">{#each METHODS as option (option.value)}<option value={option.value}>{option.label}</option>{/each}</select></label>
         </div>
-        <label class="block text-sm font-medium text-foreground">Notes<textarea bind:value={taskForm.notes} rows="2" placeholder="Only what the next worker needs to know." class="mt-1.5 w-full resize-none rounded-lg border border-border bg-secondary px-3 py-2 text-sm"></textarea></label>
+        {#if confidential}<label class="block text-sm font-medium text-foreground">Notes<textarea bind:value={taskForm.notes} rows="2" placeholder="Only what the next worker needs to know." class="mt-1.5 w-full resize-none rounded-lg border border-border bg-secondary px-3 py-2 text-sm"></textarea></label>{/if}
       </fieldset>
 
       <fieldset class="space-y-3">
         <legend class="text-sm font-semibold text-foreground">2. What next</legend>
         <div class="grid gap-2 sm:grid-cols-2">
-          {#each NEXT_STEPS as step (step.id)}
+          {#each NEXT_STEPS.filter(step => confidential || step.id !== 'close') as step (step.id)}
             <button type="button" aria-pressed={taskForm.decision === step.id} onclick={() => chooseDecision(step.id)} class="rounded-xl border p-3 text-left {taskForm.decision === step.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}"><span class="block text-sm font-semibold text-foreground">{step.title}</span><span class="mt-0.5 block text-xs text-muted-foreground">{step.text}</span></button>
           {/each}
         </div>

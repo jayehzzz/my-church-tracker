@@ -9,7 +9,7 @@
 
 <script>
     /** @type {{ type: string, hours: number, label?: string }[]} */
-    let { data = [], title = "Prayer Hours by Type" } = $props();
+    let { data = [], title = "Prayer Hours by Type", periodLabel = "Selected period" } = $props();
 
     // Meeting type colors and labels
     const typeConfig = {
@@ -50,6 +50,7 @@
                 >{chartData().totalHours}</span
             >
             <span class="text-sm text-muted-foreground ml-1">hrs</span>
+            <span class="block text-[10px] text-muted-foreground">Total in {periodLabel}</span>
         </div>
     </div>
 
@@ -110,7 +111,8 @@
                             10,
                     ) / 10}
                 </div>
-                <div class="text-xs text-muted-foreground">Avg Hours/Type</div>
+                <div class="text-xs text-muted-foreground">Average hours per displayed meeting type</div>
+                <div class="text-[10px] text-muted-foreground">{periodLabel}</div>
             </div>
         </div>
     {/if}

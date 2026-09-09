@@ -1,527 +1,130 @@
 <script>
-    import { createPersonPopup, escapeMapText } from "$lib/utils/mapPopup.js";
-    import { browser } from "$app/environment";
-    import "leaflet/dist/leaflet.css";
+  import { untrack } from "svelte";
+  import { createPersonPopup, escapeMapText } from "$lib/utils/mapPopup.js";
+  import { hasMapLocation } from "$lib/utils/peopleView.js";
+  import "leaflet/dist/leaflet.css";
 
-    let {
-        people = [],
-        center = [51.505, -0.09],
-        selectedIds = [],
-        visitationQueueIds = [],
-        showStructure = false,
-        onMarkerClick,
-        scrollWheelZoom = true,
-    } = $props();
+  let { people = [], churchLocation = null, routeEstimate = null, onPersonSelected = null, scrollWheelZoom = false } = $props();
+  let mapElement = $state();
+  let map;
+  let L;
+  let markersLayer;
+  let markers = new Map();
+  let ready = $state(false);
+  let mapError = $state("");
+  let tileError = $state(false);
 
-    let mapElement;
-    let map;
-    let L; // Leaflet instance
-    let markersLayer;
-    let structureLayer;
-    let churchMarkerLayer;
-    let tileLayer;
-    let resizeObserver;
-    let hasFittedInitialBounds = false;
+  $effect(() => {
+    const element = mapElement;
+    if (!element) return;
+    let cancelled = false;
+    let observer;
+    void import("leaflet").then((module) => {
+      if (cancelled) return;
+      L = module.default;
+      map = L.map(element, { zoomControl: false, scrollWheelZoom }).setView([54, -2], 6);
+      const tiles = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      });
+      tiles.on("tileerror", () => tileError = true);
+      tiles.addTo(map);
+      observer = new ResizeObserver(() => map?.invalidateSize({ pan: false }));
+      observer.observe(element);
+      ready = true;
+    }).catch(() => mapError = "The map could not load. You can still use the people list to open profiles.");
+    return () => {
+      cancelled = true;
+      observer?.disconnect();
+      map?.remove();
+      map = null;
+      ready = false;
+    };
+  });
 
-    let mapLoading = $state(true);
-    let mapStatus = $state("waiting");
-    let mapError = $state("");
-
-    // Map State (Default to Light Mode for better legibility)
-    let isDarkTheme = $state(false);
-
-    // This effect waits for bind:this to provide a real, visible container.
-    // Leaflet touches browser globals while loading, so it remains a
-    // client-only import.
-    $effect(() => {
-        const element = mapElement;
-        if (!browser || !element) return;
-
-        let cancelled = false;
-        mapStatus = "loading-library";
-        document.addEventListener("map-select", handleMapSelect);
-
-        void import("leaflet")
-            .then((module) => {
-                if (cancelled) return;
-                L = module.default;
-                mapStatus = "initialising";
-                initMap();
-                mapStatus = "ready";
-
-                if (typeof ResizeObserver !== "undefined") {
-                    resizeObserver = new ResizeObserver(() => refreshSize());
-                    resizeObserver.observe(element);
-                }
-            })
-            .catch((error) => {
-                console.error("Failed to initialise people map", error);
-                mapError = "The map could not be prepared. Please try again.";
-                mapLoading = false;
-                mapStatus = "error";
-            });
-
-        return () => {
-            cancelled = true;
-            resizeObserver?.disconnect();
-            document.removeEventListener("map-select", handleMapSelect);
-            if (map) {
-                map.remove();
-                map = null;
-            }
-        };
+  $effect(() => {
+    if (!ready) return;
+    const locations = people.filter(hasMapLocation);
+    untrack(() => {
+      if (markersLayer) map.removeLayer(markersLayer);
+      markers = new Map();
+      markersLayer = L.layerGroup();
+      if (churchLocation) {
+        const churchIcon = L.divIcon({ className: "church-map-icon", html: '<div aria-hidden="true">⌂</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
+        L.marker([churchLocation.lat, churchLocation.lng], { icon: churchIcon, title: churchLocation.name, alt: churchLocation.name })
+          .bindPopup(`<strong>${escapeMapText(churchLocation.name)}</strong><br>Church location`, { className: "person-map-popup", maxWidth: 220 })
+          .addTo(markersLayer);
+      }
+      for (const person of locations) {
+        const colorClass = person.member_status === "leader" ? "bg-emerald-500"
+          : person.member_status === "member" ? "bg-blue-500"
+          : person.member_status === "archived" ? "bg-slate-500" : "bg-amber-500";
+        const initials = ((person.first_name?.[0] || "") + (person.last_name?.[0] || "")).toUpperCase() || "?";
+        const name = `${person.first_name || ""} ${person.last_name || ""}`.trim();
+        const icon = L.divIcon({
+          className: "person-map-icon",
+          html: `<div class="w-8 h-8 rounded-full border-2 border-white shadow-md ${colorClass} text-xs text-white font-bold flex items-center justify-center">${escapeMapText(initials)}</div>`,
+          iconSize: [32, 32], iconAnchor: [16, 16],
+        });
+        const marker = L.marker([person.lat, person.lng], { icon, title: name, alt: name });
+        const personId = person.id || person._id;
+        marker.bindPopup(createPersonPopup(person, {
+          colorClass,
+          travelEstimate: routeEstimate?.personId === personId ? routeEstimate : null,
+        }), { className: "person-map-popup", maxWidth: 280 });
+        marker.on("popupopen", () => onPersonSelected?.(person));
+        markersLayer.addLayer(marker);
+        markers.set(personId, marker);
+      }
+      markersLayer.addTo(map);
+      for (const person of locations) markers.get(person.id || person._id)?.getElement()?.setAttribute("aria-label", `${person.first_name || ""} ${person.last_name || ""}`.trim());
+      fitEveryone(false);
     });
+  });
 
-    // Re-render layers when props change
-    $effect(() => {
-        if (map && people && L) {
-            updateLayers();
-        }
-    });
+  export function fitEveryone(animate = true) {
+    const locations = people.filter(hasMapLocation).map(p => [p.lat, p.lng]);
+    if (churchLocation) locations.push([churchLocation.lat, churchLocation.lng]);
+    if (!map || !locations.length) return;
+    map.invalidateSize({ pan: false });
+    map.fitBounds(L.latLngBounds(locations), { padding: [48, 48], maxZoom: 14, animate });
+  }
 
-    // Handle theme toggle
-    $effect(() => {
-        if (map && L) {
-            updateTileLayer();
-        }
-    });
-
-    function initMap() {
-        if (!mapElement) return;
-
-        // Cleanup if exists
-        if (map) map.remove();
-
-        map = L.map(mapElement, {
-            zoomControl: false, // We will build custom controls
-            scrollWheelZoom: scrollWheelZoom,
-            doubleClickZoom: true,
-            attributionControl: false,
-        }).setView(center, 13);
-
-        updateTileLayer();
-
-        // Add Attribution manually in a cleaner way if needed, or skip for internal dash
-        L.control.attribution({ position: "bottomright" }).addTo(map);
-
-        updateLayers();
-        refreshSize();
-    }
-
-    function updateTileLayer() {
-        if (!map || !L) return;
-        mapLoading = true;
-
-        if (tileLayer) map.removeLayer(tileLayer);
-
-        // Standard OpenStreetMap tiles work without a project API key. The
-        // optional dark treatment is applied locally to the tile pane below.
-        const url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-
-        tileLayer = L.tileLayer(url, {
-            subdomains: "abc",
-            maxZoom: 19,
-            attribution:
-                '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        });
-
-        tileLayer.on("loading", () => {
-            mapLoading = true;
-        });
-
-        tileLayer.on("load", () => {
-            mapLoading = false;
-            refreshSize();
-        });
-
-        tileLayer.addTo(map);
-        map.getPane("tilePane")?.classList.toggle("map-dark-tiles", isDarkTheme);
-
-        // Do not leave the interface blocked if a slow tile server only loads
-        // part of the current viewport.
-        setTimeout(() => {
-            mapLoading = false;
-        }, 2500);
-    }
-
-    async function updateLayers() {
-        if (!map || !L) return;
-
-        // 1. Clear existing layers
-        if (markersLayer) map.removeLayer(markersLayer);
-        if (structureLayer) map.removeLayer(structureLayer);
-        if (churchMarkerLayer) map.removeLayer(churchMarkerLayer);
-
-        // 2. Church Marker (Always distinct)
-        const churchIcon = L.divIcon({
-            className: "custom-div-icon",
-            html: `
-                <div class="relative flex items-center justify-center w-12 h-12">
-                    <div class="absolute w-full h-full bg-primary/20 rounded-full animate-ping"></div>
-                    <div class="relative w-10 h-10 bg-primary rounded-full shadow-lg border-2 border-white flex items-center justify-center text-white">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 22v-8l9-7 9 7v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="8 22 8 15 16 15 16 22"></polyline><polyline points="12 4 12 7"></polyline></svg>
-                    </div>
-                </div>
-            `,
-            iconSize: [48, 48],
-            iconAnchor: [24, 24],
-        });
-
-        churchMarkerLayer = L.marker(center, {
-            icon: churchIcon,
-            zIndexOffset: 1000,
-        })
-            .bindPopup(`<div class="font-bold text-sm">Church Location</div>`)
-            .addTo(map);
-
-        // 3. Structure Lines (If enabled)
-        if (showStructure) {
-            structureLayer = L.layerGroup();
-            people.forEach((person) => {
-                if (person.leader_id) {
-                    const leader = people.find(
-                        (p) => p.id === person.leader_id,
-                    );
-                    if (leader && person.lat && leader.lat) {
-                        const line = L.polyline(
-                            [
-                                [person.lat, person.lng],
-                                [leader.lat, leader.lng],
-                            ],
-                            {
-                                color: "#6366f1",
-                                weight: 1,
-                                opacity: 0.4,
-                                dashArray: "4, 4",
-                            },
-                        );
-                        structureLayer.addLayer(line);
-                    }
-                }
-            });
-            structureLayer.addTo(map);
-        }
-
-        // 4. Person Markers
-        markersLayer = L.markerClusterGroup
-            ? L.markerClusterGroup()
-            : L.featureGroup();
-
-        people.forEach((person) => {
-            if (!person.lat || !person.lng) return;
-
-            const isSelected = selectedIds.includes(person.id);
-            const isPriority = visitationQueueIds.includes(person.id);
-            const isDimmed = visitationQueueIds.length > 0 && !isPriority;
-
-            // Determine Color
-            let colorClass = "bg-gray-500";
-            if (person.member_status === "leader")
-                colorClass = "bg-emerald-500";
-            else if (person.member_status === "member")
-                colorClass = "bg-blue-500";
-            else if (
-                person.member_status === "guest" ||
-                person.member_status === "visitor"
-            )
-                colorClass = "bg-amber-500";
-
-            // Determine Border/Glow
-            let containerClass = "relative w-6 h-6 transition-all duration-300";
-            if (isSelected) containerClass += " scale-125 z-50";
-            if (isPriority)
-                containerClass +=
-                    " scale-125 z-50 ring-4 ring-rose-500/50 rounded-full";
-            if (isDimmed) containerClass += " opacity-20 grayscale";
-
-            // Determine Inner HTML
-            const initials = (
-                (person.first_name?.[0] || "") + (person.last_name?.[0] || "")
-            ).toUpperCase() || "?";
-
-            const html = `
-                <div class="${containerClass}">
-                    ${isSelected || isPriority ? `<div class="absolute -inset-1 rounded-full ${colorClass} opacity-30 animate-pulse"></div>` : ""}
-                    <div class="relative w-full h-full rounded-full border-2 border-white shadow-md ${colorClass} text-[10px] text-white font-bold flex items-center justify-center">
-                        ${escapeMapText(initials)}
-                    </div>
-                </div>
-            `;
-
-            const icon = L.divIcon({
-                className: "custom-person-icon",
-                html: html,
-                iconSize: [24, 24],
-                iconAnchor: [12, 12],
-            });
-
-            const marker = L.marker([person.lat, person.lng], { icon: icon });
-
-            // Popup
-            const popupContent = createPersonPopup(person, {
-                colorClass,
-                isSelected,
-                onSelect: (id) => document.dispatchEvent(new CustomEvent("map-select", { detail: id })),
-            });
-
-            marker.bindPopup(popupContent, {
-                closeButton: false,
-                className: "custom-popup",
-            });
-
-            marker.on("click", () => {
-                if (onMarkerClick) onMarkerClick(person);
-            });
-
-            markersLayer.addLayer(marker);
-        });
-
-        markersLayer.addTo(map);
-
-        if (!hasFittedInitialBounds) {
-            hasFittedInitialBounds = true;
-            setTimeout(() => fitEveryone(false), 0);
-        }
-    }
-
-    export function refreshSize() {
-        if (!map) return;
-        requestAnimationFrame(() => {
-            if (!map) return;
-            map.invalidateSize({ pan: false });
-        });
-    }
-
-    export function fitEveryone(animate = true) {
-        if (!map || !L) return;
-        const locations = people
-            .filter((person) => Number.isFinite(person.lat) && Number.isFinite(person.lng))
-            .map((person) => [person.lat, person.lng]);
-
-        const bounds = L.latLngBounds([center, ...locations]);
-        if (!bounds.isValid()) return;
-
-        requestAnimationFrame(() => {
-            if (!map) return;
-            map.invalidateSize({ pan: false });
-            map.fitBounds(bounds, {
-                paddingTopLeft: [72, 92],
-                paddingBottomRight: [96, 72],
-                maxZoom: 14,
-                animate,
-            });
-
-            // A final pass catches width changes caused by the dashboard
-            // sidebar animation and fetches any newly exposed edge tiles.
-            setTimeout(() => map?.invalidateSize({ pan: false }), 120);
-        });
-    }
-
-    export function flyTo(lat, lng) {
-        if (map) map.flyTo([lat, lng], 16, { duration: 1.5 });
-    }
-
-    export function toggleTheme() {
-        isDarkTheme = !isDarkTheme;
-        updateTileLayer();
-    }
-
-    export function zoomIn() {
-        if (map) map.zoomIn();
-    }
-
-    export function zoomOut() {
-        if (map) map.zoomOut();
-    }
-
-    export function recenter() {
-        if (map) map.flyTo(center, 14, { duration: 1.5 });
-    }
-
-    function handleMapSelect(e) {
-        const personId = e.detail;
-        const person = people.find((p) => p.id === personId);
-        if (person && onMarkerClick) {
-            onMarkerClick(person);
-        }
-    }
-
+  export function flyTo(lat, lng, personId) {
+    if (!map) return;
+    map.setView([lat, lng], 16);
+    markers.get(personId)?.openPopup();
+  }
 </script>
 
-<div
-    class="relative w-full h-full overflow-hidden bg-slate-100 group"
-    data-map-state={mapStatus}
->
-    <div bind:this={mapElement} class="w-full h-full z-0 bg-slate-100"></div>
-
-    {#if mapLoading}
-        <div
-            class="absolute inset-0 z-[450] flex items-center justify-center bg-background/70 backdrop-blur-[2px] transition-opacity"
-            aria-live="polite"
-        >
-            <div class="flex items-center gap-3 rounded-xl border border-border/70 bg-card px-4 py-3 shadow-lg">
-                <span class="h-5 w-5 animate-spin rounded-full border-2 border-primary/25 border-t-primary"></span>
-                <div>
-                    <p class="text-sm font-semibold text-foreground">Preparing people map</p>
-                    <p class="text-xs text-muted-foreground">Fitting locations into view…</p>
-                </div>
-            </div>
-        </div>
-    {/if}
-
-    {#if mapError}
-        <div class="absolute inset-0 z-[450] flex items-center justify-center bg-background/85 p-6">
-            <div class="max-w-sm rounded-xl border border-destructive/25 bg-card p-5 text-center shadow-lg">
-                <p class="font-semibold text-foreground">Map unavailable</p>
-                <p class="mt-1 text-sm text-muted-foreground">{mapError}</p>
-            </div>
-        </div>
-    {/if}
-
-    <!-- Controls (Bottom Right) -->
-    <div
-        class="absolute bottom-6 right-6 z-[400] flex flex-col gap-2 pointer-events-auto"
-    >
-        <button
-            onclick={() => fitEveryone(true)}
-            class="w-10 h-10 bg-background/95 backdrop-blur border border-border/50 rounded-lg shadow-lg flex items-center justify-center text-foreground hover:bg-accent transition-colors"
-            title="Fit everyone in view"
-            aria-label="Fit everyone in view"
-        >
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3" />
-            </svg>
-        </button>
-
-        <button
-            onclick={recenter}
-            class="w-10 h-10 bg-background/95 backdrop-blur border border-border/50 rounded-lg shadow-lg flex items-center justify-center text-foreground hover:bg-accent transition-colors"
-            title="Recenter on Church"
-            aria-label="Recenter on church"
-        >
-            <svg
-                class="w-5 h-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                ><path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-                /></svg
-            >
-        </button>
-
-        <button
-            onclick={toggleTheme}
-            class="w-10 h-10 bg-background/95 backdrop-blur border border-border/50 rounded-lg shadow-lg flex items-center justify-center text-foreground hover:bg-accent transition-colors"
-            title="Toggle Theme"
-        >
-            {#if isDarkTheme}
-                <svg
-                    class="w-5 h-5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    ><path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
-                    /></svg
-                >
-            {:else}
-                <svg
-                    class="w-5 h-5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    ><path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
-                    /></svg
-                >
-            {/if}
-        </button>
-
-        <div
-            class="flex flex-col rounded-lg shadow-lg overflow-hidden border border-border/50"
-        >
-            <button
-                onclick={zoomIn}
-                class="w-10 h-10 bg-background/95 backdrop-blur flex items-center justify-center text-foreground hover:bg-accent transition-colors border-b border-border/50"
-                aria-label="Zoom in"
-            >
-                <svg
-                    class="w-5 h-5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    ><path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M12 4v16m8-8H4"
-                    /></svg
-                >
-            </button>
-            <button
-                onclick={zoomOut}
-                class="w-10 h-10 bg-background/95 backdrop-blur flex items-center justify-center text-foreground hover:bg-accent transition-colors"
-                aria-label="Zoom out"
-            >
-                <svg
-                    class="w-5 h-5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    ><path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M20 12H4"
-                    /></svg
-                >
-            </button>
-        </div>
+<div class="map-root" data-map-state={mapError ? "error" : ready ? "ready" : "loading"}>
+  <div bind:this={mapElement} class="map-surface"></div>
+  {#if !ready || mapError}
+    <div class="map-message" role="status">{mapError || "Loading map…"}</div>
+  {/if}
+  {#if tileError && !mapError}
+    <p class="tile-error" role="status">Some map tiles could not load. People are still available in the list.</p>
+  {/if}
+  {#if ready}
+    <div class="map-controls">
+      <button type="button" onclick={() => fitEveryone()} aria-label="Fit everyone in view" title="Fit everyone in view">⌖</button>
+      <button type="button" onclick={() => map?.zoomIn()} aria-label="Zoom in">+</button>
+      <button type="button" onclick={() => map?.zoomOut()} aria-label="Zoom out">−</button>
     </div>
+  {/if}
 </div>
 
 <style>
-    :global(.custom-div-icon),
-    :global(.custom-person-icon) {
-        background: transparent;
-        border: none;
-    }
-    :global(.leaflet-popup-content-wrapper) {
-        background: hsl(var(--card));
-        color: hsl(var(--card-foreground));
-        border-radius: 0.75rem;
-        border: 1px solid hsl(var(--border));
-        padding: 0;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-    }
-    :global(.leaflet-popup-content) {
-        margin: 0;
-        line-height: 1.5;
-    }
-    :global(.leaflet-popup-tip) {
-        background: hsl(var(--card));
-        border: 1px solid hsl(var(--border));
-    }
-    :global(.leaflet-tile-pane) {
-        transition: filter 180ms ease;
-    }
-    :global(.leaflet-tile-pane.map-dark-tiles) {
-        filter: brightness(0.72) saturate(0.8) invert(0.86) hue-rotate(175deg);
-    }
-    :global(.leaflet-container) {
-        font-family: inherit;
-    }
-    :global(.leaflet-control-zoom) {
-        display: none;
-    }
+  .map-root, .map-surface { width: 100%; height: 100%; position: relative; } .map-root { isolation: isolate; overflow: hidden; background: #e6e8e5; } .map-surface { z-index: 0; }
+  .map-message { position: absolute; inset: 0; z-index: 450; display: grid; place-items: center; padding: 24px; background: hsl(var(--background) / .9); text-align: center; font-size: 14px; }
+  .map-controls { position: absolute; right: 16px; top: 16px; z-index: 400; display: flex; flex-direction: column; gap: 6px; }
+  .map-controls button { width: 40px; height: 40px; background: hsl(var(--card)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--border)); border-radius: 8px; box-shadow: 0 2px 5px #0002; font-size: 22px; }
+  .map-controls button:hover { background: hsl(var(--secondary)); }
+  .tile-error { position: absolute; bottom: 32px; left: 16px; right: 16px; z-index: 400; background: hsl(var(--card)); border-radius: 8px; padding: 12px; font-size: 12px; }
+  :global(.person-map-icon) { background: transparent; border: none; }
+  :global(.church-map-icon) { background: transparent; border: none; } :global(.church-map-icon div) { width: 34px; height: 34px; display: grid; place-items: center; border: 2px solid white; border-radius: 9px; background: #0f172a; color: white; box-shadow: 0 2px 7px #0005; font-size: 20px; font-weight: 700; }
+  :global(.person-map-popup .leaflet-popup-content-wrapper), :global(.person-map-popup .leaflet-popup-tip) { background: hsl(var(--card)); color: hsl(var(--foreground)); }
+  :global(.person-map-popup .leaflet-popup-content) { margin: 20px; line-height: 1.6; }
+  :global(.person-map-popup a.profile-link) { color: hsl(var(--primary)); display: inline-block; margin-top: 8px; font-weight: 600; }
+  :global(.leaflet-container) { font-family: inherit; }
 </style>

@@ -3,6 +3,7 @@ import { configureConvexAuth, clearConvexAuth, getConvexHttpClient, getConfigura
 import { api } from '../../../convex/_generated/api.js';
 import { notificationStore } from '$lib/stores/notificationStore.js';
 import { closeSearch } from '$lib/stores/searchStore.js';
+import { accessErrorCode } from './errors.js';
 
 export const session = writable({ status: 'loading', user: null, error: '' });
 let authClient;
@@ -79,7 +80,7 @@ async function startSession() {
     if (sessionHint() === 'signed-out') { signedOut(); return; }
     if (!await authClient.isAuthenticated()) {
       signedOut('signed-out', sessionHint() === 'signed-in'
-        ? 'Your session needs verification. Please continue with Google to sign in again.' : '');
+        ? 'Your session needs verification. Please sign in again.' : '');
       return;
     }
     configureConvexAuth(async ({ forceRefreshToken } = {}) => {
@@ -87,14 +88,28 @@ async function startSession() {
         const response = await authClient.getTokenSilently({ detailedResponse: true, cacheMode: forceRefreshToken ? 'off' : 'on' });
         return response.id_token;
       } catch {
-        signedOut('signed-out', 'Your session ended. Please sign in again.');
+        // Starting a live subscription requests renewal even with a valid
+        // token. Cookie restrictions or a network failure can block that
+        // renewal; retain only an unexpired token from this same session.
+        if (forceRefreshToken && current === generation) {
+          try {
+            const cached = await authClient.getTokenSilently({ detailedResponse: true, cacheMode: 'cache-only' });
+            const claims = cached?.id_token ? await authClient.getIdTokenClaims() : null;
+            if (current === generation && claims?.__raw === cached?.id_token && claims.exp > Date.now() / 1000 + 30) {
+              return cached.id_token;
+            }
+          } catch { /* No usable cached token: require sign-in below. */ }
+        }
+        if (current === generation) signedOut('signed-out', 'Your session ended. Please sign in again.');
         return null;
       }
     }, (error) => {
-      // An authenticated but unapproved Google account needs to be able to
+      // An authenticated but unapproved account needs to be able to
       // submit its verified identity for owner review. Other auth failures
       // still remove local access immediately.
-      if (!/ACCOUNT_NOT_APPROVED/.test(String(error))) {
+      if (accessErrorCode(error) === 'EMAIL_VERIFICATION_REQUIRED') {
+        signedOut('verification-required', 'Verify your email using the message from the sign-in service, then sign in again.');
+      } else if (accessErrorCode(error) !== 'ACCOUNT_NOT_APPROVED') {
         signedOut('access-denied', 'This account has not been approved, or its access has been removed.');
       }
     });
@@ -102,55 +117,70 @@ async function startSession() {
     try {
       user = await getConvexHttpClient().query(api.access.me, {});
     } catch (error) {
-      if (/ACCOUNT_NOT_APPROVED/.test(String(error))) {
-        session.set({ status: 'approval-required', user: null, error: 'This Google account has not been approved yet.' });
+      if (accessErrorCode(error) === 'ACCOUNT_NOT_APPROVED') {
+        session.set({ status: 'approval-required', user: null, error: 'This account has not been approved yet.' });
         return;
       }
       throw error;
     }
-    if (current !== generation) return;
-    sessionHint('signed-in');
-    session.set({ status: 'authenticated', user, error: '' });
-    // Re-check account approval periodically and on focus. Backend requests
-    // always check it independently; this also removes cached UI after revocation.
-    const refresh = async () => {
-      try {
-        const next = await getConvexHttpClient().query(api.access.me, {});
-        if (current === generation) {
-          session.set({ status: 'authenticated', user: next, error: '' });
-        }
-      } catch { if (current === generation) signedOut('access-denied', 'Access could not be verified. Please sign in again.'); }
-    };
-    const timer = window.setInterval(refresh, 60_000);
-    window.addEventListener('focus', refresh);
-    unsubscribeAccount = () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); };
+    activateApprovedSession(user, current);
   } catch (error) {
-    if (current === generation) signedOut('access-denied', /ACCOUNT_NOT_APPROVED/.test(String(error))
-      ? 'This Google account needs approval from your church administrator.'
+    if (current === generation && accessErrorCode(error) === 'EMAIL_VERIFICATION_REQUIRED') {
+      signedOut('verification-required', 'Verify your email using the message from the sign-in service, then sign in again.');
+      return;
+    }
+    if (current === generation) signedOut('access-denied', accessErrorCode(error) === 'ACCOUNT_NOT_APPROVED'
+      ? 'This account needs approval from your church administrator.'
       : 'Sign-in could not be completed. Please try again or contact your administrator.');
   }
+}
+
+function activateApprovedSession(user, current) {
+  if (current !== generation) return;
+  unsubscribeAccount?.();
+  sessionHint('signed-in');
+  session.set({ status: 'authenticated', user, error: '' });
+  // Re-check account approval periodically and on focus. Backend requests
+  // always check it independently; this also removes cached UI after revocation.
+  const refresh = async () => {
+    try {
+      const next = await getConvexHttpClient().query(api.access.me, {});
+      if (current === generation) {
+        session.set({ status: 'authenticated', user: next, error: '' });
+      }
+    } catch { if (current === generation) signedOut('access-denied', 'Access could not be verified. Please sign in again.'); }
+  };
+  const timer = window.setInterval(refresh, 60_000);
+  window.addEventListener('focus', refresh);
+  unsubscribeAccount = () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); };
 }
 
 export async function signIn() {
   await initializeSession();
   if (!authClient) return;
   sessionHint('signing-in');
-  await authClient.loginWithRedirect({ authorizationParams: { connection: 'google-oauth2', prompt: 'select_account' } });
+  // Universal Login offers the enabled password connection and preserves existing
+  // provider accounts during migration. Never bind access by email alone.
+  await authClient.loginWithRedirect({ authorizationParams: { prompt: 'login' } });
 }
 
 export async function requestAccess() {
   if (!authClient) return;
+  const current = generation;
   session.set({ status: 'requesting-approval', user: null, error: '' });
   try {
     const result = await getConvexHttpClient().mutation(api.access.requestAccess, {});
+    if (current !== generation) return;
     if (result.state === 'approved') {
-      session.set({ status: 'approval-required', user: null, error: 'Your access was approved. Reload this page to continue.' });
+      const user = await getConvexHttpClient().query(api.access.me, {});
+      activateApprovedSession(user, current);
     } else if (result.state === 'inactive') {
       session.set({ status: 'approval-required', user: null, error: 'This account is inactive. Please contact a church owner.' });
     } else {
-      session.set({ status: 'approval-required', user: null, error: 'Your verified Google identity has been sent to a church owner for approval.' });
+      session.set({ status: 'approval-required', user: null, error: 'Your verified identity has been sent to a church owner for approval.' });
     }
   } catch {
+    if (current !== generation) return;
     session.set({ status: 'approval-required', user: null, error: 'We could not submit your access request. Please try again or contact a church owner.' });
   }
 }

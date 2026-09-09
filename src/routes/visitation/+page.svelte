@@ -1,4 +1,5 @@
 <script>
+  import { isDemoMode } from "$lib/convex.js";
   import { onMount } from "svelte";
   import { replaceState } from "$app/navigation";
   import DashboardLayout from "$lib/components/layout/DashboardLayout.svelte";
@@ -36,24 +37,25 @@
     splitCareTasks,
   } from "$lib/utils/pastoralCare.js";
 
-  const initialDemoWorkspace = followUpCrmService.getDemoDashboard();
+  const demo = isDemoMode();
+  const initialDemoWorkspace = (demo ? followUpCrmService.getDemoDashboard() : null) || { tasks: [], member_care_tasks: [], visitation_tasks: [] };
   const initialDemoPeople = [...new Map(
     [
-      ...mockPeople,
+      ...(demo ? mockPeople : []),
       ...(initialDemoWorkspace.contacts || []),
       ...(initialDemoWorkspace.leaders || []),
       ...(initialDemoWorkspace.attendance_roster || []),
     ].map((person) => [String(person._id || person.id), person]),
   ).values()];
 
-  let visitations = $state(mockVisitations);
+  let visitations = $state(demo ? mockVisitations : []);
   let people = $state(initialDemoPeople);
   let workspace = $state(initialDemoWorkspace);
-  let services = $state(mockServices);
-  let attendance = $state(mockAttendance);
-  let loading = $state(false);
+  let services = $state(demo ? mockServices : []);
+  let attendance = $state(demo ? mockAttendance : []);
+  let loading = $state(true);
   let error = $state(null);
-  let source = $state("local");
+  let source = $state(demo ? "demo" : "convex");
   let activeView = $state("care");
   let outcomeFilter = $state("all");
   let profileFilterId = $state("");

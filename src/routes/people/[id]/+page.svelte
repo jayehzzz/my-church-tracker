@@ -1,25 +1,20 @@
 <script>
-    import { onMount, untrack } from "svelte";
+    import { untrack } from "svelte";
     import { goto } from "$app/navigation";
     import DashboardLayout from "$lib/components/layout/DashboardLayout.svelte";
-    import { Card, Button, Badge, Modal, Motion } from "$lib/components/ui";
+    import { Button, Modal, Motion } from "$lib/components/ui";
     import * as peopleService from "$lib/services/peopleService";
     import * as attendanceService from "$lib/services/attendanceService";
     import * as meetingsService from "$lib/services/meetingsService";
     import * as evangelismService from "$lib/services/evangelismService";
     import * as visitationsService from "$lib/services/visitationsService";
     import * as followUpCrmService from "$lib/services/followUpCrmService.js";
-    import {
-        getPersonById as getMockPersonById,
-        getAttendanceByPerson,
-        getContactsByInviter,
-        getVisitationsByPerson,
-    } from "$lib/data/mockData.js";
+    import { isDemoMode } from "$lib/convex.js";
+    import { attendanceDate, recordedAttendance, profileRequest } from "$lib/utils/peopleView.js";
 
     // New Modular Components
     import ProfileHeader from "$lib/components/people/ProfileHeader.svelte";
     import PeopleStatsGrid from "$lib/components/people/PeopleStatsGrid.svelte";
-    import EngagementRadarSection from "$lib/components/people/EngagementRadarSection.svelte";
     import ProfileDetails from "$lib/components/people/ProfileDetails.svelte";
     import ProfileHistoryTabs from "$lib/components/people/ProfileHistoryTabs.svelte";
     import PersonForm from "$lib/components/forms/PersonForm.svelte";
@@ -50,107 +45,13 @@
     let updatingStatus = $state(false);
     let statusUpdateError = $state(null);
 
-    // Derived stats
-    let totalAttendance = $derived(attendanceHistory?.length || 0);
-
-    let lastAttended = $derived.by(() => {
-        if (!attendanceHistory || attendanceHistory.length === 0) return null;
-        // Assuming records are sorted desc by default, but safe to sort/max
-        const validDates = attendanceHistory
-            .map(
-                (r) =>
-                    r.meeting?.meeting_date ||
-                    r.services?.service_date ||
-                    r.created_at ||
-                    r.service_date ||
-                    r.date,
-            )
-            .filter(Boolean)
-            .map((d) => new Date(d).getTime())
-            .filter((t) => !isNaN(t));
-
-        if (validDates.length === 0) return null;
-        return new Date(Math.max(...validDates));
-    });
-
-    // Check if we're using mock data (for UI indication)
-    let usingMockData = $derived(
-        !person?._id ||
-            person?._id?.startsWith("mock-") ||
-            String(person?.id).length <= 5,
-    );
-
-    let isGuest = $derived(
-        person?.member_status === "guest" ||
-            person?.member_status === "visitor" ||
-            person?.member_status === "new_believer",
-    );
-
-    function prayerMeetingsCount() {
-        if (!attendanceHistory) return 0;
-        return attendanceHistory.filter(
-            (r) =>
-                r.meeting?.program?.category === "prayer" ||
-                [
-                    "flow_service",
-                    "flow_prayer",
-                    "acts_prayer",
-                    "farley_prayer",
-                    "shemen_prayer",
-                    "all_night_prayer",
-                ].includes(r.meeting?.meeting_type || r.service_type),
-        ).length;
-    }
-
-    function activityScore() {
-        if (!attendanceHistory) return 0;
-        const recent = attendanceHistory.slice(0, 10);
-        if (recent.length === 0) return 0;
-        // Simple mock score: % of weeks attended in last 10 weeks
-        return Math.min(100, Math.round((recent.length / 10) * 100));
-    }
-
-    // Engagement Radar Data Preparation
-    function engagementData() {
-        if (!person) return [];
-        // Mock data logic for radar chart visualization
-        return [
-            {
-                subject: "Sunday Service",
-                A: totalAttendance > 20 ? 95 : totalAttendance * 4,
-                fullMark: 100,
-            },
-            {
-                subject: "Prayer Meeting",
-                A: prayerMeetingsCount() * 10,
-                fullMark: 100,
-            },
-            {
-                subject: "Small Group",
-                A: person.care_group ? 85 : 20,
-                fullMark: 100,
-            },
-            {
-                subject: "Serving",
-                A: (person.ministries?.length || person.basontas?.length || 0) * 25,
-                fullMark: 100,
-            },
-            {
-                subject: "Outreach",
-                A: (outreachContacts?.length || 0) * 20,
-                fullMark: 100,
-            },
-            {
-                subject: "Giving",
-                A: person.is_tithing || person.is_tither ? 90 : 30,
-                fullMark: 100,
-            },
-        ];
-    }
-
-    function cellGroupDetail() {
-        return person?.care_group || "Not assigned";
-    }
+    let profileTab = $state("activity");
+    let sectionErrors = $state({});
+    let requestGeneration = 0;
+    let totalAttendance = $derived(attendanceHistory.length);
+    let lastAttended = $derived(attendanceHistory.length ? attendanceDate(attendanceHistory[0]) : null);
+    let usingMockData = isDemoMode();
+    let isGuest = $derived(["guest", "visitor", "new_believer"].includes(person?.member_status));
 
     // Load data whenever data.id changes
     $effect(() => {
@@ -165,144 +66,43 @@
         }
     });
 
-    function withTimeout(promise, timeoutMs, fallbackValue) {
-        return Promise.race([
-            promise,
-            new Promise((resolve) =>
-                setTimeout(() => resolve(fallbackValue), timeoutMs),
-            ),
-        ]);
-    }
-
     async function loadProfile(id) {
-        if (!id) return;
-        console.log("[Profile] Starting to load profile for ID:", id);
+        const generation = ++requestGeneration;
         loading = true;
         error = null;
         person = null;
+        profileTab = "activity";
+        sectionErrors = {};
         attendanceHistory = [];
         outreachContacts = [];
         visitations = [];
         careProfile = { tasks: [] };
-
         try {
-            // 1. Fetch person details first
-            let personData = null;
-            try {
-                const res = await withTimeout(
-                    peopleService.getById(id),
-                    2500,
-                    null,
-                );
-                personData = res?.data;
-            } catch (err) {
-                console.warn("[Profile] Error getting person from service:", err);
-            }
-
-            // Fallback to local mock data if not found
-            if (!personData) {
-                personData = getMockPersonById(id);
-            }
-
-            if (!personData) {
-                throw new Error(`Person with ID "${id}" could not be found.`);
-            }
-
+            const personData = await profileRequest(peopleService.getById(id));
+            if (generation !== requestGeneration) return;
             person = personData;
-            console.log(
-                "[Profile] Person loaded:",
-                person.first_name,
-                person.last_name,
-            );
-
-            // 2. Fetch secondary data in parallel
-            const [
-                attendanceResult,
-                meetingAttendanceResult,
-                outreachResult,
-                visitationsResult,
-                careProfileResult,
-            ] =
-                await Promise.allSettled([
-                    withTimeout(
-                        attendanceService.getByPerson(id),
-                        2000,
-                        { data: getAttendanceByPerson(id), error: null },
-                    ),
-                    withTimeout(meetingsService.getByPerson(id), 2000, {
-                        data: [],
-                        error: null,
-                    }),
-                    withTimeout(
-                        evangelismService.getByInviter(id),
-                        2000,
-                        { data: getContactsByInviter(id), error: null },
-                    ),
-                    withTimeout(
-                        visitationsService.getByPerson(id),
-                        2000,
-                        { data: getVisitationsByPerson(id), error: null },
-                    ),
-                    withTimeout(
-                        followUpCrmService.getContactProfile(id),
-                        2500,
-                        { data: { tasks: [] }, error: null },
-                    ),
-                ]);
-
-            // Process attendance
-            const sundayAttendance =
-                attendanceResult.status === "fulfilled" &&
-                attendanceResult.value?.data
-                    ? attendanceResult.value.data
-                    : getAttendanceByPerson(id);
-            const meetingAttendance =
-                meetingAttendanceResult.status === "fulfilled" &&
-                meetingAttendanceResult.value?.data
-                    ? meetingAttendanceResult.value.data
-                    : [];
-            attendanceHistory = [...sundayAttendance, ...meetingAttendance].sort(
-                (a, b) => {
-                    const aDate =
-                        a.meeting?.meeting_date ||
-                        a.services?.service_date ||
-                        a.created_at ||
-                        "";
-                    const bDate =
-                        b.meeting?.meeting_date ||
-                        b.services?.service_date ||
-                        b.created_at ||
-                        "";
-                    return bDate.localeCompare(aDate);
-                },
-            );
-
-            // Process outreach
-            outreachContacts =
-                outreachResult.status === "fulfilled" &&
-                outreachResult.value?.data
-                    ? outreachResult.value.data
-                    : getContactsByInviter(id);
-
-            // Process visitations
-            visitations =
-                visitationsResult.status === "fulfilled" &&
-                visitationsResult.value?.data
-                    ? visitationsResult.value.data
-                    : getVisitationsByPerson(id);
-
-            careProfile =
-                careProfileResult.status === "fulfilled" &&
-                careProfileResult.value?.data
-                    ? careProfileResult.value.data
-                    : { tasks: [] };
-
-            console.log("[Profile] All data loaded successfully for:", id);
+            const results = await Promise.allSettled([
+                profileRequest(attendanceService.getByPerson(id)),
+                profileRequest(meetingsService.getByPerson(id)),
+                profileRequest(evangelismService.getByInviter(id)),
+                profileRequest(visitationsService.getByPerson(id)),
+                profileRequest(followUpCrmService.getContactProfile(id)),
+            ]);
+            if (generation !== requestGeneration) return;
+            const [services, meetings, outreach, care, tasks] = results;
+            sectionErrors = {
+                attendance: services.status === "rejected" || meetings.status === "rejected",
+                outreach: outreach.status === "rejected",
+                care: care.status === "rejected" || tasks.status === "rejected",
+            };
+            attendanceHistory = sectionErrors.attendance ? [] : recordedAttendance([...services.value, ...meetings.value]);
+            outreachContacts = outreach.status === "fulfilled" ? outreach.value : [];
+            visitations = care.status === "fulfilled" ? care.value : [];
+            careProfile = tasks.status === "fulfilled" ? tasks.value : { tasks: [] };
         } catch (e) {
-            console.error("[Profile] Failed to load person profile:", e);
-            error = e.message || "Failed to load profile";
+            if (generation === requestGeneration) error = e.message || "This profile could not be loaded.";
         } finally {
-            loading = false;
+            if (generation === requestGeneration) loading = false;
         }
     }
 
@@ -416,9 +216,10 @@
         if (!dobStr) return null;
         const dob = new Date(dobStr);
         if (isNaN(dob.getTime())) return null;
-        const diff_ms = Date.now() - dob.getTime();
-        const age_dt = new Date(diff_ms);
-        return Math.abs(age_dt.getUTCFullYear() - 1970);
+        const now = new Date();
+        let age = now.getFullYear() - dob.getFullYear();
+        if (now.getMonth() < dob.getMonth() || (now.getMonth() === dob.getMonth() && now.getDate() < dob.getDate())) age--;
+        return age >= 0 ? age : null;
     }
 
     const currentAge = $derived(calculateCurrentAge());
@@ -450,8 +251,7 @@
                     class="bg-blue-500/10 text-blue-400 px-4 py-2 rounded-lg text-sm border border-blue-500/20 mb-4 flex items-center justify-between"
                 >
                     <span
-                        >Currently viewing mock data. Some features may be
-                        simulated.</span
+                        >Demo mode: this profile contains sample data.</span
                     >
                 </div>
             {/if}
@@ -462,7 +262,6 @@
                     onUpdateStatus={updateMemberStatus}
                     onUpdateActivity={updateActivityStatus}
                     onEdit={() => (showEditModal = true)}
-                    onMerge={openMergeReview}
                     {updatingStatus}
                     {statusUpdateError}
                 />
@@ -485,7 +284,7 @@
                     <label class="block text-sm font-medium text-foreground" for="merge-target">
                         Keep this record
                     </label>
-                    <select id="merge-target" bind:value={mergeTargetId} disabled={mergeLoading} class="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground">
+                    <select id="merge-target" bind:value={mergeTargetId} onchange={() => { mergePreview = null; mergeConfirmed = false; }} disabled={mergeLoading} class="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground">
                         <option value="">Choose the record to retain…</option>
                         {#each mergeCandidates as candidate}
                             <option value={candidate.id || candidate._id}>
@@ -531,47 +330,30 @@
                 {/snippet}
             </Modal>
 
-            <Motion delay={100}>
-                <PeopleStatsGrid
-                    {totalAttendance}
-                    {lastAttended}
-                    prayerMeetingsCount={prayerMeetingsCount()}
-                    activityScore={activityScore()}
-                />
-            </Motion>
+            <PeopleStatsGrid {totalAttendance} {lastAttended} unavailable={sectionErrors.attendance} />
 
-            <!-- Main Content Grid -->
-            <Motion delay={200}>
-                <EngagementRadarSection
-                    engagementData={engagementData()}
-                    cellGroupDetail={cellGroupDetail()}
-                    {person}
-                />
-            </Motion>
+            <a class="development-entry" href="/development?person={encodeURIComponent(person._id || person.id)}">Open Development assessment <span aria-hidden="true">→</span><small>Participation evidence, leader review and growth agreements</small></a>
 
-            <Motion delay={300}>
-                <ProfileDetails
-                    {person}
-                    {currentAge}
-                    {isGuest}
-                    {outreachContacts}
-                    {visitations}
-                />
-            </Motion>
-
-            <Motion delay={400}>
-                <CareSummary
-                    {person}
-                    {visitations}
-                    tasks={careProfile?.tasks || []}
-                />
-            </Motion>
-
-            <Motion delay={500}>
+            <div class="profile-views" aria-label="Profile view">
+                <button type="button" aria-pressed={profileTab === "activity"} onclick={() => profileTab = "activity"}>Activity & care</button>
+                <button type="button" aria-pressed={profileTab === "details"} onclick={() => profileTab = "details"}>Personal & church details</button>
+            </div>
+            {#if Object.values(sectionErrors).some(Boolean)}
+                <div class="rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm" role="status">
+                    Some profile history could not be loaded. Unavailable sections are marked below.
+                    <button type="button" class="ml-2 text-primary underline" onclick={() => loadProfile(data.id)}>Retry history</button>
+                </div>
+            {/if}
+            {#if profileTab === "activity"}
+                {#if sectionErrors.care}
+                    <p class="rounded-xl border border-border p-6 text-sm text-muted-foreground">Pastoral care is unavailable. Retry to check care activity and open actions.</p>
+                {:else}
+                    <CareSummary {person} {visitations} tasks={careProfile?.tasks || []} />
+                {/if}
                 <ProfileHistoryTabs
-                    {attendanceHistory}
-                    {outreachContacts}
-                    {visitations}
+                    {attendanceHistory} {outreachContacts} {visitations}
+                    errors={sectionErrors}
+                    storageKey={null}
                     onRecordClick={(record) => {
                         if (!record.meeting) {
                             selectedAttendanceRecord = record;
@@ -579,7 +361,9 @@
                         }
                     }}
                 />
-            </Motion>
+            {:else}
+                <ProfileDetails {person} {currentAge} {isGuest} onEdit={() => showEditModal = true} onMerge={openMergeReview} />
+            {/if}
 
             <ServiceDetailModal
                 bind:isOpen={showServiceDetailModal}
@@ -588,3 +372,10 @@
         {/if}
     </div>
 </DashboardLayout>
+
+<style>
+    .profile-views { display: flex; gap: 24px; border-bottom: 1px solid hsl(var(--border)); }
+    .development-entry { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; padding: 16px 18px; border: 1px solid hsl(var(--primary) / .3); border-radius: 12px; background: hsl(var(--primary) / .05); color: hsl(var(--foreground)); font-weight: 600; } .development-entry span { color: hsl(var(--primary)); } .development-entry small { grid-column: 1 / -1; color: hsl(var(--muted-foreground)); font-size: 12px; font-weight: 400; }
+    .profile-views button { padding: 12px 0; font-size: 14px; color: hsl(var(--muted-foreground)); border-bottom: 2px solid transparent; }
+    .profile-views button[aria-pressed="true"] { border-color: hsl(var(--primary)); color: hsl(var(--foreground)); font-weight: 600; }
+</style>

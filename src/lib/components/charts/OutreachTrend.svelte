@@ -16,6 +16,7 @@
     subtitle = "Track outreach and the outcomes recorded each month.",
     periodLabel = "Selected period",
     comparisonOptions = [],
+    onPointClick = null,
   } = $props();
 
   let chartType = $state("bar");
@@ -83,10 +84,25 @@
   const comparisonColor = $derived(() => {
     return getChartColor(chartData().selected?.color || "warning");
   });
+  const averageCount = $derived(
+    chartData().points.length
+      ? Math.round(chartData().points.reduce((sum, item) => sum + item.count, 0) / chartData().points.length)
+      : 0,
+  );
+  const averageComparison = $derived(
+    chartData().selected && chartData().points.length
+      ? Math.round(chartData().points.reduce((sum, item) => sum + (Number(item[chartData().selected.key]) || 0), 0) / chartData().points.length)
+      : 0,
+  );
+
+  function selectPoint(point, event) {
+    event?.stopPropagation();
+    onPointClick?.(point);
+  }
 </script>
 
-<section class="card-base overflow-visible p-5" aria-labelledby="outreach-trend-title">
-  <header class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+<section class="card-base fullscreen-chart overflow-visible p-5" aria-labelledby="outreach-trend-title">
+  <header class="mb-4 flex flex-col gap-3 pr-12 sm:flex-row sm:items-start sm:justify-between">
     <div>
       <h3 id="outreach-trend-title" class="text-base font-semibold text-foreground">{title}</h3>
       <p class="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
@@ -94,12 +110,12 @@
     </div>
     <div class="flex flex-wrap items-center justify-end gap-2">
       <label class="sr-only" for="outreach-comparison">Compare outreach with</label>
-      <div class="flex items-center gap-1.5 rounded-xl border border-border/80 bg-secondary/30 px-2 py-1.5">
+      <div class="flex items-center gap-2 rounded-xl border border-border bg-input px-2.5 py-1.5 shadow-sm">
         <span class="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Compare with</span>
         <select
           id="outreach-comparison"
           bind:value={comparisonKey}
-          class="min-w-28 border-0 bg-transparent px-1 py-0.5 text-[11px] font-semibold text-foreground outline-none focus:ring-1 focus:ring-primary"
+          class="min-w-36 rounded-md border border-border bg-card px-2 py-1.5 text-xs font-semibold text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
           aria-label="Compare outreach with"
         >
           <option value="">None</option>
@@ -116,7 +132,7 @@
     <div class="mb-3 flex items-center justify-center gap-5 text-xs">
       <div class="flex items-center gap-1.5">
         <span class="h-2.5 w-2.5 rounded-full bg-primary shadow-sm shadow-primary/40"></span>
-        <span class="font-medium text-foreground">Contacts reached</span>
+        <span class="font-medium text-foreground">Monthly contacts reached</span>
       </div>
       <div class="flex items-center gap-1.5">
         <span class="h-2.5 w-2.5 rounded-full shadow-sm" style="background-color: {comparisonColor()};"></span>
@@ -129,7 +145,7 @@
     <div class="relative w-full">
       <svg
         viewBox="0 0 {chartWidth} {chartHeight}"
-        class="w-full h-auto overflow-visible"
+        class="fullscreen-chart-svg w-full h-auto overflow-visible"
         style="height: {chartHeight}px;"
         role="img"
         aria-label={`${title} ${chartType} chart`}
@@ -248,7 +264,7 @@
                 r="13"
                 fill="hsl(var(--primary))"
                 fill-opacity="0.18"
-                class="pointer-events-none animate-pulse"
+                class="pointer-events-none"
               />
             {/if}
             <circle
@@ -326,6 +342,8 @@
               onmouseleave={() => (hoveredIndex = null)}
               onfocus={() => (hoveredIndex = index)}
               onblur={() => (hoveredIndex = null)}
+              onclick={(event) => selectPoint(point, event)}
+              onkeydown={(event) => (event.key === "Enter" || event.key === " ") && selectPoint(point, event)}
             />
           {/each}
 
@@ -433,6 +451,8 @@
               onmouseleave={() => (hoveredIndex = null)}
               onfocus={() => (hoveredIndex = index)}
               onblur={() => (hoveredIndex = null)}
+              onclick={(event) => selectPoint(point, event)}
+              onkeydown={(event) => (event.key === "Enter" || event.key === " ") && selectPoint(point, event)}
             />
           {/each}
         {/if}
@@ -485,7 +505,7 @@
             <div class="flex items-center justify-between gap-3 text-xs">
               <span class="flex items-center gap-1.5 text-muted-foreground">
                 <span class="h-2 w-2 rounded-full bg-primary"></span>
-                Contacts:
+                Contacts in month:
               </span>
               <span class="font-bold text-foreground">{point.count}</span>
             </div>
@@ -511,24 +531,28 @@
     </div>
 
     <!-- Stats Footer -->
-    <footer class="mt-4 grid grid-cols-3 divide-x divide-border border-t border-border pt-4 text-center">
+    <footer class="mt-4 grid {chartData().selected ? 'grid-cols-4' : 'grid-cols-3'} divide-x divide-border border-t border-border pt-4 text-center">
       <div>
         <p class="text-lg font-semibold text-foreground">
           {chartData().points.reduce((sum, item) => sum + item.count, 0)}
         </p>
-        <p class="text-[11px] text-muted-foreground">Total contacts</p>
+        <p class="text-[11px] text-muted-foreground">Total contacts in period</p>
       </div>
       <div>
-        <p class="text-lg font-semibold text-foreground">
-          {chartData().points.length
-            ? Math.round(chartData().points.reduce((sum, item) => sum + item.count, 0) / chartData().points.length)
-            : 0}
-        </p>
-        <p class="text-[11px] text-muted-foreground">Avg/month</p>
+        <p class="text-lg font-semibold text-primary">{averageCount}</p>
+        <p class="text-[11px] text-muted-foreground">Average monthly contacts</p>
+        <p class="text-[10px] text-muted-foreground">{periodLabel}</p>
       </div>
+      {#if chartData().selected}
+        <div>
+          <p class="text-lg font-semibold" style="color: {comparisonColor()};">{averageComparison}</p>
+          <p class="text-[11px] text-muted-foreground">Average monthly {chartData().selected.label.toLowerCase()}</p>
+          <p class="text-[10px] text-muted-foreground">{periodLabel}</p>
+        </div>
+      {/if}
       <div>
-        <p class="text-lg font-semibold text-primary">{chartData().maxCount}</p>
-        <p class="text-[11px] text-muted-foreground">Peak month</p>
+        <p class="text-lg font-semibold text-foreground">{chartData().maxCount}</p>
+        <p class="text-[11px] text-muted-foreground">Highest monthly contacts</p>
       </div>
     </footer>
   {:else}

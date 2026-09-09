@@ -6,10 +6,12 @@
 
 <script>
   import ChartViewToggle from "./ChartViewToggle.svelte";
+  import SearchableSelect from "$lib/components/ui/SearchableSelect.svelte";
   import {
     DEFAULT_CHART_DIMENSIONS,
     getNiceYScale,
     getBandCoordinates,
+    groupChartPoints,
     makeSmoothCurve,
     makeAreaPath,
     formatChartDate,
@@ -21,7 +23,7 @@
     data = [],
     title = "Attendance Trend",
     itemLabel = "meetings",
-    secondaryLabel = "Guests",
+    periodLabel = "Selected period",
     onPointClick = null,
     onFilterClick = null,
     activeFilterCount = 0,
@@ -31,6 +33,12 @@
   let hoveredIndex = $state(null);
   let chartType = $state("line");
   let comparisonKey = $state("");
+  let granularity = $state("day");
+  let granularityManuallySet = $state(false);
+
+  $effect(() => {
+    if (!granularityManuallySet) granularity = /year/i.test(periodLabel) ? "month" : "day";
+  });
 
   const { width: chartWidth, height: chartHeight, padding } = DEFAULT_CHART_DIMENSIONS;
   const innerWidth = chartWidth - padding.left - padding.right;
@@ -38,7 +46,8 @@
   const innerHeight = chartBottom - padding.top;
 
   const chartData = $derived(() => {
-    if (data.length === 0) {
+    const groupedData = groupChartPoints(data, granularity, "average");
+    if (groupedData.length === 0) {
       return {
         points: [],
         maxValue: 0,
@@ -48,16 +57,16 @@
     }
 
     const selectedComparison = comparisonOptions.find((option) => option.key === comparisonKey);
-    const maxPrimary = Math.max(...data.map((d) => Number(d.total) || 0), 0);
+    const maxPrimary = Math.max(...groupedData.map((d) => Number(d.total) || 0), 0);
     const maxComparison = selectedComparison
-      ? Math.max(...data.map((d) => Number(d[selectedComparison.key]) || 0), 0)
+      ? Math.max(...groupedData.map((d) => Number(d[selectedComparison.key]) || 0), 0)
       : 0;
     const overallMax = Math.max(maxPrimary, maxComparison, 1);
     const yScale = getNiceYScale(overallMax);
 
-    const { bandWidth, getCenterX } = getBandCoordinates(data.length, innerWidth, padding.left);
+    const { bandWidth, getCenterX } = getBandCoordinates(groupedData.length, innerWidth, padding.left);
 
-    const points = data.map((d, i) => {
+    const points = groupedData.map((d, i) => {
       const x = getCenterX(i);
       const y = padding.top + innerHeight - ((Number(d.total) || 0) / yScale.max) * innerHeight;
       const compVal = selectedComparison ? Number(d[selectedComparison.key]) || 0 : 0;
@@ -98,17 +107,28 @@
 
   const selectedComparison = $derived(comparisonOptions.find((option) => option.key === comparisonKey));
   const comparisonColorValue = $derived(getChartColor(selectedComparison?.color || "warning"));
+  const pointMeasureLabel = $derived(granularity === "day" ? "Actual attendance" : "Average attendance per gathering");
+  const latestMeasureLabel = $derived(granularity === "day" ? "Latest actual" : `Latest ${granularity} average`);
+  const peakMeasureLabel = $derived(granularity === "day" ? "Highest actual" : `Highest ${granularity} average`);
+  const averageAttendance = $derived(
+    data.length ? Math.round(data.reduce((sum, item) => sum + (Number(item.total) || 0), 0) / data.length) : 0,
+  );
+  const averageComparison = $derived(
+    selectedComparison && data.length
+      ? Math.round(data.reduce((sum, item) => sum + (Number(item[selectedComparison.key]) || 0), 0) / data.length)
+      : 0,
+  );
 
   function handlePointClick(point, event) {
     event.stopPropagation();
     if (onPointClick && point.id) onPointClick(point);
   }
 
-  const isClickable = $derived(() => !!onPointClick);
+  const isClickable = $derived(() => !!onPointClick && granularity === "day");
 </script>
 
-<div class="card-base overflow-visible p-5" aria-labelledby="attendance-trend-title">
-  <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+<div class="card-base fullscreen-chart overflow-visible p-5" aria-labelledby="attendance-trend-title">
+  <div class="mb-4 flex flex-col gap-3 pr-12 sm:flex-row sm:items-start sm:justify-between">
     <div>
       <h3 id="attendance-trend-title" class="text-base font-semibold text-foreground">{title}</h3>
       {#if data.length > 0}
@@ -116,21 +136,22 @@
       {/if}
     </div>
     <div class="flex flex-wrap items-center justify-end gap-2">
+      <label class="sr-only" for="{title.replace(/\W+/g, '-').toLowerCase()}-granularity">Chart time scale</label>
+      <select id="{title.replace(/\W+/g, '-').toLowerCase()}-granularity" bind:value={granularity} onchange={() => (granularityManuallySet = true)} class="h-9 rounded-lg border border-border bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-primary" aria-label="Chart time scale">
+        <option value="month">Month</option>
+        <option value="week">Week</option>
+        <option value="day">Day</option>
+      </select>
       {#if comparisonOptions.length}
-        <label class="sr-only" for="{title.replace(/\W+/g, '-').toLowerCase()}-comparison">Compare attendance with</label>
-        <div class="flex items-center gap-1.5 rounded-xl border border-border/80 bg-secondary/30 px-2 py-1.5">
-          <span class="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Compare with</span>
-          <select
+        <div class="w-52">
+          <SearchableSelect
             id="{title.replace(/\W+/g, '-').toLowerCase()}-comparison"
+            label="Compare with"
+            ariaLabel="Compare attendance with"
+            options={[{ value: "", label: "None" }, ...comparisonOptions.map((option) => ({ value: option.key, label: option.label }))]}
             bind:value={comparisonKey}
-            class="min-w-24 max-w-40 border-0 bg-transparent px-1 py-0.5 text-[11px] font-semibold text-foreground outline-none focus:ring-1 focus:ring-primary"
-            aria-label="Compare attendance with"
-          >
-            <option value="">None</option>
-            {#each comparisonOptions as option}
-              <option value={option.key}>{option.label}</option>
-            {/each}
-          </select>
+            placeholder="None"
+          />
         </div>
       {/if}
       <ChartViewToggle value={chartType} onChange={(next) => (chartType = next)} label="Attendance chart view" />
@@ -157,7 +178,7 @@
     <div class="mb-3 flex items-center justify-center gap-5 text-xs">
       <div class="flex items-center gap-1.5">
         <span class="h-2.5 w-2.5 rounded-full bg-primary shadow-sm shadow-primary/40"></span>
-        <span class="font-medium text-foreground">Total attendance</span>
+        <span class="font-medium text-foreground">{pointMeasureLabel}</span>
       </div>
       <div class="flex items-center gap-1.5">
         <span class="h-2.5 w-2.5 rounded-full shadow-sm" style="background-color: {comparisonColorValue};"></span>
@@ -170,10 +191,10 @@
     <div class="relative w-full">
       <svg
         viewBox="0 0 {chartWidth} {chartHeight}"
-        class="w-full h-auto overflow-visible"
+        class="fullscreen-chart-svg w-full h-auto overflow-visible"
         style="height: {chartHeight}px;"
         role="img"
-        aria-label={`${title} ${chartType} chart`}
+        aria-label={`${title} ${chartType} chart shown by ${granularity}`}
       >
         <title>{`${title} ${chartType} view`}</title>
         <defs>
@@ -284,7 +305,7 @@
                 r="13"
                 fill="hsl(var(--primary))"
                 fill-opacity="0.18"
-                class="pointer-events-none animate-pulse"
+                class="pointer-events-none"
               />
             {/if}
             <circle
@@ -492,7 +513,7 @@
             text-anchor="middle"
             class="text-xs transition-colors duration-150 select-none pointer-events-none {isHovered ? 'fill-foreground font-semibold' : 'fill-muted-foreground font-medium'}"
           >
-            {formatChartDate(point.date, 'short')}
+            {granularity === "week" ? formatChartDate(point.date, "short") : point.label || formatChartDate(point.date, "short")}
           </text>
         {/each}
       </svg>
@@ -502,10 +523,10 @@
         {@const point = chartData().points[hoveredIndex]}
         {@const percentX = ((point.x / chartWidth) * 100).toFixed(1)}
         <div
-          class="pointer-events-none absolute z-30 min-w-[170px] -translate-x-1/2 -translate-y-full transform rounded-xl border border-border/90 bg-card/95 p-3 shadow-2xl backdrop-blur-md transition-all duration-100"
-          style="left: clamp(90px, {percentX}%, calc(100% - 90px)); top: -8px;"
+          class="pointer-events-none absolute z-30 min-w-[170px] -translate-x-1/2 rounded-xl border border-border/90 bg-card/95 p-3 shadow-2xl backdrop-blur-md transition-all duration-100"
+          style="left: clamp(90px, {percentX}%, calc(100% - 90px)); top: clamp(12px, {Math.max(12, point.y - 96)}px, calc(100% - 112px));"
         >
-          <div class="mb-1 text-xs font-semibold text-foreground">{formatChartDate(point.date, 'full')}</div>
+          <div class="mb-1 text-xs font-semibold text-foreground">{point.label || formatChartDate(point.date, 'full')}</div>
           {#if point.topic}
             <div class="mb-2 line-clamp-1 text-xs text-muted-foreground">{point.topic}</div>
           {/if}
@@ -513,16 +534,9 @@
             <div class="flex items-center justify-between gap-3 text-xs">
               <span class="flex items-center gap-1.5 text-muted-foreground">
                 <span class="h-2 w-2 rounded-full bg-primary"></span>
-                Total attendance:
+                {pointMeasureLabel}:
               </span>
               <span class="font-bold text-foreground">{point.total}</span>
-            </div>
-            <div class="flex items-center justify-between gap-3 text-xs">
-              <span class="flex items-center gap-1.5 text-muted-foreground">
-                <span class="h-2 w-2 rounded-full bg-info"></span>
-                {secondaryLabel}:
-              </span>
-              <span class="font-bold text-info">{point.guests}</span>
             </div>
             {#if selectedComparison}
               <div class="flex items-center justify-between gap-3 text-xs">
@@ -543,22 +557,28 @@
       {/if}
     </div>
 
-    <div class="mt-4 flex items-center justify-center gap-6 border-t border-border pt-4">
+    <div class="mt-4 grid {selectedComparison ? 'grid-cols-4' : 'grid-cols-3'} border-t border-border pt-4">
       <div class="text-center">
-        <div class="text-lg font-bold text-foreground">{data[data.length - 1].total}</div>
-        <div class="text-xs text-muted-foreground">Latest</div>
+        <div class="text-lg font-bold text-foreground">{chartData().points[chartData().points.length - 1].total}</div>
+        <div class="text-xs text-muted-foreground">{latestMeasureLabel}</div>
       </div>
+      <div class="text-center">
+        <div class="text-lg font-bold text-primary">{averageAttendance}</div>
+        <div class="text-xs text-muted-foreground">Overall average attendance</div>
+        <div class="mt-0.5 text-[10px] text-muted-foreground">{periodLabel}</div>
+      </div>
+      {#if selectedComparison}
+        <div class="text-center">
+          <div class="text-lg font-bold" style="color: {comparisonColorValue};">{averageComparison}</div>
+          <div class="text-xs text-muted-foreground">Overall average {selectedComparison.label.toLowerCase()}</div>
+          <div class="mt-0.5 text-[10px] text-muted-foreground">{periodLabel}</div>
+        </div>
+      {/if}
       <div class="text-center">
         <div class="text-lg font-bold text-foreground">
-          {Math.round(data.reduce((sum, item) => sum + (Number(item.total) || 0), 0) / data.length)}
+          {Math.max(...chartData().points.map((item) => Number(item.total) || 0), 0)}
         </div>
-        <div class="text-xs text-muted-foreground">Average</div>
-      </div>
-      <div class="text-center">
-        <div class="text-lg font-bold text-primary">
-          {Math.max(...data.map((item) => Number(item.total) || 0), 0)}
-        </div>
-        <div class="text-xs text-muted-foreground">Peak</div>
+        <div class="text-xs text-muted-foreground">{peakMeasureLabel}</div>
       </div>
     </div>
   {:else}
@@ -567,4 +587,3 @@
     </div>
   {/if}
 </div>
-

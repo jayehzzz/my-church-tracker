@@ -1,19 +1,22 @@
 <script>
   import OutreachTrend from "$lib/components/charts/OutreachTrend.svelte";
   import EvangelismOutcomes from "$lib/components/evangelism/EvangelismOutcomes.svelte";
+  import FullscreenWrapper from "$lib/components/ui/FullscreenWrapper.svelte";
 
   let {
     metrics = { reached: 0, saved: 0, visited: 0, joined: 0 },
     monthlyData = [],
+    rows = [],
     topInviters = [],
     periodLabel = "Selected period",
     onInviterClick = null,
+    onMonthClick = null,
   } = $props();
 
   const stats = $derived([
     { label: "People reached", value: metrics.reached, note: "New outreach contacts", tone: "text-primary", icon: "users" },
     { label: "Salvation decisions", value: metrics.saved, note: "Faith decisions recorded", tone: "text-warning", icon: "heart" },
-    { label: "First visits", value: metrics.visited, note: "Attended a gathering", tone: "text-info", icon: "calendar" },
+    { label: "First-time attendees", value: metrics.visited, note: "Reached people who attended a gathering", tone: "text-info", icon: "calendar" },
     { label: "Joined church", value: metrics.joined, note: metrics.reached ? `${Math.round((metrics.joined / metrics.reached) * 100)}% of people reached` : "No join rate yet", tone: "text-success", icon: "check" },
   ]);
 </script>
@@ -62,18 +65,21 @@
     </section>
   {:else}
     <div class="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-      <OutreachTrend
-        data={monthlyData}
-        title="Outreach and outcomes over time"
-        subtitle="Compare contacts reached with the outcomes recorded each month."
-        {periodLabel}
-        comparisonOptions={[
-          { key: "saved", label: "Salvation decisions", color: "warning" },
-          { key: "visited", label: "First visits", color: "info" },
-          { key: "joined", label: "Joined church", color: "success" },
-        ]}
-      />
-      <EvangelismOutcomes {metrics} {periodLabel} />
+      <FullscreenWrapper title="Outreach and outcomes over time">
+        <OutreachTrend
+          data={monthlyData}
+          title="Outreach and outcomes over time"
+          subtitle="Compare contacts reached with the outcomes recorded each month."
+          {periodLabel}
+          comparisonOptions={[
+            { key: "saved", label: "Salvation decisions", color: "warning" },
+            { key: "visited", label: "First-time attendees", color: "info" },
+            { key: "joined", label: "Joined church", color: "success" },
+          ]}
+          onPointClick={onMonthClick}
+        />
+      </FullscreenWrapper>
+      <EvangelismOutcomes {metrics} {periodLabel} {rows} />
     </div>
 
     <section class="card-base overflow-hidden" aria-labelledby="top-inviters-title">

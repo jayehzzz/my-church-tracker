@@ -1119,10 +1119,8 @@ export async function quickLogNoAnswer(taskId, leaderId) {
     leaderId,
     method: "call",
     outcome: "no_response",
-    notes: "Attempted call — no answer. Auto-scheduled follow-up.",
     nextActionDate: nextDate,
     nextTaskType: "follow_up",
-    nextReason: "Retry call after no answer",
     skipAutomaticNextTask: true,
   });
 }

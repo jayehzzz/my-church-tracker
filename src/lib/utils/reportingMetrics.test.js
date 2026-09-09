@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildReportSummary,
   completedCareCount,
   isWithinReportingRange,
+  meetingAttendance,
   prayerHours,
 } from "./reportingMetrics.js";
 import { buildMeetingAnalytics } from "./meetingAnalytics.js";
@@ -48,5 +50,40 @@ describe("reporting definitions", () => {
     const csv = dataToCSV([{ first_name: "=SUM(A1:A2)", phone: "07123456789" }], exportColumns.people);
     expect(csv).toContain("'=SUM(A1:A2)");
     expect(csv).toContain("'07123456789");
+  });
+
+  it("reconciles report overview totals with the detail records", () => {
+    const meetings = [
+      {
+        meeting_date: "2026-09-01",
+        status: "completed",
+        meeting_type: "acts_prayer",
+        duration_minutes: 90,
+        attendance_count: 2,
+        total_attendance: 5,
+      },
+    ];
+    const summary = buildReportSummary({
+      people: [{ id: "p1" }],
+      contacts: [{ converted: true }, { converted: false }],
+      services: [{ total_attendance: 20, salvation_decisions: 2 }],
+      meetings,
+      visitations: [
+        { status: "completed", follow_up_required: true, next_task: { status: "open" } },
+        { status: "cancelled", follow_up_required: false },
+      ],
+    });
+
+    expect(meetingAttendance(meetings[0])).toBe(5);
+    expect(summary).toEqual({
+      totalPeople: 1,
+      newContacts: 2,
+      conversions: 1,
+      totalAttendance: 20,
+      salvationDecisions: 2,
+      prayerHours: 1.5,
+      visitsCompleted: 1,
+      followUpsNeeded: 1,
+    });
   });
 });

@@ -6,12 +6,28 @@ import { wrapDatabaseReader, wrapDatabaseWriter, type Rules } from "convex-helpe
 
 export const isAdmin = (user: Doc<"crm_users">) => user.role === "owner" || user.role === "admin";
 const attendanceContexts = new WeakSet<object>();
+const developmentSummaryContexts = new WeakSet<object>();
+const authenticatedUsers = new WeakMap<object, Doc<"crm_users">>();
+export function authenticatedUser(ctx: object) {
+  const user = authenticatedUsers.get(ctx);
+  if (!user) throw new ConvexError("UNAUTHENTICATED");
+  return user;
+}
 export const managesAttendance = (ctx: object) => attendanceContexts.has(ctx);
 export function forbidden(): never { throw new ConvexError("FORBIDDEN"); }
+
+// Password identities must verify their mailbox before requesting or using access.
+// Existing provider identities retain their exact issuer/subject binding.
+export function requireVerifiedPasswordEmail(identity: { subject: string; emailVerified?: boolean }) {
+  if (identity.subject.startsWith("auth0|") && identity.emailVerified !== true) {
+    throw new ConvexError("EMAIL_VERIFICATION_REQUIRED");
+  }
+}
 
 export async function requireUser(ctx: QueryCtx) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) throw new ConvexError("UNAUTHENTICATED");
+  requireVerifiedPasswordEmail(identity);
   // The verified issuer + subject is the key. Email and church leadership fields
   // are neither login credentials nor authority to grant access.
   const user = await ctx.db.query("crm_users")
@@ -21,7 +37,8 @@ export async function requireUser(ctx: QueryCtx) {
 }
 
 const confidentialKeys = new Set([
-  "notes", "reason", "pause_reason", "description", "nextReason", "closeReason",
+  "is_tither", "gave_tithe", "tithers_count", "unnamed_tithers_count",
+  "discipleship_reviews", "notes", "reason", "pause_reason", "description", "nextReason", "closeReason",
 ]);
 function hasConfidentialInput(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
@@ -41,18 +58,20 @@ export function redactConfidential(value: any): any {
 // Unlisted mutations require an administrator. Leaders cannot assign their own
 // scope, delete people, run global reconciliation, or change account permissions.
 const leaderMutations = new Set([
-  "people:update", "evangelism:update", "evangelism:markAsConverted",
+  "people:addDiscipleshipReview", "people:update", "evangelism:create", "evangelism:update", "evangelism:markAsConverted",
+  "people:createGrowthAgreement", "people:reviewGrowthAgreement",
   "crm:createTask", "crm:completeTask", "crm:moveToLater", "crm:recordCommitment",
   "crm:resolveCommitment", "crm:setAttendancePlan",
   "follow_ups:create", "follow_ups:resolvePromise", "follow_ups:bulkResolvePromises",
   "visitations:create", "visitations:update",
 ]);
 
-async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users">, write: boolean) {
+async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users">, write: boolean, developmentSummary = false, outreachCreate = false) {
   const admin = isAdmin(user);
   const assignments = user.person_id && !admin ? await ctx.db.query("follow_up_assignments")
     .withIndex("by_leader_status", q => q.eq("assigned_leader_id", user.person_id!).eq("status", "active")).collect() : [];
   const assigned = new Set<string>(assignments.map(a => a.person_id));
+  const createdContacts = new Set<string>();
   const canPerson = (id: string) => admin || assigned.has(id) || id === user.person_id;
   const canRecord = (doc: any) => admin || Boolean(doc.person_id && assigned.has(doc.person_id));
   const ownAction = (doc: any) => admin || (!doc.assigned_leader_id || doc.assigned_leader_id === user.person_id);
@@ -64,10 +83,15 @@ async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users"
     people: {
       read: async (_, doc) => canPerson(doc._id),
       modify: async (_, doc) => admin || assigned.has(doc._id),
-      insert: async () => admin,
+      insert: async () => admin || outreachCreate,
     },
-    follow_up_assignments: { ...adminOnly, read: linked.read },
+    follow_up_assignments: { ...adminOnly, read: linked.read,
+      insert: async (_, doc) => admin || (outreachCreate && createdContacts.has(doc.person_id)
+        && doc.assigned_leader_id === user.person_id && doc.status === "active"),
+    },
     follow_up_tasks: linked, gathering_commitments: linked, attendance_plans: linked,
+    growth_agreements: { ...linked, read: async (_, doc) => Boolean(user.can_view_confidential) && canRecord(doc) },
+    growth_agreement_reviews: { ...linked, read: async (_, doc) => Boolean(user.can_view_confidential) && canRecord(doc) },
     attendance: { ...linked, modify: adminOnly.modify, insert: adminOnly.insert },
     meeting_attendance: { ...linked, modify: adminOnly.modify, insert: adminOnly.insert },
     follow_ups: {
@@ -81,8 +105,24 @@ async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users"
       modify: async (_, doc) => Boolean(user.can_view_confidential) && canRecord(doc),
       insert: async (_, doc) => Boolean(user.can_view_confidential) && canRecord(doc),
     },
-    services: adminOnly, meetings: adminOnly, meeting_programs: adminOnly,
+    // Development's purpose-built summary query may read the minimum gathering
+    // metadata needed to interpret already-scoped attendance. It returns no
+    // rosters, financial amounts, or general gathering records.
+    services: developmentSummary ? { read: async () => true, modify: adminOnly.modify, insert: adminOnly.insert } : adminOnly,
+    meetings: developmentSummary ? { read: async () => true, modify: adminOnly.modify, insert: adminOnly.insert } : adminOnly,
+    meeting_programs: developmentSummary ? { read: async () => true, modify: adminOnly.modify, insert: adminOnly.insert } : adminOnly,
     meeting_program_leaders: adminOnly, meeting_program_members: adminOnly,
+    church_settings: { read: async () => true, modify: adminOnly.modify, insert: adminOnly.insert },
+    contact_collectors: {
+      read: async (_, doc) => canPerson(doc.person_id) || canPerson(doc.collector_id),
+      modify: async (_, doc) => admin || (assigned.has(doc.person_id) && doc.collector_id === user.person_id),
+      insert: async (_, doc) => admin || (assigned.has(doc.person_id) && doc.collector_id === user.person_id),
+    },
+    service_register_entries: adminOnly,
+    attendance_visit_evidence: adminOnly,
+    church_import_batches: adminOnly,
+    church_import_rows: adminOnly,
+    historical_import_notes: adminOnly,
     activities: adminOnly, service_photos: adminOnly, record_recovery: adminOnly,
     // Accounts and security events are accessible only through dedicated APIs.
   };
@@ -123,6 +163,11 @@ async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users"
           args[1] = payload;
         }
         const result = await (target as any)[operation](...args);
+        if (outreachCreate && operation === "insert" && args[0] === "people") {
+          // Scope expands only to the new row created in this transaction.
+          createdContacts.add(String(result));
+          assigned.add(String(result));
+        }
         await rawDb.insert("security_audit", {
           actor_user_id: user._id,
           operation,
@@ -165,8 +210,21 @@ function authenticateBuilder(builder: any, name: string, write: boolean) {
         }
       }
     }
-    const guardedContext = await securedContext(ctx, user, write);
+    const outreachCreate = name === "evangelism:create" && !isAdmin(user);
+    if (outreachCreate) {
+      if (!user.person_id) throw new ConvexError("LINKED_PERSON_REQUIRED");
+      for (const field of ["assigned_leader_id", "collected_by_id", "invited_by_id"]) {
+        if (args[field] && args[field] !== user.person_id) forbidden();
+      }
+      if (args.converted || args.conversion_date) forbidden();
+      args.assigned_leader_id = user.person_id;
+      args.collected_by_id = user.person_id;
+    }
+    const developmentSummary = name === "people:getDevelopmentSummary";
+    const guardedContext = await securedContext(ctx, user, write, developmentSummary, outreachCreate);
+    authenticatedUsers.set(guardedContext, user);
     if (isAdmin(user)) attendanceContexts.add(guardedContext);
+    if (developmentSummary) developmentSummaryContexts.add(guardedContext);
     // A leader may record expectations, but cannot create a contradictory late
     // expectation after actual attendance. Check only an already scoped person.
     if (!isAdmin(user) && write && ["crm:recordCommitment", "crm:completeTask"].includes(name)) {
@@ -189,3 +247,4 @@ function authenticateBuilder(builder: any, name: string, write: boolean) {
 // same authentication, row scope, confidentiality and audit boundary.
 export const queryFor = (name: string): QueryBuilder<DataModel, "public"> => authenticateBuilder(rawQuery, name, false);
 export const mutationFor = (name: string): MutationBuilder<DataModel, "public"> => authenticateBuilder(rawMutation, name, true);
+export const isDevelopmentSummaryContext = (ctx: object) => developmentSummaryContexts.has(ctx);

@@ -36,14 +36,6 @@
     ...restProps
   } = $props();
 
-  // Track focus state for floating label
-  let isFocused = $state(false);
-
-  // Date inputs always render a native date hint, so their labels must stay clear of it.
-  const shouldFloat = $derived(
-    isFocused || value !== "" || placeholder !== "" || type === "date",
-  );
-
   // Check if prefix/suffix snippets are provided
   const hasPrefix = $derived(!!prefix);
   const hasSuffix = $derived(!!suffix);
@@ -66,32 +58,6 @@
     return classes;
   });
 
-  // Compute label classes
-  const labelClasses = $derived(() => {
-    let classes = "absolute transition-all duration-200 pointer-events-none";
-
-    if (hasPrefix) {
-      classes += " left-10";
-    } else {
-      classes += " left-3";
-    }
-
-    if (shouldFloat) {
-      classes += " -top-2.5 text-xs px-1 bg-background";
-      if (error) {
-        classes += " text-destructive";
-      } else if (isFocused) {
-        classes += " text-primary";
-      } else {
-        classes += " text-muted-foreground";
-      }
-    } else {
-      classes += " top-1/2 -translate-y-1/2 text-sm text-muted-foreground";
-    }
-
-    return classes;
-  });
-
   // Compute input classes
   const inputClasses = $derived(
     `flex-1 h-10 px-3 bg-transparent text-foreground placeholder:text-muted-foreground/50
@@ -101,18 +67,22 @@
 
   // Handle focus
   function handleFocus(e) {
-    isFocused = true;
     onfocus?.(e);
   }
 
   // Handle blur
   function handleBlur(e) {
-    isFocused = false;
     onblur?.(e);
   }
 </script>
 
-<div class="w-full">
+<div class="w-full space-y-1.5">
+  {#if label}
+    <label for={id} class="block text-xs font-medium text-foreground">
+      {label}
+      {#if required}<span class="ml-0.5 text-destructive" aria-hidden="true">*</span>{/if}
+    </label>
+  {/if}
   <div class={wrapperClasses()}>
     {#if prefix}
       <span
@@ -121,15 +91,6 @@
       >
         {@render prefix()}
       </span>
-    {/if}
-
-    {#if label}
-      <label for={id} class={labelClasses()}>
-        {label}
-        {#if required}
-          <span class="text-destructive ml-0.5" aria-hidden="true">*</span>
-        {/if}
-      </label>
     {/if}
 
     <input

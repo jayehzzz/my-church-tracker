@@ -14,7 +14,11 @@ export default defineSchema({
     people: defineTable({
         // Identity
         first_name: v.string(),
+        // Kept as a string for safe legacy sorting/display. An empty value with
+        // surname_status "missing" means the source did not supply a surname;
+        // it is never a synthetic "Unknown" name.
         last_name: v.string(), // used for surname
+        surname_status: v.optional(v.union(v.literal("known"), v.literal("missing"))),
         preferred_name: v.optional(v.string()), // Added from specs
         email: v.optional(v.string()),
         phone: v.optional(v.string()),
@@ -22,7 +26,11 @@ export default defineSchema({
         city: v.optional(v.string()),
         state: v.optional(v.string()),
         zip_code: v.optional(v.string()),
-        birthday: v.optional(v.string()), // Added from specs YYYY-MM-DD
+        birthday: v.optional(v.string()), // YYYY-MM-DD only when the year is known
+        birthday_month: v.optional(v.float64()), // source day/month, without a guessed year
+        birthday_day: v.optional(v.float64()),
+        age_band: v.optional(v.string()), // source-reported range, not a derived DOB
+        source_church_role: v.optional(v.string()), // historical label retained without granting a role
 
         // Demographics
         gender: v.optional(v.string()), // "male" | "female"
@@ -48,6 +56,9 @@ export default defineSchema({
         contact_date: v.optional(v.string()), // Date first contacted
         contact_method: v.optional(v.string()), // Initial outreach channel
         invited_by_id: v.optional(v.id("people")), // Self-reference to who invited them
+        // The person who first collected this contact can differ from both the
+        // inviter and the CRM owner.  It is intentionally explicit evidence.
+        collected_by_id: v.optional(v.id("people")),
         notes: v.optional(v.string()), // Shared pastoral/outreach context
 
         // Spiritual Journey
@@ -69,6 +80,17 @@ export default defineSchema({
         is_baptised: v.optional(v.boolean()),
         is_tither: v.optional(v.boolean()),
         completed_schools: v.optional(v.array(v.string())),
+        // Append-only pastoral conversations, hidden without confidential access.
+        discipleship_reviews: v.optional(v.array(v.object({
+            focus: v.string(),
+            understanding: v.string(),
+            next_step: v.string(),
+            conversation_date: v.string(),
+            next_review_date: v.optional(v.string()),
+            recorded_at: v.string(),
+            recorded_by_user_id: v.id("crm_users"),
+            recorded_by_name: v.string(),
+        }))),
         merged_into_id: v.optional(v.id("people")), // Archived duplicate retained after a reviewed merge
         salvation_decision: v.optional(v.boolean()), // Made salvation decision during evangelism outreach
 
@@ -90,11 +112,98 @@ export default defineSchema({
         .index("by_last_name", ["last_name"])
         .index("by_contact_date", ["contact_date"])
         .index("by_invited_by", ["invited_by_id"])
+        .index("by_collected_by", ["collected_by_id"])
         .index("by_merged_into", ["merged_into_id"])
         .index("by_pipeline_stage", ["pipeline_stage"])
         .index("by_warmth", ["warmth_score"])
         .searchIndex("search_first_name", { searchField: "first_name" })
         .searchIndex("search_last_name", { searchField: "last_name" }),
+
+    // One deliberately small shared profile. Coordinates are intentionally not
+    // stored until an owner supplies them as evidence rather than inferred from
+    // an address.
+    church_settings: defineTable({
+        key: v.literal("primary"),
+        church_name: v.string(),
+        address: v.string(),
+        constituency: v.string(),
+        tracked_group: v.string(),
+        tracked_program_ids: v.optional(v.array(v.id("meeting_programs"))),
+        created_at: v.string(),
+        updated_at: v.string(),
+    }).index("by_key", ["key"]),
+
+    // Shared attribution is a relationship, not a comma-separated field or a
+    // chosen "main" collector. invited_by_id and CRM ownership remain separate.
+    contact_collectors: defineTable({
+        person_id: v.id("people"),
+        collector_id: v.id("people"),
+        source_key: v.optional(v.string()),
+        created_at: v.string(),
+    }).index("by_person", ["person_id"])
+      .index("by_collector", ["collector_id"])
+      .index("by_person_collector", ["person_id", "collector_id"]),
+
+    // The import ledger is provenance-only. It stores source keys/fingerprints
+    // and reviewed dispositions, never an executable source spreadsheet dump.
+    church_import_batches: defineTable({
+        source_id: v.string(),
+        source_fingerprint: v.string(),
+        status: v.union(v.literal("prepared"), v.literal("approved"), v.literal("applied"), v.literal("failed")),
+        created_at: v.string(),
+        approved_at: v.optional(v.string()),
+        applied_at: v.optional(v.string()),
+        summary: v.optional(v.any()),
+    }).index("by_source_fingerprint", ["source_id", "source_fingerprint"]),
+    church_import_rows: defineTable({
+        batch_id: v.id("church_import_batches"),
+        source_key: v.string(),
+        source_fingerprint: v.string(),
+        record_type: v.string(),
+        disposition: v.union(v.literal("imported"), v.literal("linked"), v.literal("held"), v.literal("skipped")),
+        target_person_id: v.optional(v.id("people")),
+        target_service_id: v.optional(v.id("services")),
+        created_at: v.string(),
+    }).index("by_source_key", ["source_key"])
+      .index("by_batch", ["batch_id"]),
+    historical_import_notes: defineTable({
+        batch_id: v.id("church_import_batches"),
+        source_key: v.string(),
+        person_id: v.optional(v.id("people")),
+        occurred_on: v.optional(v.string()),
+        note: v.string(),
+        created_at: v.string(),
+    }).index("by_batch", ["batch_id"])
+      .index("by_person", ["person_id"])
+      .index("by_source_key", ["source_key"]),
+
+    // Sunday source registers distinguish recorded absence from a genuinely
+    // unknown cell. Only present entries are copied into legacy attendance.
+    service_register_entries: defineTable({
+        service_id: v.id("services"),
+        person_id: v.id("people"),
+        status: v.union(v.literal("present"), v.literal("absent"), v.literal("unknown")),
+        explicit_first_visit: v.optional(v.boolean()),
+        left_early: v.optional(v.boolean()),
+        source_key: v.optional(v.string()),
+        import_batch_id: v.optional(v.id("church_import_batches")),
+        created_at: v.string(),
+        updated_at: v.string(),
+    }).index("by_service", ["service_id"])
+      .index("by_person", ["person_id"])
+      .index("by_service_person", ["service_id", "person_id"]),
+
+    // Distinguishes source-declared first visits and later recorded returns
+    // from an app-derived earliest available attendance date.
+    attendance_visit_evidence: defineTable({
+        person_id: v.id("people"),
+        service_id: v.id("services"),
+        kind: v.union(v.literal("explicit_first_visit"), v.literal("recorded_return")),
+        source_key: v.string(),
+        import_batch_id: v.optional(v.id("church_import_batches")),
+        created_at: v.string(),
+    }).index("by_person", ["person_id"])
+      .index("by_source_key", ["source_key"]),
 
 
     // Services - Church services
@@ -136,6 +245,43 @@ export default defineSchema({
         created_at: v.string(),
     }).index("by_service", ["service_id"])
       .index("by_storage", ["storage_id"]),
+
+    // Standalone church-memory albums complement service photos. An album may
+    // optionally point at one operational gathering, but outings and other
+    // informal days do not need a service/meeting record.
+    memory_albums: defineTable({
+        title: v.string(),
+        event_date: v.string(),
+        location: v.optional(v.string()),
+        category: v.string(),
+        reflection: v.optional(v.string()),
+        visibility: v.union(v.literal("church"), v.literal("leaders"), v.literal("private")),
+        service_id: v.optional(v.id("services")),
+        meeting_id: v.optional(v.id("meetings")),
+        cover_media_id: v.optional(v.id("memory_media")),
+        created_by_user_id: v.id("crm_users"),
+        created_at: v.string(),
+        updated_at: v.string(),
+    }).index("by_event_date", ["event_date"])
+      .index("by_service", ["service_id"])
+      .index("by_meeting", ["meeting_id"]),
+
+    // Files are registered before the album is saved so failed/cancelled forms
+    // can explicitly discard their own pending uploads.
+    memory_media: defineTable({
+        album_id: v.optional(v.id("memory_albums")),
+        storage_id: v.id("_storage"),
+        media_type: v.union(v.literal("photo"), v.literal("video")),
+        original_filename: v.string(),
+        content_type: v.string(),
+        size_bytes: v.float64(),
+        caption: v.optional(v.string()),
+        sort_order: v.float64(),
+        uploaded_by_user_id: v.id("crm_users"),
+        created_at: v.string(),
+    }).index("by_album", ["album_id"])
+      .index("by_storage", ["storage_id"])
+      .index("by_uploader", ["uploaded_by_user_id"]),
 
     // Attendance - Links people to services (Legacy? Or specific to Services vs Meetings?)
     // Note: The specs mention a unified 'meetings' and 'meeting_attendance' for everything.
@@ -244,6 +390,38 @@ export default defineSchema({
     }).index("by_meeting", ["meeting_id"])
         .index("by_person", ["person_id"])
         .index("by_meeting_person", ["meeting_id", "person_id"]),
+
+    // A bounded, person-scoped plan and immutable progress notes.  These are
+    // separate from the profile so a reviewed merge can move them safely.
+    growth_agreements: defineTable({
+        request_id: v.optional(v.string()),
+        person_id: v.id("people"),
+        action: v.string(),
+        supporting_person_id: v.optional(v.id("people")),
+        agreed_date: v.string(),
+        due_date: v.optional(v.string()),
+        next_review_date: v.optional(v.string()),
+        notes: v.optional(v.string()),
+        status: v.union(v.literal("in_progress"), v.literal("completed")),
+        created_at: v.string(),
+        created_by_user_id: v.id("crm_users"),
+        created_by_name: v.string(),
+        completed_at: v.optional(v.string()),
+    }).index("by_person", ["person_id"]).index("by_person_request", ["person_id", "request_id"]).index("by_supporter", ["supporting_person_id"]),
+    growth_agreement_reviews: defineTable({
+        agreement_id: v.id("growth_agreements"),
+        person_id: v.id("people"),
+        note: v.string(),
+        review_date: v.string(),
+        next_review_date: v.optional(v.string()),
+        status: v.union(v.literal("in_progress"), v.literal("completed")),
+        request_id: v.optional(v.string()),
+        created_at: v.string(),
+        created_by_user_id: v.id("crm_users"),
+        created_by_name: v.string(),
+    }).index("by_agreement", ["agreement_id"])
+      .index("by_person", ["person_id"])
+      .index("by_agreement_request", ["agreement_id", "request_id"]),
 
     // Visitations - Home visit records
     visitations: defineTable({

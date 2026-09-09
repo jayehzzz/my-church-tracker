@@ -9,6 +9,7 @@
     people = [],
     title = "Weekly attendance patterns",
     maxServices = 8,
+    initialServiceCount = maxServices,
     initialPeopleLimit = 12,
     onServiceClick = null,
   } = $props();
@@ -18,6 +19,11 @@
   let attendanceFilter = $state("all");
   let sortOption = $state("missed_desc");
   let selectedSunday = $state("all");
+  let visibleServiceCount = $state(0);
+
+  $effect(() => {
+    if (!visibleServiceCount) visibleServiceCount = initialServiceCount;
+  });
 
   function recordId(record) {
     return String(record?.id ?? record?._id ?? record ?? "");
@@ -85,7 +91,7 @@
     return startDate <= date;
   }
 
-  const recentServices = $derived(() =>
+  const allRecentServices = $derived(() =>
     (services || [])
       .filter(
         (service) =>
@@ -100,6 +106,10 @@
       )
       .slice(0, maxServices)
       .reverse(),
+  );
+
+  const recentServices = $derived(() =>
+    allRecentServices().slice(-Math.max(1, visibleServiceCount)),
   );
 
   const sundayOptions = $derived(() => [...recentServices()].reverse());
@@ -175,12 +185,16 @@
     const count = selectedServices().length;
     return `${count} recorded Sunday${count === 1 ? "" : "s"}`;
   });
+  // Keep the matrix readable as columns are added while still allowing a compact
+  // view for a short run of Sundays.
+  const serviceColumnWidth = $derived(Math.max(46, Math.min(72, Math.floor(680 / Math.max(1, selectedServices().length)))));
 
   const hasActiveControls = $derived(
     searchQuery.trim() !== "" ||
       attendanceFilter !== "all" ||
       sortOption !== "missed_desc" ||
-      selectedSunday !== "all",
+      selectedSunday !== "all" ||
+      visibleServiceCount !== initialServiceCount,
   );
 
   function handleSundayChange(event) {
@@ -196,6 +210,7 @@
     attendanceFilter = "all";
     sortOption = "missed_desc";
     selectedSunday = "all";
+    visibleServiceCount = initialServiceCount;
     showAllPeople = false;
   }
 
@@ -205,6 +220,13 @@
     if (status.state === "present") return `${name} was here on ${date}`;
     if (status.state === "missed") return `${name} missed ${date}`;
     return `${name} was not yet expected on ${date}`;
+  }
+
+  function setVisibleServiceCount(event) {
+    const value = Number(event.currentTarget.value);
+    if (!Number.isFinite(value)) return;
+    visibleServiceCount = Math.min(allRecentServices().length, Math.max(1, Math.round(value)));
+    selectedSunday = "all";
   }
 </script>
 
@@ -228,6 +250,32 @@
           <span class="h-2.5 w-2.5 rounded-sm bg-destructive" aria-hidden="true"></span>
           Missed
         </span>
+        <div class="ml-1 flex items-center rounded-lg border border-border bg-secondary/20 p-0.5" aria-label="Sundays shown">
+          <button
+            type="button"
+            class="flex h-7 w-7 items-center justify-center rounded-md text-base text-muted-foreground transition-colors hover:bg-card hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
+            onclick={() => {
+              visibleServiceCount = Math.max(1, visibleServiceCount - 1);
+              selectedSunday = "all";
+            }}
+            disabled={visibleServiceCount <= 1}
+            aria-label="Show one fewer Sunday"
+            title="Remove a Sunday column"
+          >−</button>
+          <label class="sr-only" for="sundays-shown">Sundays shown</label>
+          <input id="sundays-shown" type="number" min="1" max={allRecentServices().length || 1} value={recentServices().length} oninput={setVisibleServiceCount} class="h-7 w-16 bg-transparent px-1 text-center text-[11px] font-medium text-foreground outline-none focus:ring-1 focus:ring-primary" aria-label="Sundays shown" />
+          <button
+            type="button"
+            class="flex h-7 w-7 items-center justify-center rounded-md text-base text-muted-foreground transition-colors hover:bg-card hover:text-foreground disabled:cursor-not-allowed disabled:opacity-35"
+            onclick={() => {
+              visibleServiceCount = Math.min(allRecentServices().length, visibleServiceCount + 1);
+              selectedSunday = "all";
+            }}
+            disabled={visibleServiceCount >= allRecentServices().length}
+            aria-label="Show one more Sunday"
+            title="Add a Sunday column"
+          >+</button>
+        </div>
       </div>
     </div>
 
@@ -306,16 +354,16 @@
       </div>
 
       {#if filteredRows().length > 0}
-      <div class="w-full min-w-0 max-w-full overflow-x-auto px-3 pb-3 sm:px-5 sm:pb-5">
-        <table class="w-full border-separate border-spacing-y-1.5 {selectedServices().length <= 1 ? 'min-w-[420px]' : selectedServices().length <= 3 ? 'min-w-[560px]' : 'min-w-[720px]'}" aria-label="Weekly attendance by person">
+      <div class="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain px-3 pb-3 sm:px-5 sm:pb-5">
+        <table class="border-separate border-spacing-y-1.5" style="min-width: {240 + selectedServices().length * serviceColumnWidth}px;" aria-label="Weekly attendance by person">
           <thead>
             <tr>
-              <th scope="col" class="sticky left-0 z-20 w-52 bg-card px-2 py-3 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <th scope="col" style="left: -16px; width: 256px; min-width: 256px;" class="sticky z-30 bg-card px-6 py-3 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground shadow-[10px_0_14px_-12px_hsl(var(--foreground)/.9)]">
                 Person
               </th>
               {#each selectedServices() as service (service.id)}
                 {@const columnDate = formatColumnDate(service.service_date)}
-                <th scope="col" class="w-16 px-1 py-3 text-center text-[11px] font-medium text-muted-foreground">
+                <th scope="col" style="width: {serviceColumnWidth}px; min-width: {serviceColumnWidth}px;" class="px-1 py-3 text-center text-[11px] font-medium text-muted-foreground">
                   <span class="block text-foreground">{columnDate.day}</span>
                   <span class="block">{columnDate.month}</span>
                 </th>
@@ -328,7 +376,7 @@
           <tbody>
             {#each visibleRows() as row (row.person.id)}
               <tr class="group">
-                <th scope="row" class="sticky left-0 z-10 rounded-l-lg bg-card px-2 py-1.5 text-left group-hover:bg-card-elevated">
+                <th scope="row" style="left: -16px; width: 256px; min-width: 256px;" class="sticky z-20 rounded-l-lg bg-card px-6 py-1.5 text-left shadow-[10px_0_14px_-12px_hsl(var(--foreground)/.9)] group-hover:bg-card-elevated">
                   <a
                     href="/people/{recordId(row.person)}"
                     class="flex min-h-11 items-center gap-3 rounded-md px-1.5 py-1 transition-colors hover:bg-secondary/40 focus-visible:ring-2 focus-visible:ring-ring"
@@ -356,7 +404,7 @@
                   </a>
                 </th>
                 {#each row.statuses as status (status.service.id)}
-                  <td class="bg-card px-1 py-1.5 text-center group-hover:bg-card-elevated">
+                  <td style="width: {serviceColumnWidth}px;" class="bg-card px-1 py-1.5 text-center group-hover:bg-card-elevated">
                     <button
                       type="button"
                       onclick={() => onServiceClick?.(status.service)}

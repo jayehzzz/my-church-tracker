@@ -1,4 +1,5 @@
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
+import { accessErrorCode } from './auth/errors.js';
 
 const environment = import.meta.env?.VITE_APP_ENV || (import.meta.env?.DEV ? "development" : "production");
 const requestedMode = import.meta.env?.VITE_APP_MODE || "live";
@@ -42,7 +43,11 @@ export function configureConvexAuth(tokenFetcher, accessLost = () => {}) {
 export function clearConvexAuth() {
   fetchToken = async () => null;
   sessionGeneration++;
-  browserClient?.clearAuth();
+  // ConvexClient has no clearAuth() method. Closing removes subscriptions and
+  // cached results immediately; the next session gets a fresh client.
+  const previous = browserClient;
+  browserClient = null;
+  if (previous) void previous.close().catch(() => {});
 }
 
 async function authenticatedRequest(method, args) {
@@ -58,7 +63,7 @@ async function authenticatedRequest(method, args) {
     if (generation !== sessionGeneration) throw new Error('SESSION_CHANGED');
     return result;
   } catch (error) {
-    if (generation === sessionGeneration && /UNAUTHENTICATED|ACCOUNT_NOT_APPROVED/.test(String(error))) onAccessLost(error);
+    if (generation === sessionGeneration && accessErrorCode(error)) onAccessLost(error);
     throw error;
   }
 }

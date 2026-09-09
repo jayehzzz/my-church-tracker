@@ -95,7 +95,10 @@
 
 <div class="card-base p-4">
     <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-medium text-muted-foreground">{title}</h3>
+        <div>
+            <h3 class="text-sm font-medium text-muted-foreground">{title}</h3>
+            <p class="mt-1 text-[11px] text-muted-foreground">Monthly totals of people added</p>
+        </div>
         {#if data.length > 0}
             <span class="text-xs text-muted-foreground"
                 >Last {data.length} months</span
@@ -179,7 +182,7 @@
             <div class="flex items-center gap-2">
                 <div class="w-3 h-3 rounded-sm bg-primary/40"></div>
                 <div class="text-xs text-muted-foreground">
-                    Members <span class="font-medium text-foreground"
+                    Members added <span class="font-medium text-foreground"
                         >{totals().members}</span
                     >
                 </div>
@@ -187,13 +190,13 @@
             <div class="flex items-center gap-2">
                 <div class="w-3 h-3 rounded-sm bg-info/40"></div>
                 <div class="text-xs text-muted-foreground">
-                    Guests <span class="font-medium text-foreground"
+                    Guests added <span class="font-medium text-foreground"
                         >{totals().guests}</span
                     >
                 </div>
             </div>
             <div class="text-xs text-muted-foreground">
-                Total <span class="font-bold text-foreground"
+                Total people added <span class="font-bold text-foreground"
                     >{totals().total}</span
                 >
             </div>

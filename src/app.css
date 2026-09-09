@@ -133,6 +133,17 @@
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
+  /* Keep native dropdown menus legible and consistent with the dark UI. */
+  select {
+    color-scheme: dark;
+  }
+
+  select option,
+  select optgroup {
+    background: hsl(var(--card-elevated));
+    color: hsl(var(--foreground));
+  }
+
   /* 
    * Focus Visible Styles
    * Ensures keyboard navigation is visible for accessibility (WCAG AA)

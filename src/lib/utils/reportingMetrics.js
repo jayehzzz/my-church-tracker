@@ -60,3 +60,46 @@ export function prayerHours(meetings, now = new Date()) {
 export function completedCareCount(visitations) {
   return (visitations || []).filter(isSuccessfulCare).length;
 }
+
+/** Use the same derived attendance total shown by the Meetings workspace. */
+export function meetingAttendance(meeting) {
+  return Number(
+    meeting?.display_attendance_count
+      ?? meeting?.total_attendance
+      ?? meeting?.attendance_count
+      ?? 0,
+  ) || 0;
+}
+
+export function hasOpenCareFollowUp(visitation) {
+  return Boolean(
+    visitation?.follow_up_required
+      && (!visitation.next_task || visitation.next_task.status === "open"),
+  );
+}
+
+/** Shared report totals keep the overview and the detail tabs reconciled. */
+export function buildReportSummary({
+  people = [],
+  contacts = [],
+  services = [],
+  meetings = [],
+  visitations = [],
+} = {}) {
+  return {
+    totalPeople: people.length,
+    newContacts: contacts.length,
+    conversions: contacts.filter((contact) => contact.converted).length,
+    totalAttendance: services.reduce(
+      (sum, service) => sum + (Number(service.total_attendance) || 0),
+      0,
+    ),
+    salvationDecisions: services.reduce(
+      (sum, service) => sum + (Number(service.salvation_decisions) || 0),
+      0,
+    ),
+    prayerHours: prayerHours(meetings),
+    visitsCompleted: completedCareCount(visitations),
+    followUpsNeeded: visitations.filter(hasOpenCareFollowUp).length,
+  };
+}

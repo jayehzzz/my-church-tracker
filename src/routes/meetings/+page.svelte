@@ -5,7 +5,7 @@
   import PageHeader from "$lib/components/shared/PageHeader.svelte";
   import FilterBar from "$lib/components/filters/FilterBar.svelte";
   import KPICard from "$lib/components/dashboard/KPICard.svelte";
-  import AttendanceTrend from "$lib/components/charts/AttendanceTrend.svelte";
+  import MeetingAttendanceComparison from "$lib/components/charts/MeetingAttendanceComparison.svelte";
   import MeetingBarChart from "$lib/components/charts/MeetingBarChart.svelte";
   import MeetingPeopleComposition from "$lib/components/charts/MeetingPeopleComposition.svelte";
   import MeetingForm from "$lib/components/forms/MeetingForm.svelte";
@@ -441,11 +441,24 @@
   }
 
   function openTrendDrilldown(point) {
+    const meeting = meetings.find((item) => String(item.id || item._id) === String(point.id));
     openPeopleDrilldown(
       point,
-      point.topic || "Meeting attendance",
+      meeting ? programmeName(meeting) : point.topic || "Meeting attendance",
       `${formatDate(point.date)} · ${point.total} total attendance`,
     );
+    if (meeting) {
+      peopleDrilldown = {
+        ...peopleDrilldown,
+        details: {
+          time: formatTime(meeting),
+          format: formatFormat(meeting.format),
+          location: meeting.location || meeting.online_url || "Location not recorded",
+          named: namedAttendanceCount(meeting),
+          guests: Number(meeting.unnamed_guests_count || 0),
+        },
+      };
+    }
   }
 
   function exportFilteredMeetings() {
@@ -721,44 +734,19 @@
             {/if}
           </div>
         </div>
-        <div class="grid grid-cols-1 gap-6 xl:grid-cols-[1.35fr_1fr]">
-          <FullscreenWrapper title="Attendance over time">
-            {#snippet filters()}
-              <FilterBar compact />
-            {/snippet}
-            <AttendanceTrend
-              data={analytics().trendData.slice(-18)}
-              title="Attendance over time"
-              itemLabel="meetings"
-              secondaryLabel="Unnamed"
-              onPointClick={openTrendDrilldown}
-              onFilterClick={openAnalyticsFilters}
-              {activeAnalyticsFilterCount}
-              comparisonOptions={[
-                { key: "guests", label: "Unnamed guests", color: "warning" },
-                { key: "firstTimers", label: "First timers", color: "warning" },
-                { key: "programmeFirsts", label: "Programme firsts", color: "success" },
-              ]}
-            />
-          </FullscreenWrapper>
-          <FullscreenWrapper title="Attendance journey">
-            <MeetingPeopleComposition
-              data={analytics().peopleComposition}
-              onFilterClick={openAnalyticsFilters}
-              {activeAnalyticsFilterCount}
-              onSegmentClick={(item) =>
-                openPeopleDrilldown(
-                  item,
-                  item.label,
-                  `${item.value} unique ${item.value === 1 ? "person" : "people"}`,
-                )}
-            />
-          </FullscreenWrapper>
-          <FullscreenWrapper title="Programme comparison">
+        <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <FullscreenWrapper title="Meeting type comparison" class="xl:col-span-2">
             <MeetingBarChart
               data={analytics().programmeData}
-              title="Programme comparison"
-              subtitle="Average attendance per meeting"
+              title="Meeting type comparison"
+              subtitle="Compare Bacenta, prayer and other programmes using the measure that matters to you."
+              periodLabel={$dateRange.label}
+              metricOptions={[
+                { key: "value", label: "Average attendance" },
+                { key: "total", label: "Total attendance" },
+                { key: "uniquePeople", label: "Unique people" },
+                { key: "meetingCount", label: "Meetings held" },
+              ]}
               onFilterClick={openAnalyticsFilters}
               {activeAnalyticsFilterCount}
               onBarClick={(item) =>
@@ -769,20 +757,30 @@
                 )}
             />
           </FullscreenWrapper>
-          <FullscreenWrapper title="Roster attendance">
-            <MeetingBarChart
-              data={analytics().rosterData}
-              title="Roster attendance"
-              subtitle="Present roster places across the selected meetings"
-              unit="%"
-              color="success"
+          <FullscreenWrapper title="Attendance over time">
+            {#snippet filters()}
+              <FilterBar compact />
+            {/snippet}
+            <MeetingAttendanceComparison
+              series={analytics().programmeData}
+              title="Attendance over time"
+              periodLabel={$dateRange.label}
+              onPointClick={openTrendDrilldown}
               onFilterClick={openAnalyticsFilters}
               {activeAnalyticsFilterCount}
-              onBarClick={(item) =>
+            />
+          </FullscreenWrapper>
+          <FullscreenWrapper title="People by attendance experience">
+            <MeetingPeopleComposition
+              title="People by attendance experience"
+              data={analytics().peopleComposition}
+              onFilterClick={openAnalyticsFilters}
+              {activeAnalyticsFilterCount}
+              onSegmentClick={(item) =>
                 openPeopleDrilldown(
-                  { ...item, personIds: item.rosterPersonIds },
-                  `${item.label} roster attendance`,
-                  `${item.rosterRate}% of roster opportunities attended`,
+                  item,
+                  item.label,
+                  `${item.value} unique ${item.value === 1 ? "person" : "people"}`,
                 )}
             />
           </FullscreenWrapper>
@@ -1003,7 +1001,7 @@
   <div class="space-y-5">
     <div class="flex items-center justify-between gap-3 rounded-xl bg-secondary/30 p-3">
       <p class="text-sm text-muted-foreground">
-        These choices update every graph and attendance record. The date range is controlled above the page.
+        Start with meeting type, category, leader or person. These choices update every chart and attendance list; the date range remains at the top of the page.
       </p>
       {#if activeAnalyticsFilterCount > 0}
         <span class="flex-shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
@@ -1021,7 +1019,7 @@
 
     <details class="rounded-xl border border-border">
       <summary class="cursor-pointer px-4 py-3 text-sm font-medium text-foreground">
-        More filters
+        Optional refinements
       </summary>
       <div class="grid grid-cols-1 gap-4 border-t border-border p-4 sm:grid-cols-2">
         <SearchableSelect label="Format" bind:value={analyticsFilters.format} options={formatOptions} />
@@ -1061,6 +1059,14 @@
   <div class="space-y-4">
     {#if peopleDrilldown?.subtitle}
       <p class="text-sm text-muted-foreground">{peopleDrilldown.subtitle}</p>
+    {/if}
+    {#if peopleDrilldown?.details}
+      <dl class="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border text-sm">
+        <div class="bg-card p-3"><dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Time</dt><dd class="mt-1 font-medium text-foreground">{peopleDrilldown.details.time}</dd></div>
+        <div class="bg-card p-3"><dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Format</dt><dd class="mt-1 font-medium text-foreground">{peopleDrilldown.details.format}</dd></div>
+        <div class="bg-card p-3"><dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Location</dt><dd class="mt-1 font-medium text-foreground">{peopleDrilldown.details.location}</dd></div>
+        <div class="bg-card p-3"><dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Attendance</dt><dd class="mt-1 font-medium text-foreground">{peopleDrilldown.details.named} named · {peopleDrilldown.details.guests} unnamed</dd></div>
+      </dl>
     {/if}
     {#if peopleDrilldown?.people?.length}
       <div class="max-h-[55vh] divide-y divide-border overflow-y-auto rounded-xl border border-border">

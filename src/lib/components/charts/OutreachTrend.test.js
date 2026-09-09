@@ -10,7 +10,7 @@ const mockMonthlyData = [
 
 const comparisonOptions = [
   { key: "saved", label: "Salvation decisions", color: "warning" },
-  { key: "visited", label: "First visits", color: "info" },
+  { key: "visited", label: "First-time attendees", color: "info" },
   { key: "joined", label: "Joined church", color: "success" },
 ];
 
@@ -26,7 +26,7 @@ describe("OutreachTrend", () => {
     });
 
     expect(getByText("Outreach and outcomes over time")).toBeDefined();
-    expect(getByText("THIS QUARTER (Q3 2026)")).toBeDefined();
+    expect(getAllByText("THIS QUARTER (Q3 2026)").length).toBeGreaterThan(0);
 
     // Month labels
     expect(getByText("Jul")).toBeDefined();
@@ -37,6 +37,7 @@ describe("OutreachTrend", () => {
     expect(getByText("31")).toBeDefined();
     expect(getAllByText("10").length).toBeGreaterThan(0); // Avg/month and/or Y-axis
     expect(getAllByText("15").length).toBeGreaterThan(0); // Peak month and/or bar label
+    expect(getByText("Average monthly contacts").previousElementSibling?.classList.contains("text-primary")).toBe(true);
   });
 
   it("can switch to line chart view", async () => {
@@ -66,7 +67,7 @@ describe("OutreachTrend", () => {
     const select = getByLabelText("Compare outreach with");
     await fireEvent.change(select, { target: { value: "saved" } });
 
-    expect(getByText("Contacts reached")).toBeDefined();
+    expect(getByText("Monthly contacts reached")).toBeDefined();
     expect(getAllByText("Salvation decisions").length).toBeGreaterThan(1);
   });
 

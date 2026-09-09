@@ -1,112 +1,14 @@
 <script>
-    import { Card } from "$lib/components/ui";
-
-    let { totalAttendance, lastAttended, prayerMeetingsCount, activityScore } =
-        $props();
-
-    function formatDate(dateStr) {
-        if (!dateStr) return "—";
-        return new Date(dateStr).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-        });
-    }
-
-    // Scroll to section helper
-    function scrollTo(id) {
-        const el = document.getElementById(id);
-        if (el) el.scrollIntoView({ behavior: "smooth" });
-    }
+  let { totalAttendance = 0, lastAttended = null, unavailable = false } = $props();
+  const latestDate = $derived(lastAttended ? new Date(lastAttended).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Not recorded");
 </script>
-
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-    <!-- Total Attendance -->
-    <button
-        class="text-left card-interactive hover-lift group relative overflow-hidden p-5 rounded-xl border border-border transition-transform active:scale-95"
-        onclick={() => scrollTo("attendance-history")}
-    >
-        <div class="flex flex-col h-full justify-between relative z-10">
-            <span class="text-sm text-muted-foreground mb-1 block"
-                >Total Services</span
-            >
-            <div class="flex items-baseline gap-2">
-                <span
-                    class="text-4xl font-semibold tracking-tight text-foreground transition-all duration-300 group-hover:scale-105 group-hover:text-primary origin-left"
-                >
-                    {totalAttendance}
-                </span>
-                <span
-                    class="text-xs text-muted-foreground font-medium uppercase tracking-wider"
-                    >All time</span
-                >
-            </div>
-        </div>
-    </button>
-
-    <!-- Last Attended -->
-    <div
-        class="card-interactive hover-lift group relative overflow-hidden p-5 rounded-xl border border-border"
-    >
-        <div class="flex flex-col h-full justify-between relative z-10">
-            <span class="text-sm text-muted-foreground mb-1 block"
-                >Last Seen</span
-            >
-            <div>
-                <span
-                    class="text-xl font-medium text-foreground block truncate"
-                >
-                    {formatDate(lastAttended)}
-                </span>
-                <span class="text-xs text-muted-foreground mt-1 block">
-                    {lastAttended
-                        ? "Latest service check-in"
-                        : "No records found"}
-                </span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Prayer Meetings -->
-    <div
-        class="card-interactive hover-lift group relative overflow-hidden p-5 rounded-xl border border-border"
-    >
-        <div class="flex flex-col h-full justify-between relative z-10">
-            <span class="text-sm text-muted-foreground mb-1 block"
-                >Prayer Activity</span
-            >
-            <div class="flex items-baseline gap-2">
-                <span
-                    class="text-4xl font-semibold tracking-tight text-foreground group-hover:text-primary transition-colors duration-300"
-                >
-                    {prayerMeetingsCount}
-                </span>
-                <span class="text-xs text-muted-foreground">meetings</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Activity Score -->
-    <div
-        class="card-interactive hover-lift group relative overflow-hidden p-5 rounded-xl border border-border"
-    >
-        <div class="flex flex-col h-full justify-between relative z-10">
-            <span class="text-sm text-muted-foreground mb-1 block"
-                >Activity Score</span
-            >
-            <div class="flex items-baseline gap-2">
-                <span
-                    class="text-4xl font-semibold tracking-tight text-foreground group-hover:text-primary transition-colors duration-300"
-                >
-                    {activityScore}%
-                </span>
-            </div>
-            <div class="mt-2 h-1.5 bg-secondary rounded-full overflow-hidden">
-                <div
-                    class="h-full bg-gradient-to-r from-primary to-accent rounded-full transition-all duration-500"
-                    style="width: {activityScore}%"
-                ></div>
-            </div>
-        </div>
-    </div>
-</div>
+<dl class="attendance-summary">
+  <div><dt>Recorded attendance</dt><dd>{unavailable ? "Unavailable" : totalAttendance}</dd><p>Services and meetings held to date</p></div>
+  <div><dt>Last attended</dt><dd>{unavailable ? "Unavailable" : latestDate}</dd><p>Most recent recorded attendance</p></div>
+</dl>
+<style>
+  .attendance-summary { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); }
+  .attendance-summary > div { padding: 20px 24px; min-width: 0; } .attendance-summary > div + div { border-left: 1px solid hsl(var(--border)); }
+  dt { font-size: 12px; color: hsl(var(--muted-foreground)); } dd { font-size: 24px; font-weight: 600; letter-spacing: -.02em; margin-top: 6px; } p { font-size: 12px; color: hsl(var(--muted-foreground)); margin-top: 4px; }
+  @media(max-width: 500px) { .attendance-summary > div { padding: 16px; } dd { font-size: 18px; } }
+</style>

@@ -1,6 +1,6 @@
 import { query, mutation, internalMutation, type MutationCtx } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
-import { requireUser, forbidden, isAdmin } from "./lib/security";
+import { requireUser, forbidden, isAdmin, requireVerifiedPasswordEmail } from "./lib/security";
 import { requireMaintenance } from "./lib/maintenance";
 
 const role = v.union(v.literal("owner"), v.literal("admin"), v.literal("leader"), v.literal("viewer"));
@@ -87,27 +87,41 @@ export const listAccounts = query({
 export const listManagedAccounts = query({
   args: {},
   handler: async (ctx) => {
-    if ((await requireUser(ctx)).role !== "owner") forbidden();
-    return await ctx.db.query("crm_users").collect().then(accounts => accounts.map(account => ({
-      id: account._id,
-      displayName: account.display_name,
-      email: account.email,
-      role: account.role,
-      status: account.status,
-      personId: account.person_id,
-      canViewConfidential: account.can_view_confidential === true,
-      createdAt: account.created_at,
-      updatedAt: account.updated_at,
-    })));
+    const actor = await requireUser(ctx);
+    if (actor.role !== "owner") forbidden();
+    const identity = (await ctx.auth.getUserIdentity())!;
+    const accounts = await ctx.db.query("crm_users").collect();
+    return await Promise.all(accounts.map(async account => {
+      const externalAuthId = account.external_auth_id;
+      const request = externalAuthId ? await ctx.db.query("access_requests")
+        .withIndex("by_external_auth_id", q => q.eq("external_auth_id", externalAuthId)).unique() : null;
+      const subject = externalAuthId?.slice(externalAuthId.indexOf("|") + 1) || "";
+      const signInMethod = subject.startsWith("google-oauth2|") ? "Google"
+        : subject.startsWith("auth0|") ? "Email and password" : "Other sign-in";
+      return {
+        id: account._id,
+        displayName: account.display_name,
+        email: account.email || request?.email || (account._id === actor._id ? identity.email : undefined),
+        signInMethod,
+        isCurrentAccount: account._id === actor._id,
+        role: account.role,
+        status: account.status,
+        personId: account.person_id,
+        canViewConfidential: account.can_view_confidential === true,
+        createdAt: account.created_at,
+        updatedAt: account.updated_at,
+      };
+    }));
   },
 });
 
-/** A signed-in Google identity can ask an owner for access, never grant it. */
+/** A signed-in provider identity can ask an owner for access, never grant it. */
 export const requestAccess = mutation({
   args: {},
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new ConvexError("UNAUTHENTICATED");
+    requireVerifiedPasswordEmail(identity);
     const account = await ctx.db.query("crm_users")
       .withIndex("by_external_auth_id", q => q.eq("external_auth_id", identity.tokenIdentifier)).unique();
     if (account?.status === "active") return { state: "approved" as const };
@@ -155,6 +169,7 @@ export const approveAccessRequest = mutation({
     const existing = await ctx.db.query("crm_users").withIndex("by_external_auth_id", q => q.eq("external_auth_id", request.external_auth_id)).unique();
     if (existing) throw new ConvexError("ACCOUNT_ALREADY_EXISTS");
     const id = await saveAccount(ctx, actor, request.external_auth_id, args, undefined, "approve_access_request");
+    if (request.email) await ctx.db.patch(id, { email: request.email });
     await ctx.db.patch(request._id, { status: "approved", updated_at: new Date().toISOString() });
     return id;
   },

@@ -47,9 +47,9 @@ function journeyFor(contact) {
 
   const saved = Boolean(contact.salvation_decision);
   const visited = Boolean(contact.attended_church || contact.first_visit_date);
-  if (saved && visited) return { key: "engaged", label: "Saved · Visited" };
+  if (saved && visited) return { key: "engaged", label: "Saved · Attended" };
   if (saved) return { key: "saved", label: "Salvation decision" };
-  if (visited) return { key: "visited", label: "First visit" };
+  if (visited) return { key: "visited", label: "First-time attendee" };
   if (CLOSED_RESPONSES.has(contact.response || contact.contact_category)) {
     return { key: "closed", label: "Closed" };
   }

@@ -5,6 +5,9 @@
  * are always fully populated with rich, realistic data.
  */
 
+import { addDemoTitheExamples } from "./demoTitheExamples.js";
+import { addDemoOutreachExamples } from "./demoOutreachExamples.js";
+
 // Church coordinates (Luton, UK)
 export const churchLocation = {
     name: "St Margarets Social Club",
@@ -827,6 +830,7 @@ const generateServicesData = () => {
 };
 
 const generatedData = generateServicesData();
+addDemoTitheExamples(generatedData.services, generatedData.attendance);
 export const mockServices = generatedData.services;
 export const mockAttendance = generatedData.attendance;
 
@@ -959,6 +963,7 @@ const generateEvangelismData = () => {
 };
 
 const generatedEvangelism = generateEvangelismData();
+addDemoOutreachExamples(mockPeople, mockServices, mockAttendance, generatedEvangelism.contacts, now);
 export const mockEvangelismContacts = generatedEvangelism.contacts;
 export const mockActivities = generatedEvangelism.activities;
 

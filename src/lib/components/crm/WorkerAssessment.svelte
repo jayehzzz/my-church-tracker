@@ -37,7 +37,7 @@
   <div class="flex flex-wrap items-end justify-between gap-3">
     <div>
       <h2 id="worker-assessment-title" class="text-lg font-semibold text-foreground">Workers</h2>
-      <p class="mt-1 text-sm text-muted-foreground">People worked and Sunday results for the period. Click a name to see only that worker’s list.</p>
+      <p class="mt-1 text-sm text-muted-foreground">People worked and Sunday results for the period. Use View list to open that worker’s people, or Details for their activity breakdown.</p>
     </div>
     <div class="flex rounded-lg border border-border bg-secondary/40 p-1" aria-label="Assessment period">
       <button type="button" class="rounded-md px-3 py-1.5 text-xs font-semibold {period === 'week' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}" onclick={() => onPeriodChange('week')}>This week</button>
@@ -66,7 +66,7 @@
                 <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-foreground">
                   {initials(leaderName(stat))}
                 </span>
-                <button type="button" class="font-semibold text-foreground hover:underline" onclick={() => onViewLeader(leaderId(stat))}>{leaderName(stat)}</button>
+                <span class="font-semibold text-foreground">{leaderName(stat)}</span>
               </div>
             </td>
             <td class="px-3 py-3 text-foreground">{number(stat.period_unique_contacts)}</td>
@@ -79,7 +79,12 @@
             </td>
             <td class="px-3 py-3 {number(stat.promises_missed) ? 'font-semibold text-destructive' : 'text-foreground'}">{number(stat.promises_missed)}</td>
             <td class="px-3 py-3 {attentionCount(stat) ? 'font-semibold text-warning-foreground' : 'text-muted-foreground'}">{attentionCount(stat) ? `${attentionCount(stat)} ${attentionCount(stat) === 1 ? 'person' : 'people'}` : 'None'}</td>
-            <td class="px-3 py-3 text-right"><Button size="sm" variant="ghost" onclick={() => toggle(stat)}>{expandedId === leaderId(stat) ? 'Hide' : 'Details'}</Button></td>
+            <td class="px-3 py-3 text-right">
+              <div class="flex justify-end gap-1">
+                <Button size="sm" variant="ghost" onclick={() => onViewLeader(leaderId(stat))}>View list</Button>
+                <Button size="sm" variant="ghost" onclick={() => toggle(stat)}>{expandedId === leaderId(stat) ? 'Hide' : 'Details'}</Button>
+              </div>
+            </td>
           </tr>
           {#if expandedId === leaderId(stat)}
             <tr class="bg-secondary/10">

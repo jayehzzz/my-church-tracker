@@ -227,6 +227,7 @@ export async function getAttendanceChartData(dateRange) {
     data: [...months.values()]
       .sort((a, b) => a.key.localeCompare(b.key))
       .map((item) => ({
+        date: `${item.key}-01`,
         label: item.label,
         attendance: Math.round(item.attendance / item.count),
         guests: item.guests,

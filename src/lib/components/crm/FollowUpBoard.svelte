@@ -340,10 +340,26 @@
   {/if}
 {/snippet}
 
+{#snippet rowOpenHint(entry)}
+  <span class="sr-only">Open {personName(entry.person)} details</span>
+{/snippet}
+
 {#snippet listRow(entry, group)}
   <div
-    class="grid gap-3 px-4 py-3 md:grid-cols-[1.6fr_1fr_auto] md:items-center md:gap-4 border-l-4 transition-colors {group.id === 'overdue' ? 'border-l-destructive bg-destructive/[0.02]' : group.id === 'today' ? 'border-l-primary bg-primary/[0.02]' : group.id === 'unassigned' ? 'border-l-amber-500 bg-amber-500/[0.02]' : 'border-l-transparent'}"
+    class="grid cursor-pointer gap-3 px-4 py-3 md:grid-cols-[1.6fr_1fr_auto] md:items-center md:gap-4 border-l-4 transition-colors hover:bg-secondary/20 {group.id === 'overdue' ? 'border-l-destructive bg-destructive/[0.02]' : group.id === 'today' ? 'border-l-primary bg-primary/[0.02]' : group.id === 'unassigned' ? 'border-l-amber-500 bg-amber-500/[0.02]' : 'border-l-transparent'}"
+    onclick={(event) => {
+      if (event.target.closest('button, a, input, select, textarea, label')) return;
+      onOpen(entry.person);
+    }}
+    onkeydown={(event) => {
+      if (event.target !== event.currentTarget || !['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      onOpen(entry.person);
+    }}
+    role="button"
+    tabindex="0"
   >
+    {@render rowOpenHint(entry)}
     <div class="flex items-start gap-3 min-w-0">
       {#if group.id === 'unassigned'}
         <input

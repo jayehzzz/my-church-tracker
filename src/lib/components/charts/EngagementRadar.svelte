@@ -1,347 +1,44 @@
-<!--
-  Engagement Radar Chart
-  Displays member engagement across 6 dimensions as a radar/spider chart
-  Styled to match Shadcn 'Charts' library aesthetic
--->
-
 <script>
-    import { fade, draw } from "svelte/transition";
-    import { quintOut } from "svelte/easing";
-    import Card from "$lib/components/ui/Card.svelte";
-
-    /**
-     * @type {{
-     *   serviceAttendance: number,
-     *   prayerMeetings: number,
-     *   cellGroups: number,
-     *   evangelismImpact: number,
-     *   givingConsistency: number,
-     *   visitationActivity: number
-     * }}
-     */
-    let {
-        data = {
-            serviceAttendance: 0,
-            prayerMeetings: 0,
-            cellGroups: 0,
-            evangelismImpact: 0,
-            givingConsistency: 0,
-            visitationActivity: 0,
-        },
-        title = "Engagement Profile",
-        size = 200,
-        cellGroupDetail = null,
-    } = $props();
-
-    // Axis definitions with labels and subjects
-    const axes = [
-        { key: "serviceAttendance", label: "Services", angle: -90, subject: "Sunday Service" },
-        { key: "prayerMeetings", label: "Prayer", angle: -30, subject: "Prayer Meeting" },
-        { key: "cellGroups", label: "Cell Groups", angle: 30, subject: "Small Group" },
-        { key: "evangelismImpact", label: "Evangelism", angle: 90, subject: "Outreach" },
-        { key: "givingConsistency", label: "Giving", angle: 150, subject: "Giving" },
-        { key: "visitationActivity", label: "Visitation", angle: 210, subject: "Serving" },
-    ];
-
-    function getAxisValue(axis) {
-        if (!data || !axis) return 0;
-        if (Array.isArray(data)) {
-            const item = data.find(
-                (d) => d.subject === axis.subject || d.subject === axis.label || d.key === axis.key
-            );
-            const value = Number(item?.A ?? item?.value ?? 0);
-            return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
-        }
-        const value = Number(data[axis.key] ?? data[axis.subject] ?? 0);
-        return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
-    }
-
-    // SVG Layout Constants
-    let center = $derived(size / 2);
-    let maxRadius = $derived(size / 2 - 40); // Tighter padding for cleaner look
-    const gridLevels = [25, 50, 75, 100];
-
-    // Interactions
-    let hoveredAxis = $state(null);
-    let showCellGroupDetail = $state(false);
-
-    function polarToCartesian(angle, radius) {
-        const radians = (angle * Math.PI) / 180;
-        return {
-            x: center + radius * Math.cos(radians),
-            y: center + radius * Math.sin(radians),
-        };
-    }
-
-    function getHexagonPath(radius) {
-        const points = axes.map((axis) => {
-            const pos = polarToCartesian(axis.angle, radius);
-            return `${pos.x},${pos.y}`;
-        });
-        return `M ${points.join(" L ")} Z`;
-    }
-
-    function getAxisHitArea(angle) {
-        const hitRadius = maxRadius + 28;
-        const start = polarToCartesian(angle - 34, hitRadius);
-        const end = polarToCartesian(angle + 34, hitRadius);
-        return `M ${center},${center} L ${start.x},${start.y} A ${hitRadius},${hitRadius} 0 0 1 ${end.x},${end.y} Z`;
-    }
-
-    const dataPolygonPath = $derived(() => {
-        const points = axes.map((axis) => {
-            const value = Math.min(100, Math.max(0, getAxisValue(axis)));
-            const radius = (value / 100) * maxRadius;
-            const pos = polarToCartesian(axis.angle, radius);
-            return `${pos.x},${pos.y}`;
-        });
-        return `M ${points.join(" L ")} Z`;
-    });
-
-    const overallScore = $derived(() => {
-        const values = axes.map((a) => getAxisValue(a));
-        return Math.round(values.reduce((acc, v) => acc + v, 0) / (axes.length || 1));
-    });
-
-    function getLabelPosition(angle) {
-        const labelRadius = maxRadius + 15;
-        return polarToCartesian(angle, labelRadius);
-    }
-
-    function handleAxisHover(axis) {
-        hoveredAxis = axis;
-        if (axis?.key === "cellGroups" && cellGroupDetail)
-            showCellGroupDetail = true;
-    }
-
-    function handleAxisLeave() {
-        hoveredAxis = null;
-        showCellGroupDetail = false;
-    }
+  let { axes = [], max = 12, selected = $bindable('sunday') } = $props();
+  const cx = 170, cy = 150, radius = 102;
+  function point(index, value) {
+    const angle = (-90 + index * 360 / axes.length) * Math.PI / 180;
+    const distance = radius * Math.max(0, Math.min(max, value)) / max;
+    return { x: cx + Math.cos(angle) * distance, y: cy + Math.sin(angle) * distance };
+  }
+  function polygon(level) {
+    return axes.map((_, index) => { const p = point(index, level); return `${p.x},${p.y}`; }).join(' ');
+  }
+  let complete = $derived(axes.length > 0 && axes.every(axis => axis.weeks !== null));
+  let values = $derived(axes.map((axis, index) => { const p = point(index, axis.weeks || 0); return `${p.x},${p.y}`; }).join(' '));
 </script>
 
-<div class="w-full">
-    <!-- Darker background for better contrast, Removed Header as requested -->
-    <Card class="w-full border-border/60 bg-black/40 shadow-sm">
-        <div class="flex flex-col items-center justify-center p-6 pt-8">
-            <div
-                class="relative group"
-                style="width: {size}px; height: {size}px;"
-            >
-                <svg
-                    viewBox="0 0 {size} {size}"
-                    class="w-full h-full overflow-visible"
-                    role="img"
-                    aria-label="Engagement radar chart"
-                >
-                    <!-- Background Grid (Stronger Lines: stroke-width 1.5, higher opacity) -->
-                    {#each gridLevels as level}
-                        <path
-                            d={getHexagonPath((level / 100) * maxRadius)}
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                            class="text-muted-foreground/30"
-                        />
-                    {/each}
-
-                    <!-- Axis Spokes -->
-                    {#each axes as axis}
-                        {@const end = polarToCartesian(axis.angle, maxRadius)}
-                        <line
-                            x1={center}
-                            y1={center}
-                            x2={end.x}
-                            y2={end.y}
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                            class="text-muted-foreground/30"
-                        />
-                    {/each}
-
-                    <!-- Data Polygon (Solid Blue Fill) -->
-                    <path
-                        d={dataPolygonPath()}
-                        fill="hsl(var(--primary))"
-                        fill-opacity="0.5"
-                        stroke="hsl(var(--primary))"
-                        stroke-width="2"
-                        stroke-linejoin="round"
-                        class="transition-all duration-700 ease-out hover:fill-opacity-60"
-                    />
-
-                    <!-- Full-axis hit areas make every dimension easy to inspect. -->
-                    {#each axes as axis}
-                        <path
-                            d={getAxisHitArea(axis.angle)}
-                            fill="transparent"
-                            class="cursor-pointer"
-                            role="button"
-                            tabindex="0"
-                            aria-label={`${axis.label}: ${Math.round(getAxisValue(axis))} score`}
-                            onmouseenter={() => handleAxisHover(axis)}
-                            onmouseleave={handleAxisLeave}
-                            onfocus={() => handleAxisHover(axis)}
-                            onblur={handleAxisLeave}
-                        />
-                    {/each}
-
-                    <!-- Data Points (shown for the active dimension) -->
-                    {#each axes as axis}
-                        {@const value = Math.min(
-                            100,
-                            Math.max(0, getAxisValue(axis)),
-                        )}
-                        {@const radius = (value / 100) * maxRadius}
-                        {@const pos = polarToCartesian(axis.angle, radius)}
-
-                        <!-- Visible Point (on hover or keyboard focus) -->
-                        <circle
-                            cx={pos.x}
-                            cy={pos.y}
-                            r="4"
-                            class="fill-background stroke-primary stroke-2 pointer-events-none transition-opacity duration-200"
-                            style="opacity: {hoveredAxis?.key === axis.key
-                                ? 1
-                                : 0}"
-                        />
-                    {/each}
-
-                    <!-- Labels -->
-                    {#each axes as axis}
-                        {@const pos = getLabelPosition(axis.angle)}
-                        <text
-                            x={pos.x}
-                            y={pos.y}
-                            text-anchor="middle"
-                            dominant-baseline="middle"
-                            class="text-[11px] font-medium fill-muted-foreground capitalize pointer-events-none select-none"
-                            dy={axis.angle === 90
-                                ? "8"
-                                : axis.angle === -90
-                                  ? "-4"
-                                  : "0"}
-                        >
-                            {axis.label}
-                        </text>
-                    {/each}
-
-                    <!-- Center Score -->
-                    <foreignObject
-                        x={center - 30}
-                        y={center - 25}
-                        width="60"
-                        height="50"
-                    >
-                        <div
-                            class="h-full flex flex-col items-center justify-center pointer-events-none"
-                        >
-                            <span
-                                class="text-2xl font-bold leading-none tracking-tighter text-foreground/90"
-                            >
-                                {overallScore()}
-                            </span>
-                        </div>
-                    </foreignObject>
-                </svg>
-
-                <!-- Tooltip Overlay -->
-                {#if hoveredAxis}
-                    <div
-                        in:fade={{ duration: 150 }}
-                        out:fade={{ duration: 100 }}
-                        class="absolute top-0 right-0 z-20 pointer-events-none"
-                        style="transform: translate(10%, -10%);"
-                    >
-                        <div
-                            class="bg-popover text-popover-foreground border shadow-sm rounded-md px-3 py-1.5 text-xs"
-                        >
-                            <div class="font-semibold mb-0.5">
-                                {hoveredAxis.label}
-                            </div>
-                            <div class="flex items-baseline gap-2">
-                                <span class="font-bold text-lg"
-                                    >{Math.round(
-                                        getAxisValue(hoveredAxis),
-                                    )}</span
-                                >
-                                <span
-                                    class="text-muted-foreground/70 text-[10px]"
-                                    >SCORE</span
-                                >
-                            </div>
-                            <!-- Cell Group Detail -->
-                            {#if hoveredAxis.key === "cellGroups" && cellGroupDetail && showCellGroupDetail}
-                                <div
-                                    class="mt-2 pt-1 border-t border-border/50 text-[10px] space-y-0.5"
-                                >
-                                    <div class="flex justify-between gap-3">
-                                        <span class="text-muted-foreground"
-                                            >Bacenta</span
-                                        >
-                                        <span>{cellGroupDetail.bacenta}%</span>
-                                    </div>
-                                    <div class="flex justify-between gap-3">
-                                        <span class="text-muted-foreground"
-                                            >Basonta</span
-                                        >
-                                        <span>{cellGroupDetail.basonta}%</span>
-                                    </div>
-                                </div>
-                            {/if}
-                        </div>
-                    </div>
-                {/if}
-            </div>
-        </div>
-
-        {#snippet footer()}
-            <div
-                class="flex items-center gap-2 px-6 py-4 text-sm text-muted-foreground border-t border-border/40 bg-muted/5"
-            >
-                <!-- Inline Trending Up Icon -->
-                <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    class="text-emerald-500"
-                >
-                    <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
-                    <polyline points="16 7 22 7 22 13"></polyline>
-                </svg>
-                <div class="flex flex-col leading-none gap-0.5">
-                    <span class="font-medium text-foreground"
-                        >Trending up by 5.2% this month</span
-                    >
-                    <span class="text-xs text-muted-foreground/70"
-                        >January - June 2024</span
-                    >
-                </div>
-            </div>
-        {/snippet}
-    </Card>
+<div class="radar">
+  <svg viewBox="0 0 340 300" role="img" aria-label="Attendance rhythm: weeks with recorded attendance. Select a category below for details.">
+    <title>Recorded attendance over {max} completed weeks</title>
+    <desc>{axes.map(axis => `${axis.label}: ${axis.weeks === null ? 'unavailable' : `${axis.weeks} of ${max} weeks`}`).join('. ')}</desc>
+    {#each [0.25, 0.5, 0.75, 1] as fraction}
+      <polygon points={polygon(max * fraction)} fill="none" stroke="currentColor" class="grid-line" />
+      <text x={cx + 5} y={cy - radius * fraction + 13} class="scale-label">{max * fraction}</text>
+    {/each}
+    {#each axes as axis, index}
+      {@const end = point(index, max)}
+      <line x1={cx} y1={cy} x2={end.x} y2={end.y} stroke="currentColor" class="grid-line" />
+      <text x={index === 1 ? end.x + 10 : index === 3 ? end.x - 10 : end.x} y={index === 0 ? end.y - 18 : index === 2 ? end.y + 24 : end.y + 4} text-anchor={index === 1 ? 'start' : index === 3 ? 'end' : 'middle'} class="axis-label">{axis.shortLabel}</text>
+    {/each}
+    {#if complete}<polygon points={values} class="data-shape" />{/if}
+    {#each axes as axis, index}
+      {#if axis.weeks !== null}
+        {@const p = point(index, axis.weeks)}
+        <circle cx={p.x} cy={p.y} r={selected === axis.key ? 6 : 4} class="data-point" />
+      {/if}
+    {/each}
+  </svg>
+  <div class="axis-controls" aria-label="Inspect participation category">
+    {#each axes as axis}<button type="button" aria-pressed={selected === axis.key} onclick={() => selected = axis.key}>{axis.shortLabel}</button>{/each}
+  </div>
 </div>
-
 <style>
-    path {
-        animation: radarFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-
-    @keyframes radarFadeIn {
-        from {
-            opacity: 0;
-            transform: scale(0.95);
-            transform-origin: center;
-        }
-        to {
-            opacity: 1;
-            transform: scale(1);
-        }
-    }
+  .radar { width: 100%; max-width: 380px; margin: auto; } svg { width: 100%; height: auto; display: block; } .grid-line { color: hsl(var(--muted-foreground) / .25); } .scale-label { font-size: 10px; fill: hsl(var(--muted-foreground)); } .axis-label { font-size: 12px; fill: hsl(var(--foreground)); } .data-shape { fill: hsl(var(--primary) / .18); stroke: hsl(var(--primary)); stroke-width: 2; stroke-linejoin: round; } .data-point { fill: hsl(var(--primary)); stroke: hsl(var(--card)); stroke-width: 2; }
+  .axis-controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; } button { border-radius: 6px; padding: 7px 10px; font-size: 12px; color: hsl(var(--muted-foreground)); } button[aria-pressed="true"] { color: hsl(var(--primary)); background: hsl(var(--primary) / .12); }
 </style>

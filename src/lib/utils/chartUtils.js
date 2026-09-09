@@ -159,6 +159,55 @@ export function formatChartDate(dateStr, variant = 'short') {
 }
 
 /**
+ * Groups dated chart points into calendar months or Monday-starting weeks.
+ * Numeric series are averaged within each bucket so attendance-style metrics
+ * remain comparable when changing the display scale.
+ *
+ * @param {Array<Record<string, any>>} points
+ * @param {'month'|'week'|'day'} granularity
+ * @param {'average'|'sum'} aggregation
+ * @returns {Array<Record<string, any>>}
+ */
+export function groupChartPoints(points = [], granularity = 'day', aggregation = 'average') {
+  if (granularity === 'day' || points.length < 2) return points;
+
+  const buckets = new Map();
+  for (const point of points) {
+    const date = new Date(`${point.date}T12:00:00`);
+    if (Number.isNaN(date.getTime())) continue;
+    const key = granularity === 'month'
+      ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+      : (() => {
+          const monday = new Date(date);
+          const day = monday.getDay() || 7;
+          monday.setDate(monday.getDate() - day + 1);
+          return monday.toISOString().slice(0, 10);
+        })();
+    const bucket = buckets.get(key) || { key, points: [] };
+    bucket.points.push(point);
+    buckets.set(key, bucket);
+  }
+
+  return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key)).map(({ key, points: bucketPoints }) => {
+    const first = bucketPoints[0];
+    const numericKeys = Object.keys(first).filter((field) =>
+      field !== 'id' && field !== 'date' && field !== 'label' && typeof first[field] === 'number',
+    );
+    const result = { ...first, date: granularity === 'month' ? `${key}-01` : key };
+    for (const field of numericKeys) {
+      const total = bucketPoints.reduce((sum, item) => sum + (Number(item[field]) || 0), 0);
+      result[field] = Math.round(aggregation === 'sum' ? total : total / bucketPoints.length);
+    }
+    result.id = bucketPoints.length === 1 ? first.id : undefined;
+    result.topic = bucketPoints.length === 1 ? first.topic : undefined;
+    result.label = granularity === 'month'
+      ? new Date(`${key}-01T12:00:00`).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
+      : `Week of ${new Date(`${key}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+    return result;
+  });
+}
+
+/**
  * Resolves a semantic color name into an HSL color string supported by the design tokens.
  * 
  * @param {string} [name='primary'] 

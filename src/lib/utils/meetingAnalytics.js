@@ -328,6 +328,15 @@ export function buildMeetingAnalytics(meetings, programs = [], now = new Date())
         uniquePeople: personIds.length,
         firstTimers: unique(group.firstTimerIds).length,
         personIds,
+        points: [...group.meetings]
+          .sort((a, b) => String(a.meeting_date).localeCompare(String(b.meeting_date)))
+          .map((meeting) => ({
+            id: idOf(meeting),
+            date: meeting.meeting_date,
+            total: meetingAttendance(meeting),
+            topic: group.label,
+            personIds: attendeeIds(meeting),
+          })),
         rosterSize: rosterIds.length,
         rosterRate: rosterOpportunities
           ? Math.round((rosterAttendances / rosterOpportunities) * 100)
