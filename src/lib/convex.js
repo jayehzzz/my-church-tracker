@@ -79,7 +79,7 @@ export function getConvexHttpClient() {
 export async function getConvexClient() {
   if (!isConvexConfigured()) return null;
   if (!browserClient) {
-    browserClient = new ConvexClient(convexUrl);
+    browserClient = new ConvexClient(convexUrl, { initialAuthTokenReuse: true });
     browserClient.setAuth(fetchToken);
   }
   return browserClient;

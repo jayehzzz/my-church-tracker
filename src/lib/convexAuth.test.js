@@ -1,13 +1,19 @@
 import { afterEach, expect, it, vi } from 'vitest';
 const clients = vi.hoisted(() => []);
+const clientArgs = vi.hoisted(() => []);
 vi.mock('convex/browser', () => ({
   ConvexClient: class {
-    constructor() { this.setAuth = vi.fn(); this.close = vi.fn(async () => {}); clients.push(this); }
+    constructor(...args) {
+      this.setAuth = vi.fn();
+      this.close = vi.fn(async () => {});
+      clients.push(this);
+      clientArgs.push(args);
+    }
   },
   ConvexHttpClient: class {},
 }));
 afterEach(() => vi.unstubAllEnvs());
-it('closes subscriptions on sign-out and creates a fresh client for the next session', async () => {
+it('closes subscriptions on sign-out and creates a fresh client for the next session with initialAuthTokenReuse', async () => {
   vi.resetModules();
   vi.stubEnv('VITE_APP_ENV', 'staging');
   vi.stubEnv('VITE_APP_MODE', 'live');
@@ -17,6 +23,7 @@ it('closes subscriptions on sign-out and creates a fresh client for the next ses
   const first = await auth.getConvexClient();
   expect(() => auth.clearConvexAuth()).not.toThrow();
   expect(first.close).toHaveBeenCalledOnce();
+  expect(clientArgs[0][1]).toEqual({ initialAuthTokenReuse: true });
   auth.configureConvexAuth(async () => 'next-session');
   const next = await auth.getConvexClient();
   expect(next).not.toBe(first);

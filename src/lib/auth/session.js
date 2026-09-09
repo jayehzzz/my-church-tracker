@@ -84,22 +84,28 @@ async function startSession() {
       return;
     }
     configureConvexAuth(async ({ forceRefreshToken } = {}) => {
+      // Starting a live subscription requests renewal even with a valid
+      // token. Forced Auth0 iframe renewal fails when third-party cookies
+      // are blocked, and Auth0's library internally clears the cache on
+      // login_required. Reuse an unexpired token before attempting an
+      // off-cache network refresh.
+      if (forceRefreshToken && current === generation) {
+        try {
+          const cached = await authClient.getTokenSilently({ detailedResponse: true, cacheMode: 'cache-only' });
+          const claims = (cached?.id_token ? await authClient.getIdTokenClaims() : null) || await authClient.getIdTokenClaims();
+          const unexpired = current === generation && claims?.exp && claims.exp > Date.now() / 1000 + 30;
+          if (unexpired && claims?.__raw === cached?.id_token) {
+            return cached.id_token;
+          }
+          if (unexpired && claims?.__raw) {
+            return claims.__raw;
+          }
+        } catch { /* No usable cached token: continue to network refresh */ }
+      }
       try {
         const response = await authClient.getTokenSilently({ detailedResponse: true, cacheMode: forceRefreshToken ? 'off' : 'on' });
         return response.id_token;
       } catch {
-        // Starting a live subscription requests renewal even with a valid
-        // token. Cookie restrictions or a network failure can block that
-        // renewal; retain only an unexpired token from this same session.
-        if (forceRefreshToken && current === generation) {
-          try {
-            const cached = await authClient.getTokenSilently({ detailedResponse: true, cacheMode: 'cache-only' });
-            const claims = cached?.id_token ? await authClient.getIdTokenClaims() : null;
-            if (current === generation && claims?.__raw === cached?.id_token && claims.exp > Date.now() / 1000 + 30) {
-              return cached.id_token;
-            }
-          } catch { /* No usable cached token: require sign-in below. */ }
-        }
         if (current === generation) signedOut('signed-out', 'Your session ended. Please sign in again.');
         return null;
       }

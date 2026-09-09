@@ -720,23 +720,28 @@ export async function getDashboard(options = {}) {
 // stops the old subscription rather than leaving a background poll running.
 export async function watchDashboard(options = {}, { onUpdate, onError } = {}) {
   if (isDemoMode()) return () => {};
-  const client = await getConvexClient();
-  if (!client) {
-    onError?.(unavailableError());
+  try {
+    const client = await getConvexClient();
+    if (!client) {
+      onError?.(unavailableError());
+      return () => {};
+    }
+    const args = {
+      ...(options.leaderId ? { leaderId: options.leaderId } : {}),
+      ...(options.serviceDate ? { serviceDate: options.serviceDate } : {}),
+      ...(options.periodStart ? { periodStart: options.periodStart } : {}),
+      ...(options.periodEnd ? { periodEnd: options.periodEnd } : {}),
+    };
+    return client.onUpdate(
+      api.crm.getDashboard,
+      args,
+      (data) => onUpdate?.(normalizeDashboard(data, "convex")),
+      (error) => onError?.(error),
+    );
+  } catch (error) {
+    onError?.(error);
     return () => {};
   }
-  const args = {
-    ...(options.leaderId ? { leaderId: options.leaderId } : {}),
-    ...(options.serviceDate ? { serviceDate: options.serviceDate } : {}),
-    ...(options.periodStart ? { periodStart: options.periodStart } : {}),
-    ...(options.periodEnd ? { periodEnd: options.periodEnd } : {}),
-  };
-  return client.onUpdate(
-    api.crm.getDashboard,
-    args,
-    (data) => onUpdate?.(normalizeDashboard(data, "convex")),
-    (error) => onError?.(error),
-  );
 }
 
 export function getDemoDashboard(options = {}) {
