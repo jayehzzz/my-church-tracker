@@ -72,16 +72,7 @@
 
   $effect(() => {
     if (!isOpen) return;
-    requestId = crypto.randomUUID();
-    activeStep = 1;
-    errors = {};
-    attendeeFilter = "members";
-    searchQuery = "";
-    showQuickAdd = false;
-    quickAddData = { first_name: "", last_name: "", phone: "" };
-    quickAddError = null;
-    uploadError = null;
-    formData = service ? {
+    const nextFormData = service ? {
       ...emptyForm(),
       service_date: service.service_date || "",
       service_type: service.service_type || "sunday_service",
@@ -95,12 +86,23 @@
       tithers_count: valueString(service.tithers_count),
       notes: service.notes || "",
     } : emptyForm();
+
+    requestId = crypto.randomUUID();
+    activeStep = 1;
+    errors = {};
+    attendeeFilter = "members";
+    searchQuery = "";
+    showQuickAdd = false;
+    quickAddData = { first_name: "", last_name: "", phone: "" };
+    quickAddError = null;
+    uploadError = null;
+    formData = nextFormData;
     photos = (service?.photos || []).map((url, index) => ({
       id: service?.photo_ids?.[index] || null,
       url,
       isNew: false,
     }));
-    initialFormSnapshot = JSON.stringify(formData);
+    initialFormSnapshot = JSON.stringify(nextFormData);
     attendanceDataLoaded = false;
   });
 
