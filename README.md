@@ -89,6 +89,12 @@ Run the frontend unit suite and production build with `npm run test:unit` and
 deployment; production release requires separately configured Vercel and Convex
 production environments. Local development never deploys or releases production.
 
+For realistic testing against a disposable full copy of the live church data,
+run `npm run rehearsal:refresh` and then `npm run dev:rehearsal`. Rehearsal uses
+the isolated `standing-mongoose-699` Convex deployment; see
+`.agent/workflows/environments.md` and `docs/recovery.md` for the safeguards and
+refresh procedure.
+
 Recovery is provider-managed Convex Backup & Restore and must include file
 storage for service photos. Follow [the recovery guide](docs/recovery.md) for
 retention, isolated restore rehearsal, and destructive-restore safeguards.

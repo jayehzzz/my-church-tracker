@@ -40,6 +40,37 @@ demo for real church information.
 The app rejects demo mode for staging and production, so it cannot silently be
 deployed as another environment's dataset.
 
+## Rehearsal with a production-data copy
+
+Use rehearsal when a change needs realistic church data without writing to the
+live database. The dedicated deployment is `standing-mongoose-699` in the
+`church-tracker-staging` project. It contains a full copy of production data,
+including private records, so access must remain limited to approved church
+testers.
+
+Refresh it from the current live database with:
+
+```sh
+npm run rehearsal:refresh
+```
+
+The command verifies the named live and rehearsal deployments, creates a fresh
+file-inclusive live backup, deploys the current Convex schema/functions to the
+rehearsal target, replaces only the explicitly disposable rehearsal data, then
+exports rehearsal again and checks its table counts against the live snapshot.
+It restores `.env.local` after Convex updates it during the backend push.
+
+For local browser testing, keep an untracked `.env.rehearsal.local` containing:
+
+```text
+VITE_APP_ENV=staging
+VITE_APP_MODE=live
+VITE_CONVEX_URL=https://standing-mongoose-699.convex.cloud
+```
+
+Then run `npm run dev:rehearsal`. Vite continues to load the Auth0 public client
+configuration from the normal untracked local environment.
+
 ## Preview and release
 
 - A feature branch gets a Vercel preview only after Vercel is configured for it.

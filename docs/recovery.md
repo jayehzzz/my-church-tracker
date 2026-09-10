@@ -87,6 +87,21 @@ Do not add `--replace` or `--replace-all` to a restore command unless the named
 target has been independently verified as disposable: those options destroy
 existing data.
 
+### Current production-copy rehearsal
+
+As of 10 September 2026, the project also has a persistent rehearsal deployment:
+`standing-mongoose-699` (`jayden-ayeh:church-tracker-staging:rehearsal`). It is
+marked `CHURCH_ENV=staging` and `CHURCH_DATA_DISPOSABLE=true`. Unlike the
+synthetic recovery drill above, this environment intentionally contains a full
+copy of live church data for realistic application testing.
+
+Run `npm run rehearsal:refresh` to refresh it. The script is pinned to live
+`elated-bee-284` and rehearsal `standing-mongoose-699`, verifies both provider
+identities before replacement, creates a new file-inclusive live backup first,
+and verifies the restored table counts afterward. The rehearsal copy must not
+be used as an additional live database or exposed through an unrestricted
+public preview.
+
 ## File lifecycle and failure recovery
 
 The application accepts JPEG, PNG and WebP files up to 10 MB. The browser shows

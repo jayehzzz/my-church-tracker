@@ -291,3 +291,10 @@ Update: Jayden confirmed every reviewed source identity link except Dan↔Daniel
 - Checks: 183 unit tests, 57 backend tests, backend TypeScript (`tsc -p convex/tsconfig.json`), `git diff --check`, and production build (`npm run build`) passed.
 - State: `codex/staging-accounts-and-verification`, base `1b6ee77`, with all changes preserved uncommitted.
 
+### Production-data rehearsal environment — 10 September 2026
+
+- Created persistent rehearsal deployment `standing-mongoose-699` in the separate `church-tracker-staging` project and configured the same Auth0 provider with `CHURCH_ENV=staging` and `CHURCH_DATA_DISPOSABLE=true`.
+- Took a fresh file-inclusive production backup and restored the full live dataset into rehearsal: 95 people, 18 services, 132 attendance records, 361 service-register entries and supporting imported/account records. Production was read/exported only.
+- Added `npm run rehearsal:refresh` to verify both fixed provider targets, take a fresh live backup, push the current backend to rehearsal, replace only the disposable rehearsal database and compare post-restore table counts. Added `npm run dev:rehearsal` for local testing through `.env.rehearsal.local`.
+- Vercel Preview for `codex/staging-accounts-and-verification` is configured separately to use rehearsal; Production configuration is unchanged.
+- State: `codex/staging-accounts-and-verification`; rehearsal setup is committed and pushed to the staging branch. The pre-existing GitHub verification-workflow commit is preserved separately on local branch `codex/local-ci-workflow` because the current GitHub OAuth token lacks `workflow` scope.
