@@ -18,6 +18,7 @@
     );
     let attendees = $state([]);
     let loadingAttendees = $state(false);
+    let firstTimerCount = $derived(attendees.filter((attendee) => attendee.first_timer).length);
 
     // Load attendees when service changes
     $effect(() => {
@@ -80,8 +81,9 @@
     }
 
     function handleViewFullService() {
-        if (service?._id) {
-            goto(`/services/${service._id}`);
+        const serviceId = service?._id || service?.id;
+        if (serviceId) {
+            goto(`/services?service=${encodeURIComponent(serviceId)}`);
             isOpen = false;
         }
     }
@@ -151,9 +153,18 @@
                 {/if}
                 {#if service.guests_count}
                     <div>
-                        <span class="text-muted-foreground">Guests</span>
+                        <span class="text-muted-foreground">Guest Attendance</span>
                         <p class="font-medium text-foreground">
                             {service.guests_count}
+                        </p>
+                    </div>
+                {/if}
+                {#if firstTimerCount}
+                    <div>
+                        <span class="text-muted-foreground">First-timer Visits</span>
+                        <p class="font-medium text-foreground">
+                            {firstTimerCount}
+                            <span class="block text-xs font-normal text-muted-foreground">Included in guest attendance</span>
                         </p>
                     </div>
                 {/if}
@@ -213,7 +224,7 @@
                                         </span>
                                         {#if attendee.first_timer}
                                             <span class="text-xs text-info"
-                                                >First Timer</span
+                                                >First-timer visit</span
                                             >
                                         {/if}
                                     </div>
@@ -241,7 +252,7 @@
                                 : "No Tithe"}
                         </Badge>
                         {#if attendanceRecord.first_timer}
-                            <Badge variant="info">First Time</Badge>
+                            <Badge variant="info">First-timer visit</Badge>
                         {/if}
                         {#if attendanceRecord.made_salvation_decision}
                             <Badge variant="success">Salvation Decision</Badge>

@@ -46,14 +46,14 @@
     {
       id: "3",
       personId: "3",
-      type: "conversion",
-      action: "Salvation decision recorded",
+      type: "salvation",
+      action: "Saved during outreach",
       person: "David Boateng",
-      statusOrOutcome: "Converted",
+      statusOrOutcome: "Outreach salvation",
       timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5), // 5 hours ago
       route: "/evangelism",
       routeLabel: "Evangelism Hub",
-      notes: "Made salvation commitment at altar call. Scheduled for foundation class.",
+      notes: "Prayed to receive Christ during evangelism outreach. Scheduled for follow-up.",
     },
     {
       id: "4",
@@ -183,9 +183,7 @@
   // Filter activities by selectedType
   const filteredActivities = $derived.by(() => {
     if (selectedType === "all") return activities;
-    if (selectedType === "salvation") {
-      return activities.filter((a) => a.type === "salvation" || a.type === "conversion");
-    }
+    if (selectedType === "salvation") return activities.filter((a) => a.type === "salvation");
     return activities.filter((a) => a.type === selectedType);
   });
 

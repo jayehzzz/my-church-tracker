@@ -71,6 +71,7 @@ export const summary = query({
       members: people.filter(p => p.member_status === "member").length,
       leaders: people.filter(p => p.member_status === "leader").length,
       guests: people.filter(p => ["guest", "visitor"].includes(p.member_status)).length,
+      contacts: people.filter(p => p.member_status === "contact").length,
     };
   },
 });
@@ -172,6 +173,24 @@ export const approveAccessRequest = mutation({
     if (request.email) await ctx.db.patch(id, { email: request.email });
     await ctx.db.patch(request._id, { status: "approved", updated_at: new Date().toISOString() });
     return id;
+  },
+});
+
+export const rejectAccessRequest = mutation({
+  args: { requestId: v.id("access_requests") },
+  handler: async (ctx, args) => {
+    const actor = await requireUser(ctx);
+    if (actor.role !== "owner") forbidden();
+    const request = await ctx.db.get(args.requestId);
+    if (!request || request.status !== "pending") throw new ConvexError("ACCESS_REQUEST_NOT_PENDING");
+    await ctx.db.delete(request._id);
+    await ctx.db.insert("security_audit", {
+      actor_user_id: actor._id,
+      operation: "reject_access_request",
+      record_id: request._id,
+      created_at: new Date().toISOString(),
+    });
+    return true;
   },
 });
 

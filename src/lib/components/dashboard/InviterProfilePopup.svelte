@@ -31,19 +31,20 @@
             return {
                 totalInvited: 0,
                 joined: 0,
-                conversionRate: 0,
+                membershipRate: 0,
                 recentContacts: [],
             };
         }
 
         const personId = person._id || person.id;
-        const invitedContacts = contacts.filter(
-            (c) => String(c.invited_by_id) === String(personId),
+        const invitedContacts = contacts.filter((c) =>
+            (Array.isArray(c.inviter_ids) && c.inviter_ids.length ? c.inviter_ids : [c.invited_by_id])
+              .some((id) => String(id) === String(personId)),
         );
-        const joined = invitedContacts.filter(
-            (c) => c.converted || c.status === "member" || c.member_status === "member" || c.member_status === "leader",
-        ).length;
-        const conversionRate =
+        const hasJoinedChurch = (contact) =>
+            contact.member_status === "member" || contact.member_status === "leader";
+        const joined = invitedContacts.filter(hasJoinedChurch).length;
+        const membershipRate =
             invitedContacts.length > 0
                 ? Math.round((joined / invitedContacts.length) * 100)
                 : 0;
@@ -60,7 +61,7 @@
         return {
             totalInvited: invitedContacts.length,
             joined,
-            conversionRate,
+            membershipRate,
             recentContacts,
         };
     });
@@ -106,13 +107,13 @@
                         <div class="text-2xl font-bold text-success">
                             {stats().joined}
                         </div>
-                        <div class="text-xs text-muted-foreground">Joined</div>
+                        <div class="text-xs text-muted-foreground">Joined church</div>
                     </div>
                     <div class="text-center p-3 rounded-lg bg-secondary/30">
                         <div class="text-2xl font-bold text-foreground">
-                            {stats().conversionRate}%
+                            {stats().membershipRate}%
                         </div>
-                        <div class="text-xs text-muted-foreground">Rate</div>
+                        <div class="text-xs text-muted-foreground">Membership rate</div>
                     </div>
                 </div>
                 <p class="text-center text-xs text-muted-foreground">Results for {periodLabel}</p>
@@ -138,11 +139,11 @@
                                         >
                                             {formatName(contact)}
                                         </span>
-                                        {#if contact.converted || contact.status === "member" || contact.member_status === "member" || contact.member_status === "leader"}
+                                        {#if contact.member_status === "member" || contact.member_status === "leader"}
                                             <span
                                                 class="text-[10px] px-1.5 py-0.5 rounded bg-success/20 text-success"
                                             >
-                                                Joined
+                                                Joined church
                                             </span>
                                         {/if}
                                     </div>

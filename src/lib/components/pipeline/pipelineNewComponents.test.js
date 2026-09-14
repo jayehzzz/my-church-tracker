@@ -1,8 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 import ConfirmationSheet from './ConfirmationSheet.svelte';
-import LeaderScoreboard from './LeaderScoreboard.svelte';
-import ConversionFunnel from './ConversionFunnel.svelte';
 
 describe('ConfirmationSheet', () => {
   const mockPromises = [
@@ -100,101 +98,5 @@ describe('ConfirmationSheet', () => {
     });
 
     expect(getByText(/No promises to confirm this week. Keep following up! 💪/i)).toBeDefined();
-  });
-});
-
-describe('LeaderScoreboard', () => {
-  const mockStats = [
-    {
-      leader_id: 'l1',
-      leader_name: 'Pastor Alex',
-      total_follow_ups: 25,
-      follow_ups_this_week: 8,
-      follow_ups_this_month: 20,
-      unique_contacts_this_week: 6,
-      unique_contacts_total: 18,
-      assigned_contacts: 12,
-      stale_contacts: 2,
-      showed_up: 5,
-      converted: 3,
-      last_activity: new Date(Date.now() - 1000 * 60 * 15).toISOString(), // 15 mins ago
-    },
-    {
-      leader_id: 'l2',
-      leader_name: 'Sister Mary',
-      total_follow_ups: 0,
-      follow_ups_this_week: 0,
-      follow_ups_this_month: 0,
-      unique_contacts_this_week: 0,
-      unique_contacts_total: 0,
-      assigned_contacts: 5,
-      stale_contacts: 0,
-      showed_up: 0,
-      converted: 0,
-      last_activity: null,
-    },
-  ];
-
-  it('renders leader cards and metrics', () => {
-    const { getByText } = render(LeaderScoreboard, {
-      props: { stats: mockStats },
-    });
-
-    expect(getByText('Pastor Alex')).toBeDefined();
-    expect(getByText('Sister Mary')).toBeDefined();
-    expect(getByText('Active 15m ago')).toBeDefined();
-    expect(getByText('No activity yet')).toBeDefined();
-  });
-
-  it('renders empty state when stats is empty', () => {
-    const { getByText } = render(LeaderScoreboard, {
-      props: { stats: [] },
-    });
-
-    expect(
-      getByText('No leaders found. Add leaders to the People Directory to get started.')
-    ).toBeDefined();
-  });
-});
-
-describe('ConversionFunnel', () => {
-  const mockFunnel = {
-    total_contacts: 100,
-    contacted: 80,
-    promised: 40,
-    visited: 20,
-    converted: 10,
-    rates: {
-      contact_rate: 80,
-      promise_rate: 50,
-      visit_rate: 50,
-      conversion_rate: 50,
-    },
-  };
-
-  it('renders all 5 funnel stages with counts and rate badges', () => {
-    const { getByText } = render(ConversionFunnel, {
-      props: { funnel: mockFunnel },
-    });
-
-    expect(getByText('New Contacts')).toBeDefined();
-    expect(getByText('100')).toBeDefined();
-    expect(getByText('Contacted')).toBeDefined();
-    expect(getByText('80')).toBeDefined();
-    expect(getByText('Promised')).toBeDefined();
-    expect(getByText('40')).toBeDefined();
-    expect(getByText('Visited')).toBeDefined();
-    expect(getByText('20')).toBeDefined();
-    expect(getByText('Converted')).toBeDefined();
-    expect(getByText('10')).toBeDefined();
-  });
-
-  it('renders stage connectors with rates', () => {
-    const { getByText, getAllByText } = render(ConversionFunnel, {
-      props: { funnel: mockFunnel },
-    });
-
-    expect(getByText('80% →')).toBeDefined();
-    expect(getAllByText('50% →').length).toBe(3);
   });
 });

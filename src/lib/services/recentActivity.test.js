@@ -20,6 +20,47 @@ beforeAll(async () => {
 afterAll(() => vi.unstubAllEnvs());
 
 describe("Dashboard Recent Activity and Person Profile Resolution", () => {
+    it("keeps raw attendance points linked to their services so the chart can group them later", async () => {
+        const completedSundayServices = mockServices
+            .filter((service) => service.service_type === "sunday_service" && service.service_date <= new Date().toISOString().slice(0, 10))
+            .sort((a, b) => a.service_date.localeCompare(b.service_date));
+        const service = completedSundayServices.at(-1);
+
+        const individual = await dashboardService.getAttendanceChartData({
+            startDate: service.service_date,
+            endDate: service.service_date,
+            label: "Selected Sunday",
+        });
+        expect(individual.data).toHaveLength(1);
+        expect(individual.data[0].id).toBe(service.id || service._id);
+
+        const aggregate = await dashboardService.getAttendanceChartData({
+            startDate: completedSundayServices[0].service_date,
+            endDate: completedSundayServices.at(-1).service_date,
+            label: "Long range",
+        });
+        expect(aggregate.data.length).toBeGreaterThan(0);
+        expect(aggregate.data.every((point) => Boolean(point.id))).toBe(true);
+    });
+
+    it("routes the service salvation KPI to Services", async () => {
+        const result = await dashboardService.getDashboardKPIs();
+        const salvationKpi = result.kpis.find((kpi) => kpi.id === "salvations");
+
+        expect(salvationKpi.description).toBe("Recorded during services");
+        expect(salvationKpi.href).toBe("/services");
+    });
+
+    it("labels guest counts as attendance that already includes first timers", async () => {
+        const result = await dashboardService.getDashboardKPIs();
+        const guestKpi = result.kpis.find((kpi) => kpi.id === "guests");
+        const familyKpi = result.kpis.find((kpi) => kpi.id === "family");
+
+        expect(guestKpi.title).toBe("Guest attendances");
+        expect(guestKpi.description).toBe("Includes first-timer visits");
+        expect(familyKpi.description).toBe("Members, including leaders");
+    });
+
     it("resolves all member profiles in mockPeople", async () => {
         for (const person of mockPeople) {
             const p = getPersonById(person.id);

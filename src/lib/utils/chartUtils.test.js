@@ -128,6 +128,7 @@ describe("chartUtils", () => {
 
       expect(weeks[0]).toMatchObject({ date: "2026-08-03", total: 120, guests: 15, label: "Week of 3 Aug" });
       expect(months[0]).toMatchObject({ date: "2026-08-01", total: 133, guests: 20, label: "Aug 2026" });
+      expect(months[0].id).toBeUndefined();
     });
   });
 });

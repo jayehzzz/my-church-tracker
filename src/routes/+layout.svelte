@@ -23,6 +23,7 @@
   import "@fontsource/inter";
   import "../app.css";
   import AuthGate from "$lib/auth/AuthGate.svelte";
+  import RehearsalBanner from "$lib/components/layout/RehearsalBanner.svelte";
 
   /**
    * Import filter store for initialization and persistence
@@ -87,6 +88,7 @@
   - antialiased: Improves font rendering on modern displays
 -->
 <div class="min-h-screen bg-background text-foreground antialiased">
+  <RehearsalBanner />
   <!--
     Render child route content
     This is where page components will be inserted

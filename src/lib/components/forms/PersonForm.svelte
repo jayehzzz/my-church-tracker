@@ -21,6 +21,13 @@
   } from "$lib/components/ui";
   import * as peopleService from "$lib/services/peopleService";
   import {
+    buildGeocodingAddress,
+    formatUkPostcode,
+    geocodeAddress,
+    isValidUkPostcode,
+    searchAddressCandidates,
+  } from "$lib/services/geocodingService.js";
+  import {
     CHURCH_ROLE_OPTIONS,
     CHURCH_SCHOOL_OPTIONS,
     DEGREE_STATUS_OPTIONS,
@@ -31,6 +38,7 @@
     isOpen = $bindable(false),
     person = null, // null for create, object for edit
     onsave,
+    oncancel,
     ...restProps
   } = $props();
 
@@ -67,6 +75,15 @@
   let duplicateAcknowledged = $state(false);
   let checkingDuplicates = $state(false);
   let initialFormSnapshot = $state("");
+  let initialAddressKey = $state("");
+  let locatingAddress = $state(false);
+  let locationMessage = $state("");
+  let verifiedLocation = $state(null);
+  let confirmingDiscard = $state(false);
+  let addressSearchQuery = $state("");
+  let addressSearchResults = $state([]);
+  let searchingAddresses = $state(false);
+  let addressSearchMessage = $state("");
 
   // Mode: 'create' or 'edit'
   const mode = $derived(person?.id || person?._id ? "edit" : "create");
@@ -74,8 +91,11 @@
     mode === "edit" ? "Edit Person" : "Add New Person",
   );
 
+  const currentAddressKey = $derived(buildGeocodingAddress(formData).toLowerCase());
+
   // Status options
   const statusOptions = [
+    { value: "contact", label: "Outreach Contact" },
     { value: "guest", label: "Guest" },
     { value: "member", label: "Member" },
     { value: "leader", label: "Leader" },
@@ -117,7 +137,7 @@
     { value: "dancing_stars", label: "Dancing Stars" },
   ];
 
-  // Entry point options (how Guests first entered)
+  // Entry point options (how pre-members first connected)
   const entryPointOptions = [
     { value: "", label: "Select..." },
     { value: "sunday_service", label: "Sunday Service" },
@@ -126,7 +146,7 @@
     { value: "other", label: "Other" },
   ];
 
-  // Role options (for Leaders only)
+  // Leadership role options (for Leaders only)
   const roleOptions = [
     { value: "no_role", label: "No Role" },
     { value: "basonta_leader", label: "Basonta Leader" },
@@ -143,9 +163,9 @@
     ...DEGREE_STATUS_OPTIONS,
   ];
 
-  // Legacy visitor records are treated as guests until they are saved again.
-  const isGuestStatus = $derived(
-    formData.member_status === "guest" || formData.member_status === "visitor",
+  // Outreach contacts and guests both use the connection-source fields.
+  const isPreMemberStatus = $derived(
+    ["contact", "guest", "visitor"].includes(formData.member_status),
   );
 
   // Check if status is leader
@@ -216,6 +236,17 @@
       duplicateCandidates = [];
       duplicateAcknowledged = false;
       initialFormSnapshot = untrack(() => JSON.stringify(formData));
+      initialAddressKey = untrack(() => buildGeocodingAddress(formData).toLowerCase());
+      verifiedLocation = person && Number.isFinite(person.lat) && Number.isFinite(person.lng)
+        ? { lat: person.lat, lng: person.lng, addressKey: initialAddressKey }
+        : null;
+      locatingAddress = false;
+      locationMessage = "";
+      confirmingDiscard = false;
+      addressSearchQuery = untrack(() => buildGeocodingAddress(formData) || formData.address || "");
+      addressSearchResults = [];
+      searchingAddresses = false;
+      addressSearchMessage = "";
     }
   });
 
@@ -231,8 +262,112 @@
       newErrors.email = "Invalid email format";
     }
 
+    if (formData.zip_code && !isValidUkPostcode(formData.zip_code)) {
+      newErrors.zip_code = "Enter a full UK postcode, for example LU3 1QQ";
+    }
+
     errors = newErrors;
     return Object.keys(newErrors).length === 0;
+  }
+
+  async function locateAddress() {
+    errors = { ...errors, zip_code: undefined };
+    locationMessage = "";
+    verifiedLocation = null;
+    if (!formData.address.trim()) {
+      locationMessage = "Add the house number and street first.";
+      return;
+    }
+    if (!formData.city.trim()) {
+      locationMessage = "Add the town or city so the address can be identified.";
+      return;
+    }
+    if (!isValidUkPostcode(formData.zip_code)) {
+      errors = { ...errors, zip_code: "Enter a full UK postcode, for example LU3 1QQ" };
+      locationMessage = "A full postcode gives the map a reliable location.";
+      return;
+    }
+
+    formData.zip_code = formatUkPostcode(formData.zip_code);
+    const addressKey = buildGeocodingAddress(formData).toLowerCase();
+    locatingAddress = true;
+    try {
+      const location = await geocodeAddress(buildGeocodingAddress(formData));
+      if (!location) {
+        locationMessage = "That address could not be located. Check the street, town and postcode.";
+        return;
+      }
+      verifiedLocation = { ...location, addressKey };
+      locationMessage = `Map location found from ${formData.zip_code}. It will be saved with this person.`;
+    } catch {
+      locationMessage = "The map lookup is unavailable right now. You can still save the written address.";
+    } finally {
+      locatingAddress = false;
+    }
+  }
+
+  async function searchAddresses() {
+    const query = addressSearchQuery.trim();
+    addressSearchResults = [];
+    addressSearchMessage = "";
+    if (query.length < 3) {
+      addressSearchMessage = "Enter a street, town or postcode to search.";
+      return;
+    }
+
+    searchingAddresses = true;
+    try {
+      addressSearchResults = await searchAddressCandidates(query);
+      if (addressSearchResults.length) {
+        const hasSuggestedCorrections = addressSearchResults.some((candidate) => candidate.source === "photon");
+        addressSearchMessage = hasSuggestedCorrections
+          ? `${addressSearchResults.length} possible ${addressSearchResults.length === 1 ? "address" : "addresses"} found, including close matches for possible spelling mistakes. Choose the correct one.`
+          : `${addressSearchResults.length} possible ${addressSearchResults.length === 1 ? "address" : "addresses"} found. Choose the correct one.`;
+      } else {
+        addressSearchMessage = "No matching addresses were found. Try the street, town or postcode with less detail.";
+      }
+    } catch {
+      addressSearchMessage = "Address search is unavailable right now. You can still enter the address manually.";
+    } finally {
+      searchingAddresses = false;
+    }
+  }
+
+  function useAddressCandidate(candidate) {
+    const searchedHouseNumber = addressSearchQuery.match(/^\s*(\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?)\b/)?.[1] || "";
+    const candidateAddress = candidate.address || "";
+    const shouldKeepSearchedHouseNumber = Boolean(
+      searchedHouseNumber
+      && candidate.matchType === "street"
+      && !candidate.houseNumberVerified
+      && candidateAddress
+      && !new RegExp(`^${searchedHouseNumber}\\b`, "i").test(candidateAddress),
+    );
+    formData.address = shouldKeepSearchedHouseNumber
+      ? `${searchedHouseNumber} ${candidateAddress}`
+      : candidateAddress;
+    formData.city = candidate.city || "";
+    formData.state = candidate.state || "";
+    formData.zip_code = formatUkPostcode(candidate.zip_code);
+    const addressKey = buildGeocodingAddress(formData).toLowerCase();
+    verifiedLocation = {
+      lat: candidate.lat,
+      lng: candidate.lng,
+      addressKey,
+      matchType: candidate.matchType,
+      houseNumberVerified: candidate.houseNumberVerified,
+    };
+    locationMessage = candidate.houseNumberVerified
+      ? "Address confirmed and map location verified. Save Changes to update this person."
+      : candidate.matchType === "street"
+        ? "Street location selected. The house number was kept from your search but was not verified by the map data. Save Changes if the written address is correct."
+        : "Area location selected. The exact house was not verified by the map data. Check the written address before saving.";
+    addressSearchQuery = buildGeocodingAddress(formData) || candidate.label;
+    addressSearchResults = [];
+    addressSearchMessage = candidate.source === "photon"
+      ? "Suggested correction applied to the fields below. Check the house number before saving."
+      : "Selected address applied to the fields below.";
+    errors = { ...errors, zip_code: undefined };
   }
 
   // Handle form submission
@@ -262,7 +397,19 @@
 
     try {
       let result;
-      const payload = { ...formData, surname_status: formData.last_name.trim() ? "known" : "missing" };
+      formData.zip_code = formatUkPostcode(formData.zip_code);
+      const addressKey = buildGeocodingAddress(formData).toLowerCase();
+      const addressChanged = addressKey !== initialAddressKey;
+      const checkedCurrentAddress = verifiedLocation?.addressKey === addressKey;
+      const payload = {
+        ...formData,
+        surname_status: formData.last_name.trim() ? "known" : "missing",
+        ...(checkedCurrentAddress
+          ? { lat: verifiedLocation.lat, lng: verifiedLocation.lng }
+          : addressChanged && mode === "edit"
+            ? { lat: "", lng: "" }
+            : {}),
+      };
       if (!confidential) { delete payload.is_tither; delete payload.notes; }
       if (mode === "edit") {
         result = await peopleService.update(person.id || person._id, payload);
@@ -286,8 +433,18 @@
 
   // Handle close
   function handleClose() {
-    if (JSON.stringify(formData) !== initialFormSnapshot && !window.confirm("Discard unsaved person changes?")) return;
+    if (JSON.stringify(formData) !== initialFormSnapshot) {
+      confirmingDiscard = true;
+      return;
+    }
     isOpen = false;
+    oncancel?.();
+  }
+
+  function discardChanges() {
+    confirmingDiscard = false;
+    isOpen = false;
+    oncancel?.();
   }
 </script>
 
@@ -305,6 +462,13 @@
         class="p-3 bg-destructive/10 border border-destructive/30 rounded-lg text-destructive text-sm"
       >
         {errors.submit}
+      </div>
+    {/if}
+
+    {#if confirmingDiscard}
+      <div class="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm" role="status">
+        <strong class="text-foreground">Discard unsaved changes?</strong>
+        <p class="mt-1 text-muted-foreground">Your edits to this person have not been saved.</p>
       </div>
     {/if}
 
@@ -437,49 +601,121 @@
       </div>
 
       <div class="space-y-4">
+        <div class="rounded-lg border border-border/70 bg-secondary/20 p-4 space-y-3">
+          <div>
+            <label for="person-address-search" class="text-sm font-medium text-foreground">Search for the correct address</label>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Search using whatever you know, such as a house number, street, town or postcode. Nothing is searched until you press Search addresses.
+            </p>
+          </div>
+          <div class="flex flex-col gap-2 sm:flex-row">
+            <input
+              id="person-address-search"
+              class="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+              type="search"
+              bind:value={addressSearchQuery}
+              placeholder="e.g. 86 St Catherines Ave Luton"
+              disabled={saving || searchingAddresses}
+              onkeydown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void searchAddresses();
+                }
+              }}
+            />
+            <Button type="button" variant="secondary" onclick={searchAddresses} disabled={saving || searchingAddresses}>
+              {searchingAddresses ? "Searching…" : "Search addresses"}
+            </Button>
+          </div>
+          {#if addressSearchMessage}
+            <p class="text-xs text-muted-foreground" aria-live="polite">{addressSearchMessage}</p>
+          {/if}
+          {#if addressSearchResults.length}
+            <div class="space-y-2" aria-label="Address search results">
+              {#each addressSearchResults as candidate, index (`${candidate.label}-${index}`)}
+                <div class="flex flex-col gap-3 rounded-lg border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div class="min-w-0">
+                    <p class="text-sm font-medium text-foreground">{candidate.label}</p>
+                    <p class="mt-1 text-xs font-medium text-foreground/80">
+                      {candidate.source === "photon" ? "Suggested correction · " : ""}{candidate.houseNumberVerified
+                        ? "House number matched"
+                        : candidate.matchType === "street"
+                          ? "Street match — house number not verified"
+                          : "Area match — exact house not verified"}
+                    </p>
+                    <p class="mt-1 text-xs text-muted-foreground">
+                      {[candidate.address, candidate.city, candidate.zip_code].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                  <Button type="button" size="sm" onclick={() => useAddressCandidate(candidate)} disabled={saving}>
+                    Use this address
+                  </Button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
         <Input
-          label="Address"
+          label="House number & street"
           bind:value={formData.address}
           disabled={saving}
         />
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div class="col-span-2">
-            <Input label="City" bind:value={formData.city} disabled={saving} />
+            <Input label="Town / City" bind:value={formData.city} disabled={saving} />
           </div>
-          <Input label="State" bind:value={formData.state} disabled={saving} />
+          <Input label="County (optional)" bind:value={formData.state} disabled={saving} />
           <Input
-            label="Zip Code"
+            label="Postcode"
             bind:value={formData.zip_code}
+            error={errors.zip_code}
             disabled={saving}
           />
         </div>
+        <div class="flex flex-wrap items-center gap-3">
+          <Button type="button" variant="secondary" onclick={locateAddress} disabled={saving || locatingAddress}>
+            {locatingAddress ? "Checking map location…" : "Check map location"}
+          </Button>
+          <p class="text-xs text-muted-foreground">
+            Use a full postcode for reliable mapping. The lookup uses OpenStreetMap geocoding.
+          </p>
+        </div>
+        {#if locationMessage}
+          <p class="text-sm text-muted-foreground" aria-live="polite">{locationMessage}</p>
+        {/if}
       </div>
     </div>
 
     <hr class="border-border" />
 
-    <!-- Church Status Section -->
+    <!-- Church journey and role section -->
     <div class="space-y-4">
-      <h3 class="text-lg font-medium text-foreground">Church Status</h3>
+      <h3 class="text-lg font-medium text-foreground">Church Journey & Roles</h3>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <SearchableSelect
-          label="Member Status"
+          label="Church Journey Status"
           bind:value={formData.member_status}
           options={statusOptions}
           disabled={saving}
         />
-        <Input
-          label="Membership Date"
-          type="date"
-          bind:value={formData.membership_date}
-          disabled={saving}
-        />
+        {#if formData.member_status === "member" || formData.member_status === "leader"}
+          <Input
+            label="Membership Date"
+            type="date"
+            bind:value={formData.membership_date}
+            disabled={saving}
+          />
+        {/if}
       </div>
+
+      <p class="text-xs text-muted-foreground">
+        Outreach Contact = collected through evangelism but has not attended yet. Guest = has attended but is not yet a member. First timer is recorded on the person's first attendance, not as a permanent status.
+      </p>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <SearchableSelect
-          label="Church Role"
+          label="Basonta Membership"
           bind:value={formData.church_role}
           options={churchRoleOptions}
           disabled={saving}
@@ -494,10 +730,14 @@
         {/if}
       </div>
 
-      {#if isGuestStatus}
+      <p class="text-xs text-muted-foreground">
+        Basonta membership and group involvement are separate from leadership. Bacenta Leader and Basonta Leader are leadership roles.
+      </p>
+
+      {#if isPreMemberStatus}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <SearchableSelect
-            label="Entry Point (How did they find us?)"
+            label="Connection Source (How did they find us?)"
             bind:value={formData.entry_point}
             options={entryPointOptions}
             disabled={saving}
@@ -508,8 +748,9 @@
       <!-- Basontas (Ministry Groups) -->
       <fieldset class="space-y-2">
         <legend class="block text-sm font-medium text-muted-foreground">
-          Basontas (Ministry Groups)
+          Basonta / Ministry Groups
         </legend>
+        <p class="text-xs text-muted-foreground">Groups this person belongs to. This does not change their church journey status or leadership role.</p>
         <div class="flex flex-wrap gap-2">
           {#each basontasOptions as option}
             <button
@@ -632,36 +873,45 @@
   </form>
 
   {#snippet footer()}
-    <Button variant="secondary" onclick={handleClose} disabled={saving}>
-      Cancel
-    </Button>
-    <Button onclick={handleSubmit} disabled={saving || checkingDuplicates}>
-      {#if saving}
-        <svg
-          class="animate-spin -ml-1 mr-2 h-4 w-4"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <circle
-            class="opacity-25"
-            cx="12"
-            cy="12"
-            r="10"
-            stroke="currentColor"
-            stroke-width="4"
-          />
-          <path
-            class="opacity-75"
-            fill="currentColor"
-            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-          />
-        </svg>
-        Saving...
-      {:else if checkingDuplicates}
-        Checking contact details...
-      {:else}
-        {mode === "edit" ? "Save Changes" : "Add Person"}
-      {/if}
-    </Button>
+    {#if confirmingDiscard}
+      <Button variant="secondary" onclick={() => (confirmingDiscard = false)} disabled={saving}>
+        Keep editing
+      </Button>
+      <Button variant="danger" onclick={discardChanges} disabled={saving}>
+        Discard changes
+      </Button>
+    {:else}
+      <Button variant="secondary" onclick={handleClose} disabled={saving}>
+        Cancel
+      </Button>
+      <Button onclick={handleSubmit} disabled={saving || checkingDuplicates}>
+        {#if saving}
+          <svg
+            class="animate-spin -ml-1 mr-2 h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              class="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="4"
+            />
+            <path
+              class="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            />
+          </svg>
+          Saving...
+        {:else if checkingDuplicates}
+          Checking contact details...
+        {:else}
+          {mode === "edit" ? "Save Changes" : "Add Person"}
+        {/if}
+      </Button>
+    {/if}
   {/snippet}
 </Modal>

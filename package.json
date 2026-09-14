@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "vite dev",
+    "dev:rehearsal": "npm run rehearsal:refresh && vite dev --mode rehearsal",
+    "dev:rehearsal:keep": "vite dev --mode rehearsal",
     "convex:dev": "convex dev",
+    "rehearsal:refresh": "python3 scripts/refresh-rehearsal.py",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest",
@@ -13,7 +16,8 @@
     "test:coverage": "vitest run --coverage",
     "test:backend": "vitest run --config vitest.backend.config.js",
     "check:backend": "tsc -p convex/tsconfig.json",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "verify": "npm run test:unit && npm run test:backend && npm run check:backend && npm run build"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",

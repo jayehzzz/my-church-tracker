@@ -2,12 +2,13 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 let createTask;
 let getDashboard;
+let captureLocalEvangelismContact;
 
 beforeAll(async () => {
   vi.stubEnv("VITE_CONVEX_URL", "");
   vi.stubEnv("VITE_APP_ENV", "development");
   vi.stubEnv("VITE_APP_MODE", "demo");
-  ({ createTask, getDashboard } = await import("./followUpCrmService.js"));
+  ({ createTask, getDashboard, captureLocalEvangelismContact } = await import("./followUpCrmService.js"));
 });
 
 afterAll(() => vi.unstubAllEnvs());
@@ -21,9 +22,10 @@ describe("follow-up CRM service", () => {
     expect(result.data.source).toBe("demo");
     expect(result.data.leaders.length).toBeGreaterThan(0);
     expect(result.data.attendance_forecast.service_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(result.data.attendance_forecast.confirmed_guests).toBe(
+    expect(result.data.attendance_forecast.confirmed_non_members).toBe(
       result.data.confirmed_commitments.length,
     );
+    expect(result.data.attendance_forecast.confirmed_guests).toBe(result.data.attendance_forecast.confirmed_non_members);
     expect(result.data.upcoming_commitments).toBeInstanceOf(Array);
     expect(result.data.sunday_commitments).toBeInstanceOf(Array);
     expect(result.data.visitation_follow_ups).toBeInstanceOf(Array);
@@ -39,6 +41,53 @@ describe("follow-up CRM service", () => {
     const dueToday = careTasks.find((task) => task._id === "demo-care-welcome")?.due_date;
     expect(dueToday).toBeTruthy();
     expect(careTasks.filter((task) => task.due_date < dueToday)).toHaveLength(2);
+  });
+
+  it("keeps outreach-only people as contacts and attendance-derived people as guests", async () => {
+    const outreach = await captureLocalEvangelismContact({
+      id: "local-outreach-semantics",
+      first_name: "Outreach",
+      contact_date: "2026-09-01",
+      response: "responsive",
+    });
+    const attended = await captureLocalEvangelismContact({
+      id: "local-guest-semantics",
+      first_name: "Returning",
+      contact_date: "2026-08-20",
+      first_visit_date: "2026-08-23",
+      response: "responsive",
+    });
+
+    expect(outreach.data.member_status).toBe("contact");
+    expect(attended.data.member_status).toBe("guest");
+  });
+
+  it("does not grant membership when follow-up is merely settled", async () => {
+    const { assignContact, completeTask, getContactProfile } = await import("./followUpCrmService.js");
+    const contactId = "local-explicit-membership";
+    await captureLocalEvangelismContact({
+      id: contactId,
+      first_name: "Settled",
+      contact_date: "2026-09-01",
+      response: "responsive",
+    });
+    const dashboard = await getDashboard();
+    const leaderId = dashboard.data.leaders[0]._id || dashboard.data.leaders[0].id;
+    const assignment = await assignContact(contactId, leaderId, "2026-09-02");
+
+    expect(assignment.error).toBeNull();
+    const completed = await completeTask(assignment.data.task._id, {
+      leaderId,
+      outcome: "positive_conversation",
+      closeContact: true,
+      closeReason: "settled",
+    });
+    expect(completed.error).toBeNull();
+
+    const profile = await getContactProfile(contactId);
+    expect(profile.data.person.member_status).toBe("contact");
+    expect(profile.data.person.activity_status).toBe("regular");
+    expect(profile.data.person.membership_date).toBeUndefined();
   });
 
   it("creates a linked visitation task for a person and care leader", async () => {

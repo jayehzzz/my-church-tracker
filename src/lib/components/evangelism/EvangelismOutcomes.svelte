@@ -1,8 +1,9 @@
 <script>
   import Modal from "$lib/components/ui/Modal.svelte";
+  import { hasFirstAttended, hasJoinedChurch, isOutreachSalvation } from "$lib/utils/evangelismView.js";
 
   let {
-    metrics = { reached: 0, saved: 0, visited: 0, engaged: 0, joined: 0 },
+    metrics = { reached: 0, saved: 0, visited: 0, joined: 0 },
     periodLabel = "Selected period",
     rows = [],
   } = $props();
@@ -10,21 +11,17 @@
   let selectedOutcome = $state(null);
 
   const outcomes = $derived([
-    { key: "saved", label: "Salvation decisions", value: metrics.saved, note: "Faith decisions recorded", card: "hover:border-warning/40", icon: "bg-warning/10 text-warning", text: "text-warning", bar: "bg-warning", iconType: "heart" },
-    { key: "attended", label: "First-time attendees", value: metrics.visited, note: "Reached people who attended a gathering", card: "hover:border-info/40", icon: "bg-info/10 text-info", text: "text-info", bar: "bg-info", iconType: "calendar" },
-    { key: "saved_attended", label: "Saved and attended", value: metrics.engaged, note: "People with both outcomes recorded", card: "hover:border-primary/40", icon: "bg-primary/10 text-primary", text: "text-primary", bar: "bg-primary", iconType: "spark" },
+    { key: "saved", label: "Saved on outreach", value: metrics.saved, note: "Salvation decisions made during outreach", card: "hover:border-warning/40", icon: "bg-warning/10 text-warning", text: "text-warning", bar: "bg-warning", iconType: "heart" },
+    { key: "attended", label: "First Timers", value: metrics.visited, note: "First recorded church attendance from outreach", card: "hover:border-info/40", icon: "bg-info/10 text-info", text: "text-info", bar: "bg-info", iconType: "calendar" },
     { key: "joined", label: "Joined church", value: metrics.joined, note: "People added to membership", card: "hover:border-success/40", icon: "bg-success/10 text-success", text: "text-success", bar: "bg-success", iconType: "check" },
   ]);
 
   const selectedRows = $derived(() => {
     if (!selectedOutcome) return [];
     return (rows || []).filter((row) => {
-      const attended = Boolean(row.attended_church || row.first_visit_date || row.converted);
-      const joined = Boolean(row.converted || ["member", "leader"].includes(row.member_status || row.status));
-      if (selectedOutcome.key === "saved") return Boolean(row.salvation_decision);
-      if (selectedOutcome.key === "attended") return attended;
-      if (selectedOutcome.key === "saved_attended") return Boolean(row.salvation_decision) && attended;
-      if (selectedOutcome.key === "joined") return joined;
+      if (selectedOutcome.key === "saved") return isOutreachSalvation(row);
+      if (selectedOutcome.key === "attended") return hasFirstAttended(row);
+      if (selectedOutcome.key === "joined") return hasJoinedChurch(row);
       return false;
     });
   });

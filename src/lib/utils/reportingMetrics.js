@@ -78,6 +78,33 @@ export function hasOpenCareFollowUp(visitation) {
   );
 }
 
+export function hasJoinedChurch(contact) {
+  if (contact?.member_status) {
+    return ["member", "leader"].includes(contact.member_status);
+  }
+
+  // Legacy evangelism records used converted/conversion_date for church
+  // membership. Only use them when the canonical status is absent.
+  return Boolean(contact?.membership_date || contact?.conversion_date || contact?.converted);
+}
+
+export function hasOutreachSalvation(contact) {
+  return Boolean(contact?.outreach_salvation_decision ?? contact?.salvation_decision);
+}
+
+export function buildPeopleJourneySummary(people = []) {
+  const activePeople = (people || []).filter((person) => person?.member_status !== "archived");
+
+  return {
+    outreachContacts: activePeople.filter((person) => person?.member_status === "contact").length,
+    guests: activePeople.filter((person) => ["guest", "visitor"].includes(person?.member_status)).length,
+    members: activePeople.filter((person) => ["member", "leader"].includes(person?.member_status)).length,
+    bacentaLeaders: activePeople.filter((person) => person?.role === "bacenta_leader").length,
+    basontaLeaders: activePeople.filter((person) => person?.role === "basonta_leader").length,
+    basontaMembers: activePeople.filter((person) => person?.church_role === "basonta").length,
+  };
+}
+
 /** Shared report totals keep the overview and the detail tabs reconciled. */
 export function buildReportSummary({
   people = [],
@@ -86,10 +113,15 @@ export function buildReportSummary({
   meetings = [],
   visitations = [],
 } = {}) {
+  const joinedChurch = contacts.filter(hasJoinedChurch).length;
   return {
     totalPeople: people.length,
     newContacts: contacts.length,
-    conversions: contacts.filter((contact) => contact.converted).length,
+    // Compatibility alias for existing report consumers. This now means
+    // joined church; legacy converted data is only used when canonical status is absent.
+    conversions: joinedChurch,
+    joinedChurch,
+    outreachSalvationDecisions: contacts.filter(hasOutreachSalvation).length,
     totalAttendance: services.reduce(
       (sum, service) => sum + (Number(service.total_attendance) || 0),
       0,

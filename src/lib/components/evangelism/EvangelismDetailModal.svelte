@@ -1,10 +1,11 @@
 <script>
   import { Modal, Button, Badge } from "$lib/components/ui";
   import { goto } from "$app/navigation";
+  import SundayReliabilitySummary from "$lib/components/shared/SundayReliabilitySummary.svelte";
 
   let {
     isOpen = $bindable(false), contact = null, profile = null, profileLoading = false,
-    leaders = [], onEdit = null, onDelete = null, onConvert = null,
+    leaders = [], onEdit = null, onDelete = null, onJoinChurch = null,
     onQuickUpdate = null, onAssign = null, onOpenCrm = null,
   } = $props();
 
@@ -58,6 +59,13 @@
 
   function personName(person) {
     return [person?.first_name, person?.last_name].filter(Boolean).join(" ") || "Unassigned";
+  }
+
+  function journeyLabel(person) {
+    if (person?.member_status === "leader") return "Leader";
+    if (person?.member_status === "member") return "Member";
+    if (person?.member_status === "guest" || person?.first_visit_date || person?.attended_church) return "Guest";
+    return "Outreach Contact";
   }
 
   function formatShortDate(value) {
@@ -135,7 +143,7 @@
         <div class="flex items-center gap-3">
           <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">{contact.first_name?.[0] || ""}{contact.last_name?.[0] || ""}</div>
           <div>
-            <div class="flex flex-wrap items-center gap-2"><h3 class="text-xl font-semibold text-foreground">{contact.first_name} {contact.last_name || ""}</h3><Badge variant="default">{responseLabel(contact.response || contact.contact_category)}</Badge>{#if contact.converted || contact.member_status === "member"}<Badge variant="default">Member</Badge>{/if}</div>
+            <div class="flex flex-wrap items-center gap-2"><h3 class="text-xl font-semibold text-foreground">{contact.first_name} {contact.last_name || ""}</h3><Badge variant="default">{journeyLabel(contact)}</Badge><Badge variant="secondary">{responseLabel(contact.response || contact.contact_category)}</Badge>{#if contact.first_visit_date}<Badge variant="success">First Timer · {formatShortDate(contact.first_visit_date)}</Badge>{/if}</div>
             <p class="mt-1 text-sm text-muted-foreground">{freshnessLabel()} · Met {formatShortDate(contact.contact_date)}</p>
           </div>
         </div>
@@ -161,7 +169,7 @@
               <dl class="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
                 <div><dt class="text-xs text-muted-foreground">Phone</dt><dd class="mt-1 font-medium text-foreground">{contact.phone || "Not recorded"}</dd></div>
                 <div><dt class="text-xs text-muted-foreground">Email</dt><dd class="mt-1 break-all font-medium text-foreground">{contact.email || "Not recorded"}</dd></div>
-                <div><dt class="text-xs text-muted-foreground">Invited by</dt><dd class="mt-1 font-medium text-foreground">{contact.invited_by_name || "Not recorded"}</dd></div>
+                <div><dt class="text-xs text-muted-foreground">Invited / credited by</dt><dd class="mt-1 font-medium text-foreground">{contact.invited_by_name || "Not recorded"}</dd></div>
                 <div><dt class="text-xs text-muted-foreground">Follow-up posture</dt><dd class="mt-1 font-medium text-foreground">{responseLabel(contact.response || contact.contact_category)}</dd></div>
               </dl>
               {#if onQuickUpdate}<div class="mt-4 border-t border-border pt-4"><label for="profile-response" class="mb-1.5 block text-xs text-muted-foreground">Update follow-up posture</label><select id="profile-response" value={contact.response} onchange={updateResponse} disabled={updatingResponse} class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground">{#each responseOptions as option}<option value={option[0]}>{option[1]}</option>{/each}</select></div>{/if}
@@ -177,6 +185,7 @@
               {#if assignmentError}<p class="mt-2 text-xs text-destructive">{assignmentError}</p>{/if}
             </section>
             <section class="rounded-xl border border-border bg-card p-4"><h4 class="text-sm font-semibold text-foreground">Next action</h4>{#if nextTask}<p class="mt-3 font-medium text-foreground">{readable(nextTask.task_type)}</p><p class="mt-1 text-sm text-muted-foreground">Due {formatShortDate(nextTask.due_date)}{#if nextTask.reason} · {nextTask.reason}{/if}</p>{:else}<p class="mt-3 text-sm text-muted-foreground">No open task. Assign the contact or create the next action in the CRM.</p>{/if}</section>
+            <SundayReliabilitySummary commitments={profile?.commitments || []} summary={profile?.sunday_reliability || null} compact />
             <section class="rounded-xl border border-border bg-card p-4"><h4 class="text-sm font-semibold text-foreground">This Sunday</h4>{#if latestSunday}<div class="mt-3 flex items-center justify-between gap-3"><div><p class="font-medium text-foreground">{readable(latestSunday.response)}</p><p class="text-sm text-muted-foreground">{formatShortDate(latestSunday.gathering_date)}</p></div><Badge variant={latestSunday.response === "yes" ? "success" : "default"}>{readable(latestSunday.resolution)}</Badge></div>{:else}<p class="mt-3 text-sm text-muted-foreground">No Sunday response recorded.</p>{/if}</section>
           </div>
         </div>
@@ -187,7 +196,7 @@
           <section class="rounded-xl border border-border bg-card">
             <div class="border-b border-border px-4 py-3"><h4 class="text-sm font-semibold text-foreground">Planned gatherings</h4><p class="mt-1 text-xs text-muted-foreground">Sunday, Bacenta and special-event responses recorded by follow-up leaders.</p></div>
             {#if profile?.commitments?.length}
-              <div class="divide-y divide-border">{#each profile.commitments as commitment (commitment._id)}<div class="flex items-center justify-between gap-3 px-4 py-3"><div><p class="text-sm font-medium text-foreground">{readable(commitment.gathering_type)}</p><p class="mt-1 text-xs text-muted-foreground">{formatShortDate(commitment.gathering_date)} · recorded by {personName(commitment.leader)}</p></div><div class="flex gap-2"><Badge variant="default">{readable(commitment.response)}</Badge><Badge variant="default">{readable(commitment.resolution)}</Badge></div></div>{/each}</div>
+              <div class="divide-y divide-border">{#each profile.commitments as commitment (commitment._id)}<div class="flex items-center justify-between gap-3 px-4 py-3"><div><p class="text-sm font-medium text-foreground">{readable(commitment.gathering_type)}</p><p class="mt-1 text-xs text-muted-foreground">{formatShortDate(commitment.gathering_date)} · recorded by {personName(commitment.leader)}</p>{#if commitment.resolution_note || commitment.confirmation_note}<p class="mt-1 text-xs text-muted-foreground"><span class="font-medium text-foreground">Latest note:</span> {commitment.resolution_note || commitment.confirmation_note}</p>{/if}</div><div class="flex gap-2"><Badge variant="default">{readable(commitment.response)}</Badge><Badge variant="default">{readable(commitment.resolution)}</Badge></div></div>{/each}</div>
             {:else}<div class="px-4 py-8 text-center text-sm text-muted-foreground">No gathering plans recorded.</div>{/if}
           </section>
 
@@ -214,7 +223,7 @@
   {#snippet footer()}
     <div class="flex w-full items-center justify-between gap-3">
       <div>{#if onDelete && contact}<Button variant="ghost" class="text-destructive" onclick={() => { isOpen = false; onDelete(contact); }}>Delete</Button>{/if}</div>
-      <div class="flex gap-2"><Button variant="secondary" onclick={() => isOpen = false}>Close</Button>{#if onConvert && contact && !contact.converted && contact.member_status !== "member"}<Button variant="success" onclick={() => { isOpen = false; onConvert(contact); }}>Promote to member</Button>{/if}{#if onEdit && contact}<Button onclick={() => { isOpen = false; onEdit(contact); }}>Edit details</Button>{/if}</div>
+      <div class="flex gap-2"><Button variant="secondary" onclick={() => isOpen = false}>Close</Button>{#if onJoinChurch && contact && !["member", "leader"].includes(contact.member_status)}<Button variant="success" onclick={() => { isOpen = false; onJoinChurch(contact); }}>Record joined church</Button>{/if}{#if onEdit && contact}<Button onclick={() => { isOpen = false; onEdit(contact); }}>Edit details</Button>{/if}</div>
     </div>
   {/snippet}
 </Modal>

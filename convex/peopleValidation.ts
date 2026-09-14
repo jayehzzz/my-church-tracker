@@ -1,6 +1,25 @@
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-export const PERSON_STATUSES = ["guest", "member", "leader", "archived"] as const;
+export const PERSON_STATUSES = ["contact", "guest", "member", "leader", "archived"] as const;
+
+export const CONTACT_CATEGORIES = [
+    "not_assessed",
+    "responsive",
+    "non_responsive",
+    "events_only",
+    "big_events_only",
+    "bacenta_mainly",
+    "has_church",
+    "do_not_contact",
+    "wrong_number",
+] as const;
+
+// The reviewed 2026 church import used "outreach" to mean that no follow-up
+// posture had been assessed yet. Keep reads/edits compatible without treating
+// that source label as a new CRM posture.
+export function canonicalContactCategory(value: string | undefined) {
+    return value === "outreach" ? "not_assessed" : value;
+}
 
 const allowedValues: Record<string, readonly string[]> = {
     gender: ["male", "female"],
@@ -10,17 +29,7 @@ const allowedValues: Record<string, readonly string[]> = {
     church_role: ["no_role", "basonta"],
     role: ["no_role", "basonta_leader", "bacenta_leader"],
     activity_status: ["regular", "irregular", "dormant"],
-    contact_category: [
-        "not_assessed",
-        "responsive",
-        "non_responsive",
-        "events_only",
-        "big_events_only",
-        "bacenta_mainly",
-        "has_church",
-        "do_not_contact",
-        "wrong_number",
-    ],
+    contact_category: CONTACT_CATEGORIES,
     contact_method: ["in_person", "phone", "text", "social_media", "event", "other"],
     entry_point: ["sunday_service", "bacenta_meeting", "evangelism", "referral", "other"],
 };
@@ -31,6 +40,7 @@ const dateFields = [
     "contact_date",
     "first_visit_date",
     "membership_date",
+    "outreach_salvation_date",
 ] as const;
 
 export const clearablePersonFields = [
@@ -64,6 +74,9 @@ export const clearablePersonFields = [
     "notes",
     "first_visit_date",
     "membership_date",
+    "outreach_salvation_decision",
+    "outreach_salvation_date",
+    "outreach_salvation_source",
     "is_baptised",
     "is_tither",
     "completed_schools",
@@ -135,7 +148,12 @@ export function validatePersonInput(input: Record<string, unknown>, creating = f
     }
 
     for (const [field, values] of Object.entries(allowedValues)) {
-        if (field in input && input[field] !== undefined) assertAllowed(field, input[field], values);
+        if (field in input && input[field] !== undefined) {
+            const value = field === "contact_category"
+                ? canonicalContactCategory(input[field] as string)
+                : input[field];
+            assertAllowed(field, value, values);
+        }
     }
 
     for (const field of dateFields) {

@@ -58,7 +58,7 @@ export function redactConfidential(value: any): any {
 // Unlisted mutations require an administrator. Leaders cannot assign their own
 // scope, delete people, run global reconciliation, or change account permissions.
 const leaderMutations = new Set([
-  "people:addDiscipleshipReview", "people:update", "evangelism:create", "evangelism:update", "evangelism:markAsConverted",
+  "people:addDiscipleshipReview", "people:update", "evangelism:create", "evangelism:update", "evangelism:markAsJoinedChurch", "evangelism:markAsConverted",
   "people:createGrowthAgreement", "people:reviewGrowthAgreement",
   "crm:createTask", "crm:completeTask", "crm:moveToLater", "crm:recordCommitment",
   "crm:resolveCommitment", "crm:setAttendancePlan",

@@ -1,5 +1,7 @@
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { reconcileServiceCounts } from "./lib/attendanceWorkflow";
+import { canonicalContactCategory } from "./peopleValidation";
 
 // These mutations are deliberately internal. They are the narrow persistence
 // layer for a reviewed plan assembled outside the repository; they never read
@@ -93,7 +95,7 @@ export const createReviewedPerson = internalMutation({
   args: {
     batchId: v.id("church_import_batches"), sourceKey: v.string(), sourceFingerprint: v.string(),
     firstName: v.string(), lastName: v.optional(v.string()), surnameStatus: v.union(v.literal("known"), v.literal("missing")),
-    memberStatus: v.union(v.literal("guest"), v.literal("member"), v.literal("leader"), v.literal("archived")),
+    memberStatus: v.union(v.literal("contact"), v.literal("guest"), v.literal("member"), v.literal("leader"), v.literal("archived")),
     phone: v.optional(v.string()), address: v.optional(v.string()), ageBand: v.optional(v.string()),
     birthdayMonth: v.optional(v.float64()), birthdayDay: v.optional(v.float64()),
     churchRole: v.optional(v.string()), sourceChurchRole: v.optional(v.string()), maritalStatus: v.optional(v.string()), employmentStatus: v.optional(v.string()), degreeStatus: v.optional(v.string()),
@@ -118,7 +120,7 @@ export const createReviewedPerson = internalMutation({
       age_band: args.ageBand?.trim() || undefined, birthday_month: args.birthdayMonth, birthday_day: args.birthdayDay,
       church_role: args.churchRole, source_church_role: args.sourceChurchRole?.trim() || undefined, marital_status: args.maritalStatus, employment_status: args.employmentStatus, degree_status: args.degreeStatus,
       is_tither: args.isTither, is_baptised: args.isBaptised,
-      contact_date: args.contactDate, contact_category: args.contactCategory,
+      contact_date: args.contactDate, contact_category: canonicalContactCategory(args.contactCategory),
       created_at: now, updated_at: now,
     });
     await ctx.db.insert("church_import_rows", { batch_id: args.batchId, source_key: args.sourceKey, source_fingerprint: args.sourceFingerprint, record_type: "person", disposition: "imported", target_person_id: personId, created_at: now });
@@ -268,6 +270,27 @@ export const recordSundayRegister = internalMutation({
   },
 });
 
+async function reconcileImportedServices(ctx: any, rows: any[]) {
+  let reconciled = 0;
+  for (const row of rows.filter((item: any) => item.record_type === "sunday_service" && item.target_service_id)) {
+    const service = await ctx.db.get(row.target_service_id);
+    if (!service) continue;
+    const present = await ctx.db.query("attendance")
+      .withIndex("by_service", (q: any) => q.eq("service_id", service._id)).collect();
+    const total = service.total_attendance ?? present.length;
+    if (present.length > total) throw new Error("IMPORT_SERVICE_TOTAL_CONFLICT");
+    await ctx.db.patch(service._id, {
+      unnamed_attendance_count: total - present.length,
+      updated_at: new Date().toISOString(),
+    });
+    // Rebuild guests (including first timers), decisions and tithers from the
+    // named rows while preserving the reviewed total/unnamed headcount.
+    await reconcileServiceCounts(ctx, service._id);
+    reconciled++;
+  }
+  return reconciled;
+}
+
 export const finishBatch = internalMutation({
   args: { batchId: v.id("church_import_batches") },
   handler: async (ctx, args) => {
@@ -276,21 +299,23 @@ export const finishBatch = internalMutation({
     const held = rows.filter((row: any) => row.disposition === "held").length;
     const historicalNotes = await ctx.db.query("historical_import_notes").withIndex("by_batch", (q: any) => q.eq("batch_id", args.batchId)).collect();
     // Preserve the reviewed sheet total while making later ordinary attendance
-    // edits safe: named present rows are not counted a second time as unnamed.
-    for (const row of rows.filter((row: any) => row.record_type === "sunday_service" && row.target_service_id)) {
-      // `church_import_rows` can also target people, so retain the explicit
-      // guard even though the filter above documents this finalisation pass.
-      if (!row.target_service_id) continue;
-      const service = await ctx.db.query("services")
-        .filter((q: any) => q.eq(q.field("_id"), row.target_service_id))
-        .unique();
-      const present = service ? await ctx.db.query("attendance").withIndex("by_service", (q: any) => q.eq("service_id", service._id)).collect() : [];
-      if (!service) continue;
-      const total = service.total_attendance ?? present.length;
-      if (present.length > total) throw new Error("IMPORT_SERVICE_TOTAL_CONFLICT");
-      await ctx.db.patch(service._id, { unnamed_attendance_count: total - present.length, updated_at: new Date().toISOString() });
-    }
+    // edits safe, and derive guest/first-timer-aware category totals from the
+    // named rows instead of leaving imported services at zero guests.
+    await reconcileImportedServices(ctx, rows);
     await ctx.db.patch(batch._id, { status: "applied", applied_at: new Date().toISOString(), summary: { ...(batch.summary || {}), applied_rows: rows.length, held_rows: held, historical_notes_imported: historicalNotes.length } });
     return { appliedRows: rows.length, heldRows: held, historicalNotes: historicalNotes.length };
+  },
+});
+
+// Repair derived service category totals for an already-applied import. This
+// is intentionally batch-scoped so it cannot rewrite unrelated services.
+export const repairAppliedServiceCounts = internalMutation({
+  args: { batchId: v.id("church_import_batches") },
+  handler: async (ctx, args) => {
+    const batch = await ctx.db.get(args.batchId);
+    if (!batch || batch.status !== "applied") throw new Error("IMPORT_BATCH_NOT_APPLIED");
+    const rows = await ctx.db.query("church_import_rows")
+      .withIndex("by_batch", (q: any) => q.eq("batch_id", args.batchId)).collect();
+    return { reconciledServices: await reconcileImportedServices(ctx, rows) };
   },
 });

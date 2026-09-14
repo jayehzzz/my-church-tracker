@@ -16,6 +16,7 @@
 <script>
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
+  import { page } from "$app/state";
   import DashboardLayout from "$lib/components/layout/DashboardLayout.svelte";
   import PageHeader from "$lib/components/shared/PageHeader.svelte";
   import FilterBar from "$lib/components/filters/FilterBar.svelte";
@@ -42,14 +43,24 @@
     mockPeople,
     mockServices as centralMockServices,
     getPersonById as getCentralPersonById,
-    getServiceIndividuals,
   } from "$lib/data/mockData";
+  import { isDemoMode } from "$lib/convex";
+  import { isCompletedService } from "$lib/utils/reportingMetrics.js";
+  import {
+    serviceAttendanceMetrics,
+    summarizeAverageAttendanceMix,
+    summarizeServicePeriod,
+  } from "$lib/utils/serviceAnalytics.js";
 
-  // State - initialize immediately with dynamic mock data so SSR and client load instantly
-  let services = $state(centralMockServices);
-  let people = $state(mockPeople);
+  const demoMode = isDemoMode();
+
+  // Demo records are available only in explicit demo mode. Live mode starts empty.
+  let services = $state(demoMode ? centralMockServices : []);
+  let people = $state(demoMode ? mockPeople : []);
   let attendanceRecords = $state([]);
-  let loading = $state(false);
+  let sundayCommitments = $state([]);
+  let sundayCommitmentsUnavailable = $state(false);
+  let loading = $state(!demoMode);
   let error = $state(null);
 
   // View state: 'list' or 'dashboard'
@@ -57,7 +68,7 @@
 
   // Filter state
   let serviceTypeFilter = $state("all");
-  let attendanceRingVisibility = $state({ members: true, guests: true, tithers: true });
+  let attendanceRingVisibility = $state({ members: true, guests: true, firstTimers: true, tithers: true });
 
   function toggleAttendanceRing(key) {
     attendanceRingVisibility = {
@@ -89,7 +100,9 @@
   let deleting = $state(false);
 
   // Track if using mock data
-  let usingMockData = $state(false);
+  let usingMockData = $state(demoMode);
+  let serviceLinkNotice = $state("");
+  let handledServiceQuery = $state("");
 
   // Search state
   let searchQuery = $state("");
@@ -106,118 +119,29 @@
     { value: "special_service", label: "Special Service" },
   ];
 
-  // People data now imported from centralized mockData
-
-  // Mock data for development when Convex is not configured
-  const mockServices = [
-    {
-      id: "1",
-      service_date: "2025-12-15",
-      service_type: "sunday_service",
-      service_time: "09:00",
-      location: "Main Sanctuary",
-      sermon_topic: "Walking in Faith",
-      sermon_speaker: "Pastor John",
-      total_attendance: 145,
-      guests_count: 12,
-      salvation_decisions: 3,
-      tithers_count: 45,
-      individuals: ["p1", "p2", "p3", "p4", "p5", "p6", "p7"],
-      photos: [
-        "https://images.unsplash.com/photo-1438232992991-995b7058bbb3?w=100&h=100&fit=crop",
-        "https://images.unsplash.com/photo-1519491050282-cf00c82424cb?w=100&h=100&fit=crop",
-        "https://images.unsplash.com/photo-1504052434569-70ad5836ab65?w=100&h=100&fit=crop",
-      ],
-    },
-    {
-      id: "2",
-      service_date: "2025-12-08",
-      service_type: "sunday_service",
-      service_time: "09:00",
-      location: "Main Sanctuary",
-      sermon_topic: "The Power of Prayer",
-      sermon_speaker: "Pastor John",
-      total_attendance: 138,
-      guests_count: 8,
-      salvation_decisions: 2,
-      tithers_count: 42,
-      individuals: ["p1", "p2", "p4", "p6", "p9", "p10"],
-      photos: [
-        "https://images.unsplash.com/photo-1529070538774-1843cb3265df?w=100&h=100&fit=crop",
-      ],
-    },
-    {
-      id: "3",
-      service_date: "2025-12-11",
-      service_type: "midweek_service",
-      service_time: "19:00",
-      location: "Fellowship Hall",
-      sermon_topic: "Midweek Renewal",
-      sermon_speaker: "Associate Pastor",
-      total_attendance: 65,
-      guests_count: 3,
-      salvation_decisions: 1,
-      tithers_count: 20,
-      individuals: ["p1", "p3", "p7"],
-      photos: [],
-    },
-    {
-      id: "4",
-      service_date: "2025-12-01",
-      service_type: "sunday_service",
-      service_time: "09:00",
-      location: "Main Sanctuary",
-      sermon_topic: "Preparing for Advent",
-      sermon_speaker: "Pastor John",
-      total_attendance: 152,
-      guests_count: 15,
-      salvation_decisions: 4,
-      tithers_count: 48,
-      individuals: ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8"],
-      photos: [
-        "https://images.unsplash.com/photo-1545987796-200677ee1011?w=100&h=100&fit=crop",
-        "https://images.unsplash.com/photo-1507692049790-de58290a4334?w=100&h=100&fit=crop",
-      ],
-    },
-    {
-      id: "5",
-      service_date: "2025-11-24",
-      service_type: "sunday_service",
-      service_time: "09:00",
-      location: "Main Sanctuary",
-      sermon_topic: "Thanksgiving Praise",
-      sermon_speaker: "Pastor John",
-      total_attendance: 168,
-      guests_count: 22,
-      salvation_decisions: 5,
-      tithers_count: 52,
-      individuals: [
-        "p1",
-        "p2",
-        "p3",
-        "p4",
-        "p5",
-        "p6",
-        "p7",
-        "p8",
-        "p9",
-        "p10",
-      ],
-      photos: [
-        "https://images.unsplash.com/photo-1510590337019-5ef8d3d32116?w=100&h=100&fit=crop",
-        "https://images.unsplash.com/photo-1478147427282-58a87a120781?w=100&h=100&fit=crop",
-        "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=100&h=100&fit=crop",
-        "https://images.unsplash.com/photo-1571566882372-1598d88abd90?w=100&h=100&fit=crop",
-      ],
-    },
-  ];
-
   // Get person by ID - use centralized function
+  function recordId(record) {
+    return String(record?.id ?? record?._id ?? record ?? "");
+  }
+
   function getPersonById(id) {
+    if (id && typeof id === "object") {
+      const resolvedId = recordId(id);
+      return { ...id, id: id.id || id._id || resolvedId };
+    }
     return (
-      people.find((person) => String(person.id) === String(id)) ||
-      getCentralPersonById(id)
+      people.find((person) => recordId(person) === recordId(id)) ||
+      (demoMode ? getCentralPersonById(id) : null)
     );
+  }
+
+  function getServiceIndividuals(service) {
+    if (!Array.isArray(service?.individuals)) return [];
+    return service.individuals.map(getPersonById).filter(Boolean);
+  }
+
+  function serviceFirstTimerCount(service) {
+    return serviceMetrics(service).firstTimers;
   }
 
   // Format service type for display
@@ -291,8 +215,8 @@
 
     // Sort
     filtered = [...filtered].sort((a, b) => {
-      let aVal = a[sortKey];
-      let bVal = b[sortKey];
+      let aVal = sortKey === "returning_guests" ? serviceMetrics(a).returningGuestAttendance : a[sortKey];
+      let bVal = sortKey === "returning_guests" ? serviceMetrics(b).returningGuestAttendance : b[sortKey];
 
       if (sortKey === "service_date") {
         aVal = new Date(aVal || 0);
@@ -307,25 +231,27 @@
     return filtered;
   });
 
+  // Actual-attendance analytics follow the same completed-service rule as the
+  // main dashboard. Future/cancelled services can stay visible in the list but
+  // do not become historical attendance.
+  const analyticsServices = $derived(() =>
+    filteredServices().filter((service) => isCompletedService(service)),
+  );
+
+  function serviceMetrics(service) {
+    return serviceAttendanceMetrics(service, attendanceRecords, people);
+  }
+
   // Calculate KPIs based on filtered data
   const kpis = $derived(() => {
-    const filtered = filteredServices();
-    const totalAttendance = filtered.reduce(
-      (sum, s) => sum + (s.total_attendance || 0),
-      0,
-    );
-    const totalGuests = filtered.reduce(
-      (sum, s) => sum + (s.guests_count || 0),
-      0,
-    );
-    const totalDecisions = filtered.reduce(
-      (sum, s) => sum + (s.salvation_decisions || 0),
-      0,
-    );
-    const totalTithers = filtered.reduce(
-      (sum, s) => sum + (s.tithers_count || 0),
-      0,
-    );
+    const filtered = analyticsServices();
+    const period = summarizeServicePeriod(filtered, attendanceRecords, people);
+    const totalAttendance = period.totalAttendance;
+    const totalGuests = period.guestAttendance;
+    const totalReturningGuests = period.returningGuestAttendance;
+    const totalFirstTimers = period.firstTimers;
+    const totalDecisions = period.decisions;
+    const totalTithers = period.tithers;
     const totalIndividuals = filtered.reduce(
       (sum, s) =>
         sum + (Array.isArray(s.individuals) ? s.individuals.length : 0),
@@ -341,6 +267,8 @@
     return {
       totalAttendance,
       totalGuests,
+      totalReturningGuests,
+      totalFirstTimers,
       totalDecisions,
       totalTithers,
       totalIndividuals,
@@ -348,29 +276,36 @@
       avgAttendance,
       serviceCount: filtered.length,
       decisionRate: totalAttendance > 0 ? Math.round((totalDecisions / totalAttendance) * 100) : 0,
-      titherRate: totalAttendance - totalGuests > 0
-        ? Math.round((totalTithers / (totalAttendance - totalGuests)) * 100)
+      titherRate: period.memberAttendance > 0
+        ? Math.min(100, Math.round((totalTithers / period.memberAttendance) * 100))
         : 0,
     };
   });
 
+  const attendanceMix = $derived(() =>
+    summarizeAverageAttendanceMix(analyticsServices(), attendanceRecords, people),
+  );
+
   // Attendance trend data for chart - includes id and topic for drill-down
   const trendData = $derived(() => {
-    const filtered = filteredServices();
+    const filtered = analyticsServices();
     return filtered
       .sort((a, b) => new Date(a.service_date) - new Date(b.service_date))
-      .slice(-12)
-      .map((s) => ({
-        date: s.service_date,
-      total: s.total_attendance || 0,
-      guests: s.guests_count || 0,
-      decisions: s.salvation_decisions || 0,
-      firstTimers: attendanceRecords.filter((record) => String(record.service_id) === String(s.id) && record.first_timer).length,
-      tithers: s.tithers_count || 0,
-      members: (s.total_attendance || 0) - (s.guests_count || 0),
-        id: s.id,
-        topic: s.sermon_topic,
-      }));
+      .map((s) => {
+        const metrics = serviceMetrics(s);
+        return {
+          date: s.service_date,
+          total: metrics.totalAttendance,
+          guests: metrics.guestAttendance,
+          returningGuests: metrics.returningGuestAttendance,
+          decisions: metrics.decisions,
+          firstTimers: metrics.firstTimers,
+          tithers: metrics.tithers,
+          members: metrics.memberAttendance,
+          id: s.id,
+          topic: s.sermon_topic,
+        };
+      });
   });
 
   // Handle chart point click - find service and open modal
@@ -392,19 +327,19 @@
     return {
       title: isTithers ? "Tithers by service" : "Salvation decisions by service",
       total: isTithers ? kpis().totalTithers : kpis().totalDecisions,
-      rows: [...filteredServices()]
+      rows: [...analyticsServices()]
         .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)))
         .map((service) => ({
           service,
-          count: Number(isTithers ? service.tithers_count : service.salvation_decisions) || 0,
+          count: isTithers ? serviceMetrics(service).tithers : serviceMetrics(service).decisions,
         })),
     };
   });
 
   // Dashboard insights - sorted services by attendance
   const sortedByAttendance = $derived(() => {
-    return [...filteredServices()].sort(
-      (a, b) => (b.total_attendance || 0) - (a.total_attendance || 0),
+    return [...analyticsServices()].sort(
+      (a, b) => serviceMetrics(b).totalAttendance - serviceMetrics(a).totalAttendance,
     );
   });
 
@@ -414,14 +349,14 @@
   );
 
   const recentDecisions = $derived(() => {
-    return [...filteredServices()]
+    return [...analyticsServices()]
       .sort((a, b) => new Date(b.service_date) - new Date(a.service_date))
       .slice(0, 3)
-      .reduce((sum, s) => sum + (s.salvation_decisions || 0), 0);
+      .reduce((sum, s) => sum + serviceMetrics(s).decisions, 0);
   });
 
   const recentServices = $derived(() =>
-    [...filteredServices()]
+    [...analyticsServices()]
       .sort((a, b) => new Date(b.service_date) - new Date(a.service_date))
       .slice(0, 5),
   );
@@ -430,24 +365,30 @@
   const previousService = $derived(() => recentServices()[1]);
   const attendanceDelta = $derived(() => {
     if (!latestService() || !previousService()) return null;
-    return (latestService().total_attendance || 0) -
-      (previousService().total_attendance || 0);
+    return serviceMetrics(latestService()).totalAttendance -
+      serviceMetrics(previousService()).totalAttendance;
   });
 
-  const guestRate = $derived(() =>
+  const returningGuestRate = $derived(() =>
     kpis().totalAttendance > 0
-      ? Math.round((kpis().totalGuests / kpis().totalAttendance) * 100)
+      ? Math.round((kpis().totalReturningGuests / kpis().totalAttendance) * 100)
       : 0,
   );
 
   // Donut chart data
   const donutData = $derived(() => {
-    const members = kpis().totalAttendance - kpis().totalGuests;
-    const guests = kpis().totalGuests;
-    const total = members + guests || 1;
-    const memberPct = Math.round((members / total) * 100);
-    const guestPct = 100 - memberPct;
-    return { members, guests, total, memberPct, guestPct };
+    const mix = attendanceMix();
+    return {
+      members: mix.averageMembers,
+      returningGuests: mix.averageReturningGuests,
+      firstTimers: mix.averageFirstTimers,
+      tithers: mix.averageTithers,
+      total: mix.averageAttendance,
+      memberPct: mix.memberPct,
+      returningGuestPct: mix.returningGuestPct,
+      firstTimerPct: mix.firstTimerPct,
+      titherRate: mix.titherRate,
+    };
   });
 
   // Service type distribution
@@ -477,7 +418,9 @@
     const attendeeCounts = {};
     filteredServices().forEach((service) => {
       if (Array.isArray(service.individuals)) {
-        service.individuals.forEach((personId) => {
+        service.individuals.forEach((attendee) => {
+          const personId = recordId(attendee);
+          if (!personId) return;
           attendeeCounts[personId] = (attendeeCounts[personId] || 0) + 1;
         });
       }
@@ -500,39 +443,70 @@
     await loadServices();
   });
 
+  $effect(() => {
+    const requestedServiceId = page.url.searchParams.get("service") || "";
+    if (!requestedServiceId) {
+      handledServiceQuery = "";
+      serviceLinkNotice = "";
+      return;
+    }
+    if (loading || error || handledServiceQuery === requestedServiceId) return;
+
+    handledServiceQuery = requestedServiceId;
+    const requestedService = services.find(
+      (service) => recordId(service) === requestedServiceId,
+    );
+    if (requestedService) {
+      serviceLinkNotice = "";
+      handleServiceClick(requestedService);
+    } else {
+      serviceLinkNotice = "The requested service could not be found.";
+    }
+  });
+
   // Fetch all services from service
   async function loadServices() {
     if (!browser) return;
 
-    loading = true;
+    loading = !demoMode;
     error = null;
+    serviceLinkNotice = "";
 
     try {
-      const [servicesService, peopleService, attendanceService] = await Promise.all([
+      const [servicesService, peopleService, attendanceService, followUpCrmService] = await Promise.all([
         import("$lib/services/servicesService"),
         import("$lib/services/peopleService"),
         import("$lib/services/attendanceService"),
+        import("$lib/services/followUpCrmService.js"),
       ]);
-      const [result, peopleResult, attendanceResult] = await Promise.all([
+      const [result, peopleResult, attendanceResult, commitmentResult] = await Promise.all([
         servicesService.getAll(),
         peopleService.getAll(),
         attendanceService.getAll(),
+        followUpCrmService.getSundayCommitments(),
       ]);
 
-      if (result.error) {
-        throw result.error;
-      }
-      services = result.data || [];
-      people = Array.isArray(peopleResult.data) ? peopleResult.data : mockPeople;
+      if (result.error) throw result.error;
+      if (peopleResult.error) throw peopleResult.error;
+      if (attendanceResult.error) throw attendanceResult.error;
+
+      services = Array.isArray(result.data) ? result.data : [];
+      people = Array.isArray(peopleResult.data) ? peopleResult.data : [];
       attendanceRecords = Array.isArray(attendanceResult.data) ? attendanceResult.data : [];
-      usingMockData = false;
+      sundayCommitments = commitmentResult.error || !Array.isArray(commitmentResult.data) ? [] : commitmentResult.data;
+      sundayCommitmentsUnavailable = Boolean(commitmentResult.error);
+      usingMockData = demoMode;
     } catch (e) {
-      console.warn("Failed to load from Convex, using mock data:", e.message);
-      services = centralMockServices;
-      people = mockPeople;
-      attendanceRecords = [];
-      usingMockData = true;
-      error = null;
+      console.warn("Failed to load services:", e);
+      if (!demoMode) {
+        services = [];
+        people = [];
+        attendanceRecords = [];
+        sundayCommitments = [];
+        sundayCommitmentsUnavailable = true;
+      }
+      usingMockData = demoMode;
+      error = e?.message || "The services workspace could not be loaded.";
     } finally {
       loading = false;
     }
@@ -645,9 +619,10 @@
       type: formatServiceType(service.service_type),
       topic: service.sermon_topic || "—",
       speaker: service.sermon_speaker || "—",
-      attendance: service.total_attendance || 0,
-      guests: service.guests_count || 0,
-      decisions: service.salvation_decisions || 0,
+      attendance: serviceMetrics(service).totalAttendance,
+      returningGuests: serviceMetrics(service).returningGuestAttendance,
+      firstTimers: serviceMetrics(service).firstTimers,
+      decisions: serviceMetrics(service).decisions,
       individuals: Array.isArray(service.individuals)
         ? service.individuals.length
         : 0,
@@ -723,6 +698,12 @@
     </div>
   {/if}
 
+  {#if serviceLinkNotice}
+    <div class="mb-4 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning" role="status">
+      {serviceLinkNotice}
+    </div>
+  {/if}
+
   <div class="mb-6 flex flex-col gap-3 rounded-xl border border-border bg-card p-2 sm:flex-row sm:items-center animate-in delay-2">
     <div class="grid grid-cols-3 gap-1 rounded-lg bg-secondary/35 p-1" role="tablist" aria-label="Sunday Services views">
       <button
@@ -795,6 +776,14 @@
       </h3>
       <p class="text-muted-foreground mb-4">{error}</p>
       <Button onclick={loadServices}>Retry</Button>
+    </div>
+  {:else if loading}
+    <div class="card-base mb-6 p-8 text-center text-muted-foreground" aria-live="polite">
+      <svg class="mx-auto mb-3 h-6 w-6 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      Loading services...
     </div>
   {:else}
     <!-- SERVICE LIST VIEW -->
@@ -895,10 +884,10 @@
                     <button
                       type="button"
                       class="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                      aria-label="Sort services by guest count"
-                      onclick={() => handleSort("guests_count")}
+                      aria-label="Sort services by returning guest count"
+                      onclick={() => handleSort("returning_guests")}
                     >
-                      Guests
+                      Returning Guests
                     </button>
                   </th>
                 {/if}
@@ -932,42 +921,15 @@
               </tr>
             </thead>
             <tbody>
-              {#if loading}
+              {#if filteredServices().length === 0}
                 <tr>
                   <td
                     colspan="10"
                     class="px-4 py-8 text-center text-muted-foreground"
                   >
-                    <svg
-                      class="animate-spin h-6 w-6 mx-auto mb-2"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        class="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        stroke-width="4"
-                      ></circle>
-                      <path
-                        class="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      ></path>
-                    </svg>
-                    Loading services...
-                  </td>
-                </tr>
-              {:else if filteredServices().length === 0}
-                <tr>
-                  <td
-                    colspan="10"
-                    class="px-4 py-8 text-center text-muted-foreground"
-                  >
-                    No services found. Record your first service to get
-                    started.
+                    {services.length === 0
+                      ? "No services have been recorded yet. Record your first service to get started."
+                      : "No services match the current filters."}
                   </td>
                 </tr>
               {:else}
@@ -1002,17 +964,17 @@
                     {/if}
                     {#if columnVisibility.attendance}
                       <td class="px-4 py-3 text-sm text-foreground font-medium"
-                        >{service.total_attendance || "—"}</td
+                        >{serviceMetrics(service).totalAttendance || "—"}</td
                       >
                     {/if}
                     {#if columnVisibility.guests}
                       <td class="px-4 py-3 text-sm text-info"
-                        >{service.guests_count || "—"}</td
+                        >{serviceMetrics(service).returningGuestAttendance || "—"}</td
                       >
                     {/if}
                     {#if columnVisibility.decisions}
                       <td class="px-4 py-3 text-sm text-success"
-                        >{service.salvation_decisions || "—"}</td
+                        >{serviceMetrics(service).decisions || "—"}</td
                       >
                     {/if}
                     {#if columnVisibility.individuals}
@@ -1025,8 +987,8 @@
                             onclick={(e) => handleIndividualsClick(service, e)}
                           >
                             <div class="flex -space-x-1">
-                              {#each service.individuals.slice(0, 3) as personId}
-                                {@const person = getPersonById(personId)}
+                              {#each service.individuals.slice(0, 3) as attendee}
+                                {@const person = getPersonById(attendee)}
                                 {#if person}
                                   <div
                                     class="w-6 h-6 rounded-full bg-primary/20 border-2 border-card flex items-center justify-center text-[10px] font-medium text-primary"
@@ -1111,9 +1073,11 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
             </div>
-            <h2 class="mt-4 text-lg font-semibold text-foreground">No services in this period</h2>
-            <p class="mx-auto mt-2 max-w-md text-sm text-muted-foreground">Change the date or service-type filter, or record the first service for this period.</p>
-            <div class="mt-5"><Button onclick={handleAddService}>Record service</Button></div>
+            <h2 class="mt-4 text-lg font-semibold text-foreground">{services.length === 0 ? "No services recorded yet" : "No services in this period"}</h2>
+            <p class="mx-auto mt-2 max-w-md text-sm text-muted-foreground">{services.length === 0 ? "Record the first service when attendance is ready." : "Change the date or service-type filter to see other recorded services."}</p>
+            {#if services.length === 0}
+              <div class="mt-5"><Button onclick={handleAddService}>Record service</Button></div>
+            {/if}
           </section>
         {:else}
           <section class="overflow-hidden rounded-2xl border border-border bg-card" aria-labelledby="period-overview-title">
@@ -1132,24 +1096,24 @@
             <div class="grid grid-cols-2 divide-x divide-y divide-border lg:grid-cols-4 lg:divide-y-0">
               <div class="px-5 py-5">
                 <div class="flex items-center justify-between gap-3">
-                  <p class="text-xs font-medium text-muted-foreground">Tithers</p>
+                  <p class="text-xs font-medium text-muted-foreground">Avg tithers / service</p>
                   <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
                     <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2a5 5 0 00-10 0v2m10 0H7m8-13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                   </span>
                 </div>
-                  <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{kpis().totalTithers}</p>
-                  <p class="mt-1 text-xs text-muted-foreground">{kpis().titherRate}% of member attendance</p>
+                  <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{attendanceMix().averageTithers}</p>
+                  <p class="mt-1 text-xs text-muted-foreground">{kpis().totalTithers} recorded across the period · {kpis().titherRate}% of member attendance</p>
               </div>
 
               <div class="px-5 py-5">
                 <div class="flex items-center justify-between gap-3">
-                  <p class="text-xs font-medium text-muted-foreground">Guests</p>
+                  <p class="text-xs font-medium text-muted-foreground">Avg returning guests</p>
                   <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-info/10 text-info">
                     <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v6m3-3h-6m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 21v-1a6 6 0 0112 0v1" /></svg>
                   </span>
                 </div>
-                <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{kpis().totalGuests}</p>
-                <p class="mt-1 text-xs text-muted-foreground">{guestRate()}% of all attendance</p>
+                <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{attendanceMix().averageReturningGuests}</p>
+                <p class="mt-1 text-xs text-muted-foreground">Average per service · {kpis().totalReturningGuests} returning guest visits · {returningGuestRate()}% share</p>
               </div>
 
               <div class="px-5 py-5">
@@ -1170,7 +1134,7 @@
                     <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M7 15l4-4 3 3 5-6" /></svg>
                   </span>
                 </div>
-                <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{latestService()?.total_attendance || 0}</p>
+                <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{latestService() ? serviceMetrics(latestService()).totalAttendance : 0}</p>
                 <p class="mt-1 text-xs {attendanceDelta() === null ? 'text-muted-foreground' : attendanceDelta() >= 0 ? 'text-success' : 'text-warning'}">
                   {#if attendanceDelta() === null}
                     No previous service to compare
@@ -1199,9 +1163,9 @@
                   periodLabel={$dateRange.label}
                   onPointClick={handleChartPointClick}
                   comparisonOptions={[
-                    { key: "guests", label: "Guests", color: "warning" },
+                    { key: "returningGuests", label: "Returning guests", color: "warning" },
                     { key: "decisions", label: "Salvation decisions", color: "success" },
-                    { key: "firstTimers", label: "First timers", color: "warning" },
+                    { key: "firstTimers", label: "First-timer visits", color: "warning" },
                     { key: "tithers", label: "Tithers", color: "warning" },
                   ]}
                 />
@@ -1214,7 +1178,7 @@
                   <h2 class="text-sm font-semibold text-foreground">At a glance</h2>
                   <p class="mt-1 text-xs text-muted-foreground">Useful context for this period.</p>
                 </div>
-                <span class="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">{guestRate()}% guests</span>
+                <span class="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">{returningGuestRate()}% returning guests</span>
               </div>
 
               <div class="mt-5 space-y-1">
@@ -1224,17 +1188,17 @@
                       <span class="block text-xs text-muted-foreground">Highest attendance</span>
                       <span class="mt-1 block text-sm font-medium text-foreground">{formatShortDate(highestService().service_date)} · {highestService().sermon_topic || "Service"}</span>
                     </span>
-                    <span class="text-lg font-semibold text-success">{highestService().total_attendance || 0}</span>
+                    <span class="text-lg font-semibold text-success">{serviceMetrics(highestService()).totalAttendance}</span>
                   </button>
                 {/if}
 
                 {#if latestService()}
                   <button type="button" class="flex w-full items-center justify-between gap-4 rounded-lg px-3 py-3 text-left transition-colors hover:bg-secondary/35" onclick={() => handleServiceClick(latestService())}>
                     <span>
-                      <span class="block text-xs text-muted-foreground">Latest guests</span>
+                      <span class="block text-xs text-muted-foreground">Latest returning guests</span>
                       <span class="mt-1 block text-sm font-medium text-foreground">{formatShortDate(latestService().service_date)}</span>
                     </span>
-                    <span class="text-lg font-semibold text-info">{latestService().guests_count || 0}</span>
+                    <span class="text-lg font-semibold text-info">{serviceMetrics(latestService()).returningGuestAttendance}</span>
                   </button>
                 {/if}
 
@@ -1270,9 +1234,10 @@
                     <p class="mt-1 truncate text-xs text-muted-foreground">{service.sermon_speaker || "Speaker not recorded"}{service.location ? " · " + service.location : ""}</p>
                   </div>
                   <div class="col-span-2 flex items-center justify-end gap-4 text-xs sm:col-span-1">
-                    <span class="text-muted-foreground"><strong class="text-foreground">{service.total_attendance || 0}</strong> attended</span>
-                    <span class="text-info"><strong>{service.guests_count || 0}</strong> guests</span>
-                    <span class="hidden text-success md:inline"><strong>{service.salvation_decisions || 0}</strong> decisions</span>
+                    <span class="text-muted-foreground"><strong class="text-foreground">{serviceMetrics(service).totalAttendance}</strong> attended</span>
+                    <span class="text-info"><strong>{serviceMetrics(service).returningGuestAttendance}</strong> returning guests</span>
+                    <span class="hidden text-success md:inline"><strong>{serviceMetrics(service).firstTimers}</strong> first timers</span>
+                    <span class="hidden text-success lg:inline"><strong>{serviceMetrics(service).decisions}</strong> decisions</span>
                     <svg class="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
                   </div>
                 </button>
@@ -1284,37 +1249,42 @@
             <section class="rounded-2xl border border-border bg-card p-5 {typeDistribution().typeEntries.length <= 1 ? 'lg:col-span-2' : ''}" aria-labelledby="attendance-mix-title">
               <div>
                 <h2 id="attendance-mix-title" class="text-sm font-semibold text-foreground">Attendance &amp; outcomes</h2>
-                <p class="mt-1 text-xs text-muted-foreground">Member and guest attendance alongside recorded ministry outcomes.</p>
+                <p class="mt-1 text-xs text-muted-foreground">Average attendance per gathering. Members, returning guests and first timers are shown as separate groups.</p>
               </div>
 
               <div class="mt-5 flex flex-col items-center gap-6 sm:flex-row">
-                <div class="relative h-36 w-36 shrink-0" role="img" aria-label="Attendance rings: {donutData().memberPct}% members, {donutData().guestPct}% guests, and {kpis().titherRate}% tither attendances among members">
+                <div class="relative h-36 w-36 shrink-0" role="img" aria-label="Average attendance mix per gathering: {donutData().memberPct}% members, {donutData().returningGuestPct}% returning guests, {donutData().firstTimerPct}% first timers, and {donutData().titherRate}% tither attendances among members">
                   <svg viewBox="0 0 36 36" class="h-full w-full -rotate-90">
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-secondary" />
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-primary" style="opacity: {attendanceRingVisibility.members ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.members ? `${donutData().memberPct} ${100 - donutData().memberPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-linecap="round" />
-                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-info" style="opacity: {attendanceRingVisibility.guests ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.guests ? `${donutData().guestPct} ${100 - donutData().guestPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-dashoffset="-{donutData().memberPct}" stroke-linecap="round" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-info" style="opacity: {attendanceRingVisibility.guests ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.guests ? `${donutData().returningGuestPct} ${100 - donutData().returningGuestPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-dashoffset="-{donutData().memberPct}" stroke-linecap="round" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-success" style="opacity: {attendanceRingVisibility.firstTimers ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.firstTimers ? `${donutData().firstTimerPct} ${100 - donutData().firstTimerPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-dashoffset="-{donutData().memberPct + donutData().returningGuestPct}" stroke-linecap="round" />
                     <circle cx="18" cy="18" r="11.5" fill="none" stroke="currentColor" stroke-width="2.5" class="text-secondary" pathLength="100" />
-                    <circle cx="18" cy="18" r="11.5" fill="none" stroke="currentColor" stroke-width="2.5" class="text-warning" pathLength="100" style="opacity: {attendanceRingVisibility.tithers ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.tithers ? `${kpis().titherRate} ${100 - kpis().titherRate}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-linecap="round" />
+                    <circle cx="18" cy="18" r="11.5" fill="none" stroke="currentColor" stroke-width="2.5" class="text-warning" pathLength="100" style="opacity: {attendanceRingVisibility.tithers ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.tithers ? `${donutData().titherRate} ${100 - donutData().titherRate}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-linecap="round" />
                   </svg>
                   <div class="absolute inset-0 flex flex-col items-center justify-center">
                     <span class="text-xl font-semibold text-foreground">{donutData().total}</span>
-                    <span class="text-[10px] uppercase tracking-wide text-muted-foreground">attendances</span>
+                    <span class="text-center text-[9px] uppercase leading-tight tracking-wide text-muted-foreground">avg / gathering</span>
                   </div>
                 </div>
                 <div class="w-full space-y-2">
                   <button type="button" aria-pressed={attendanceRingVisibility.members} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.members ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('members')}>
-                    <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-primary"></span>Members</span>
+                    <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-primary"></span>Avg members / gathering</span>
                     <span class="text-sm font-semibold text-foreground">{donutData().members} <span class="font-normal text-muted-foreground">({donutData().memberPct}%)</span></span>
                   </button>
                   <button type="button" aria-pressed={attendanceRingVisibility.guests} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.guests ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('guests')}>
-                    <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-info"></span>Guests</span>
-                    <span class="text-sm font-semibold text-foreground">{donutData().guests} <span class="font-normal text-muted-foreground">({donutData().guestPct}%)</span></span>
+                    <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-info"></span>Avg returning guests / gathering</span>
+                    <span class="text-sm font-semibold text-foreground">{donutData().returningGuests} <span class="font-normal text-muted-foreground">({donutData().returningGuestPct}%)</span></span>
+                  </button>
+                  <button type="button" aria-pressed={attendanceRingVisibility.firstTimers} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.firstTimers ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('firstTimers')}>
+                    <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-success"></span>Avg first timers / gathering</span>
+                    <span class="text-sm font-semibold text-foreground">{donutData().firstTimers} <span class="font-normal text-muted-foreground">({donutData().firstTimerPct}%)</span></span>
                   </button>
                   <button type="button" aria-pressed={attendanceRingVisibility.tithers} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.tithers ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('tithers')}>
-                    <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-warning"></span>Tithers <span class="text-[10px] text-muted-foreground">inner ring</span></span>
-                    <span class="text-sm font-semibold text-foreground">{kpis().totalTithers} <span class="font-normal text-muted-foreground">({kpis().titherRate}% of members)</span></span>
+                    <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-warning"></span>Avg tithers / gathering <span class="text-[10px] text-muted-foreground">inner ring</span></span>
+                    <span class="text-sm font-semibold text-foreground">{donutData().tithers} <span class="font-normal text-muted-foreground">({donutData().titherRate}% of members)</span></span>
                   </button>
-                  <p class="px-2 text-[11px] text-muted-foreground">Select a label to show or hide its ring. Tithers are a subset of member attendances, so they use the inner ring.</p>
+                  <p class="px-2 text-[11px] text-muted-foreground">Attendance values are averages per gathering, so a longer reporting period does not inflate the church-size measure. Tithers remain a subset of member attendance.</p>
                 </div>
               </div>
 
@@ -1330,7 +1300,7 @@
                 </button>
                 <button type="button" class="rounded-xl bg-secondary/25 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openOutcomeModal('tithers')}>
                   <div class="flex items-center justify-between gap-2">
-                    <span class="text-xs text-muted-foreground">Tithers</span>
+                    <span class="text-xs text-muted-foreground">Tither attendances · period total</span>
                     <span class="h-2 w-2 rounded-full bg-warning"></span>
                   </div>
                   <p class="mt-2 text-2xl font-semibold text-foreground">{kpis().totalTithers}</p>
@@ -1374,7 +1344,7 @@
             </summary>
             <div class="border-t border-border p-4">
               <FullscreenWrapper title="Weekly attendance by person">
-                <WeeklyAttendanceMatrix services={services} {people} maxServices={24} initialServiceCount={16} onServiceClick={handleServiceClick} />
+                <WeeklyAttendanceMatrix services={services} {people} commitments={sundayCommitments} commitmentsUnavailable={sundayCommitmentsUnavailable} maxServices={24} initialServiceCount={16} onServiceClick={handleServiceClick} />
               </FullscreenWrapper>
             </div>
           </details>
@@ -1474,22 +1444,28 @@
       {/if}
 
       <!-- Stats Grid -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div class="p-3 bg-secondary/20 rounded-lg text-center">
           <div class="text-2xl font-bold text-foreground">
-            {selectedService.total_attendance || 0}
+            {serviceMetrics(selectedService).totalAttendance}
           </div>
           <div class="text-xs text-muted-foreground">Attendance</div>
         </div>
         <div class="p-3 bg-secondary/20 rounded-lg text-center">
           <div class="text-2xl font-bold text-info">
-            {selectedService.guests_count || 0}
+            {serviceMetrics(selectedService).returningGuestAttendance}
           </div>
-          <div class="text-xs text-muted-foreground">Guests</div>
+          <div class="text-xs text-muted-foreground">Returning guests</div>
+        </div>
+        <div class="p-3 bg-secondary/20 rounded-lg text-center">
+          <div class="text-2xl font-bold text-info">
+            {serviceFirstTimerCount(selectedService)}
+          </div>
+          <div class="text-xs text-muted-foreground">First-timer visits</div>
         </div>
         <div class="p-3 bg-secondary/20 rounded-lg text-center">
           <div class="text-2xl font-bold text-success">
-            {selectedService.salvation_decisions || 0}
+            {serviceMetrics(selectedService).decisions}
           </div>
           <div class="text-xs text-muted-foreground">Decisions</div>
         </div>

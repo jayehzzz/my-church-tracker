@@ -21,12 +21,12 @@
       title: "Module Shortcuts",
       shortcuts: [
         { keys: ["Alt", "1"], description: "Jump to Dashboard" },
-        { keys: ["Alt", "2"], description: "Jump to Evangelism Outreach" },
+        { keys: ["Alt", "2"], description: "Jump to Evangelism" },
         { keys: ["Alt", "3"], description: "Jump to Sunday Services" },
-        { keys: ["Alt", "4"], description: "Jump to Meetings & Attendance" },
-        { keys: ["Alt", "5"], description: "Jump to People Directory" },
+        { keys: ["Alt", "4"], description: "Jump to Meetings" },
+        { keys: ["Alt", "5"], description: "Jump to People" },
         { keys: ["Alt", "6"], description: "Jump to Pastoral Care" },
-        { keys: ["Alt", "7"], description: "Jump to Reports & Trends" },
+        { keys: ["Alt", "7"], description: "Jump to Reports" },
       ],
     },
   ];

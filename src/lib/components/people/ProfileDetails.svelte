@@ -1,8 +1,10 @@
 <script>
   import { Button } from "$lib/components/ui";
   import { formatChurchRole, formatChurchSchool, formatDegreeStatus, normalizeCompletedSchools } from "$lib/utils/personMetrics.js";
-  let { person, currentAge, isGuest, onEdit, onMerge } = $props();
+  import { formatJourneyStatus, formatLeadershipRole, normalizeJourneyStatus } from "$lib/services/peopleService.js";
+  let { person, currentAge, onEdit, onMerge } = $props();
   const schools = $derived(normalizeCompletedSchools(person.completed_schools || []));
+  const journeyStatus = $derived(normalizeJourneyStatus(person.member_status));
   const label = (value) => value ? String(value).replaceAll("_", " ") : "Not recorded";
   const yesNo = (value) => value === true ? "Yes" : value === false ? "No" : "Not recorded";
   function date(value) {
@@ -16,10 +18,14 @@
     ["Employment", label(person.employment_status)], ["Degree", person.degree_status ? formatDegreeStatus(person.degree_status) : "Not recorded"],
   ]);
   let church = $derived([
-    ["Church role", person.church_role ? formatChurchRole(person.church_role) : "Not recorded"],
+    ["Church journey status", formatJourneyStatus(person.member_status)],
+    ["Leadership role", formatLeadershipRole(person.role)],
+    ["Basonta membership", person.church_role === "basonta" ? "Basonta member" : person.church_role ? formatChurchRole(person.church_role) : "Not recorded"],
     ["Membership date", date(person.membership_date)], ["Baptised", yesNo(person.is_baptised)],
-    ["Tithing", yesNo(person.is_tither)], ["Basontas", person.basontas?.length ? person.basontas.map(label).join(", ") : "None recorded"],
+    ["Tithing", yesNo(person.is_tither)], ["Basonta / ministry groups", person.basontas?.length ? person.basontas.map(label).join(", ") : "None recorded"],
   ]);
+  let connectionHeading = $derived(journeyStatus === "contact" ? "Outreach information" : journeyStatus === "guest" ? "Guest information" : "How they connected");
+  let firstAttendance = $derived(person.first_visit_date ? date(person.first_visit_date) : journeyStatus === "contact" ? "Not yet attended" : "Not recorded");
 </script>
 
 <div class="details-heading"><div><h2>Personal & church details</h2><p>Background information recorded for this person.</p></div><Button variant="secondary" onclick={onEdit}>Edit details</Button></div>
@@ -27,12 +33,12 @@
   <section><h3>Personal information</h3><dl>{#each personal as [name, value]}<div><dt>{name}</dt><dd>{value}</dd></div>{/each}</dl></section>
   <section><h3>Church information</h3><dl>{#each church as [name, value]}<div><dt>{name}</dt><dd>{value}</dd></div>{/each}</dl></section>
   <section><h3>Church schools</h3>{#if schools.length}<ul>{#each schools as school}<li>✓ {formatChurchSchool(school)}</li>{/each}</ul>{:else}<p>No completed church schools recorded.</p>{/if}</section>
-  <section><h3>{isGuest ? "Guest information" : "How they connected"}</h3><dl>
-    <div><dt>First visit</dt><dd>{date(person.first_visit_date)}</dd></div>
+  <section><h3>{connectionHeading}</h3><dl>
+    <div><dt>First attendance</dt><dd>{firstAttendance}</dd></div>
     <div><dt>Invited by</dt><dd>{#if person.invited_by_id}<a href="/people/{encodeURIComponent(person.invited_by_id)}">{person.invited_by || "View inviter"} →</a>{:else}{person.invited_by || "Not recorded"}{/if}</dd></div>
     <div><dt>Contact preference</dt><dd>{label(person.contact_category)}</dd></div>
     {#if person.follow_up_status}<div><dt>Follow-up status</dt><dd>{label(person.follow_up_status)}</dd></div>{/if}
-  </dl></section>
+  </dl><p class="attendance-note">First Timer is an attendance marker for a person's first recorded attendance, not a permanent profile status.</p></section>
   <section class="notes"><div class="section-heading"><h3>Notes</h3><button type="button" onclick={onEdit}>Edit notes</button></div><p class="notes-text">{person.notes || "No notes recorded."}</p></section>
 </div>
 {#if onMerge}<details class="record-tools"><summary>Record management</summary><p>Review a duplicate record and choose which profile to keep.</p><Button variant="secondary" onclick={onMerge}>Merge duplicate</Button></details>{/if}
@@ -43,6 +49,6 @@
   dl > div { display: grid; grid-template-columns: 1fr 1.2fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid hsl(var(--border) / .6); font-size: 13px; } dl > div:last-child { border: 0; } dt { color: hsl(var(--muted-foreground)); } dd { text-transform: capitalize; overflow-wrap: anywhere; }
   a, .section-heading button { color: hsl(var(--primary)); } a:hover, button:hover { text-decoration: underline; } li { padding: 6px 0; font-size: 13px; }
   .notes { grid-column: 1 / -1; } .section-heading { display: flex; justify-content: space-between; gap: 12px; } .section-heading button { font-size: 13px; align-self: flex-start; } .notes-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .record-tools { margin-top: 24px; border-top: 1px solid hsl(var(--border)); padding-top: 20px; font-size: 13px; } summary { cursor: pointer; color: hsl(var(--muted-foreground)); } .record-tools p { margin: 16px 0 12px; }
+  .attendance-note { margin-top: 14px; } .record-tools { margin-top: 24px; border-top: 1px solid hsl(var(--border)); padding-top: 20px; font-size: 13px; } summary { cursor: pointer; color: hsl(var(--muted-foreground)); } .record-tools p { margin: 16px 0 12px; }
   @media(max-width: 700px) { .details-grid { grid-template-columns: 1fr; } section { padding: 20px; } }
 </style>

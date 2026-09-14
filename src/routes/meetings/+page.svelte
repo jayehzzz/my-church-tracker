@@ -145,6 +145,7 @@
   ];
   const personStatusOptions = [
     { value: "all", label: "All person statuses" },
+    { value: "contact", label: "Outreach Contacts" },
     { value: "guest", label: "Guests" },
     { value: "member", label: "Members" },
     { value: "leader", label: "Leaders" },
@@ -573,7 +574,7 @@
   <div class="pb-12">
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <PageHeader
-        title="Meetings & Attendance"
+        title="Meetings"
         subtitle="Track attendance for recurring programmes and one-off church events"
       />
       <div class="flex flex-wrap gap-2">
@@ -1080,7 +1081,7 @@
                 {person.first_name} {person.last_name}
               </span>
               <span class="block text-xs capitalize text-muted-foreground">
-                {person.member_status === "visitor" ? "Guest" : person.member_status || "Guest"}
+                {person.member_status === "contact" ? "Outreach Contact" : person.member_status === "visitor" ? "Guest" : person.member_status || "Guest"}
                 {person.last_attended ? ` · Last attended ${formatDate(person.last_attended)}` : ""}
               </span>
             </span>

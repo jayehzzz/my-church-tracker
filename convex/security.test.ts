@@ -104,7 +104,7 @@ describe("public backend boundaries", () => {
     const { t, as, ids } = await fixture();
     const input = { first_name: "New contact", contact_date: "2026-09-05", response: "not_assessed" };
     const contact = await as("leader").mutation(api.evangelism.create, input);
-    expect(contact).toMatchObject({ collected_by_id: ids.leaderPerson, member_status: "guest" });
+    expect(contact).toMatchObject({ collected_by_id: ids.leaderPerson, member_status: "contact" });
     expect(await as("leader").query(api.evangelism.getById, { id: contact!._id })).not.toBeNull();
     const tasks = await t.run(ctx => ctx.db.query("follow_up_tasks").withIndex("by_person", q => q.eq("person_id", contact!._id)).collect());
     expect(tasks).toHaveLength(1);
@@ -143,7 +143,7 @@ describe("public backend boundaries", () => {
 
   it("viewers see summary counts and cannot read personal records or write", async () => {
     const { as } = await fixture();
-    expect(await as("viewer").query(api.access.summary, {})).toEqual({ members: 0, leaders: 3, guests: 2 });
+    expect(await as("viewer").query(api.access.summary, {})).toEqual({ members: 0, leaders: 3, guests: 2, contacts: 0 });
     await expect(as("viewer").query(api.people.getAll, {})).rejects.toThrow(/FORBIDDEN/);
     await expect(as("viewer").mutation(api.people.create, { first_name: "No", last_name: "Access", member_status: "guest" })).rejects.toThrow(/FORBIDDEN/);
     await expect(as("viewer").query(api.access.listAccounts, {})).rejects.toThrow(/FORBIDDEN/);
@@ -219,11 +219,17 @@ describe("public backend boundaries", () => {
     const requests = await as("owner").query(api.access.listAccessRequests, {});
     expect(requests).toHaveLength(1);
     expect(requests[0]).not.toHaveProperty("external_auth_id");
+    await expect(as("admin").mutation(api.access.rejectAccessRequest, { requestId: requests[0].id })).rejects.toThrow(/FORBIDDEN/);
+    await as("owner").mutation(api.access.rejectAccessRequest, { requestId: requests[0].id });
+    expect(await as("owner").query(api.access.listAccessRequests, {})).toHaveLength(0);
+    // A declined identity can ask again later; declining never creates app access.
+    expect(await as("new").mutation(api.access.requestAccess, {})).toEqual({ state: "pending" });
+    const [replacementRequest] = await as("owner").query(api.access.listAccessRequests, {});
     await expect(as("owner").mutation(api.access.approveAccessRequest, {
-      requestId: requests[0].id, role: "leader", status: "active", canViewConfidential: false,
+      requestId: replacementRequest.id, role: "leader", status: "active", canViewConfidential: false,
     })).rejects.toThrow(/LINKED_PERSON_REQUIRED/);
     await as("owner").mutation(api.access.approveAccessRequest, {
-      requestId: requests[0].id, role: "viewer", status: "active", canViewConfidential: false,
+      requestId: replacementRequest.id, role: "viewer", status: "active", canViewConfidential: false,
     });
     expect(await as("new").query(api.access.me, {})).toHaveProperty("role", "viewer");
     const managed = await as("owner").query(api.access.listManagedAccounts, {});
@@ -256,7 +262,7 @@ describe("maintenance safeguards", () => {
   it("registers seeds, migration and reset functions as internal only", async () => {
     for (const [path, names] of Object.entries({
       "./seed.ts": ["seed"], "./seed_simple.ts": ["seed"],
-      "./migrations.ts": ["removeBasontaWorkerRole", "seedEvangelismContacts"],
+      "./migrations.ts": ["removeBasontaWorkerRole", "seedEvangelismContacts", "reclassifyOutreachOnlyGuests"],
       "./meetings.ts": ["migrateLegacyMeetings"], "./maintenance.ts": ["resetDisposableData"],
       "./access.ts": ["provisionFirstOwner"],
     })) {

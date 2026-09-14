@@ -19,7 +19,10 @@
     import ProfileHistoryTabs from "$lib/components/people/ProfileHistoryTabs.svelte";
     import PersonForm from "$lib/components/forms/PersonForm.svelte";
     import ServiceDetailModal from "$lib/components/people/ServiceDetailModal.svelte";
+    import EvangelismDetailModal from "$lib/components/evangelism/EvangelismDetailModal.svelte";
+    import VisitationDetailModal from "$lib/components/visitation/VisitationDetailModal.svelte";
     import CareSummary from "$lib/components/people/CareSummary.svelte";
+    import SundayReliabilitySummary from "$lib/components/shared/SundayReliabilitySummary.svelte";
 
     let { data } = $props();
 
@@ -36,6 +39,10 @@
     let mergeConfirmed = $state(false);
     let showServiceDetailModal = $state(false);
     let selectedAttendanceRecord = $state(null);
+    let showOutreachDetailModal = $state(false);
+    let selectedOutreachRecord = $state(null);
+    let showVisitationDetailModal = $state(false);
+    let selectedVisitationRecord = $state(null);
     let attendanceHistory = $state([]);
     let outreachContacts = $state([]);
     let visitations = $state([]);
@@ -332,6 +339,12 @@
 
             <PeopleStatsGrid {totalAttendance} {lastAttended} unavailable={sectionErrors.attendance} />
 
+            {#if sectionErrors.care}
+                <p class="rounded-xl border border-border p-4 text-sm text-muted-foreground">Sunday commitment history is unavailable. Retry profile history to see expected-Sunday follow-through.</p>
+            {:else}
+                <SundayReliabilitySummary commitments={careProfile?.commitments || []} summary={careProfile?.sunday_reliability || null} />
+            {/if}
+
             <a class="development-entry" href="/development?person={encodeURIComponent(person._id || person.id)}">Open Development assessment <span aria-hidden="true">→</span><small>Participation evidence, leader review and growth agreements</small></a>
 
             <div class="profile-views" aria-label="Profile view">
@@ -360,6 +373,14 @@
                             showServiceDetailModal = true;
                         }
                     }}
+                    onOutreachClick={(record) => {
+                        selectedOutreachRecord = record;
+                        showOutreachDetailModal = true;
+                    }}
+                    onVisitationClick={(record) => {
+                        selectedVisitationRecord = record;
+                        showVisitationDetailModal = true;
+                    }}
                 />
             {:else}
                 <ProfileDetails {person} {currentAge} {isGuest} onEdit={() => showEditModal = true} onMerge={openMergeReview} />
@@ -368,6 +389,14 @@
             <ServiceDetailModal
                 bind:isOpen={showServiceDetailModal}
                 attendanceRecord={selectedAttendanceRecord}
+            />
+            <EvangelismDetailModal
+                bind:isOpen={showOutreachDetailModal}
+                contact={selectedOutreachRecord}
+            />
+            <VisitationDetailModal
+                bind:isOpen={showVisitationDetailModal}
+                visitation={selectedVisitationRecord}
             />
         {/if}
     </div>

@@ -83,8 +83,7 @@
             // Type match
             const matchesType =
                 selectedType === "all" ||
-                act.type === selectedType ||
-                (selectedType === "salvation" && (act.type === "salvation" || act.type === "conversion"));
+                act.type === selectedType;
             if (!matchesType) return false;
 
             // Query match

@@ -242,6 +242,40 @@ describe('plans and promise timeline reconciliation',()=>{
         await owner.mutation(api.services.remove,{id:s!._id});
         expect(await t.run(ctx=>ctx.db.query('attendance_plans').collect())).toHaveLength(0);
     });
+    it('tracks member Sunday confirmations and later missed reasons in the shared commitment history',async()=>{
+        const {t,owner,ids}=await fixture();
+        await t.run(ctx=>ctx.db.patch(ids.person,{member_status:'member'}));
+        await owner.mutation(api.crm.setAttendancePlan,{personId:ids.person,leaderId:ids.leader,serviceDate:'2026-08-02',status:'confirmed',notes:'Confirmed by phone; plans to come with a friend'});
+        let commitments=await t.run(ctx=>ctx.db.query('gathering_commitments').collect());
+        expect(commitments).toHaveLength(1);
+        expect(commitments[0]).toMatchObject({response:'yes',resolution:'pending',confirmation_note:'Confirmed by phone; plans to come with a friend'});
+        expect(commitments[0].history?.at(-1)).toMatchObject({action:'confirmed',note:'Confirmed by phone; plans to come with a friend'});
+        await owner.mutation(api.crm.setAttendancePlan,{personId:ids.person,leaderId:ids.leader,serviceDate:'2026-08-02',status:'absent',notes:'Called after church; transport fell through'});
+        commitments=await t.run(ctx=>ctx.db.query('gathering_commitments').collect());
+        expect(commitments[0]).toMatchObject({response:'yes',resolution:'no_show',resolution_note:'Called after church; transport fell through'});
+        expect(commitments[0].history?.map(change=>change.action)).toEqual(['confirmed','no_show']);
+    });
+
+    it('automatically resolves a recorded Sunday yes as a no-show when the person is absent',async()=>{
+        const {t,service,commitment}=await fixture();
+        const expected=await commitment();
+        await service({total_attendance:3,guests_count:0,attendanceData:[]});
+        expect(await t.run(ctx=>ctx.db.get(expected!._id))).toMatchObject({response:'yes',resolution:'no_show'});
+    });
+
+    it('automatically marks an absent confirmed member while keeping attendees fulfilled',async()=>{
+        const {t,owner,ids,service}=await fixture();
+        await t.run(ctx=>ctx.db.patch(ids.person,{member_status:'member'}));
+        const plan=await owner.mutation(api.crm.setAttendancePlan,{personId:ids.person,leaderId:ids.leader,serviceDate:'2026-08-02',status:'confirmed'});
+        const s=await service({total_attendance:2,guests_count:0,attendanceData:[]});
+        expect(await t.run(ctx=>ctx.db.get(plan!._id))).toMatchObject({status:'absent'});
+        expect((await t.run(ctx=>ctx.db.query('gathering_commitments').collect()))[0]).toMatchObject({resolution:'no_show'});
+
+        await service({id:s!._id,total_attendance:1,guests_count:0,attendanceData:[{...checkin(ids.person),first_timer:false}]});
+        expect(await t.run(ctx=>ctx.db.get(plan!._id))).toMatchObject({status:'attended'});
+        expect((await t.run(ctx=>ctx.db.query('gathering_commitments').collect()))[0]).toMatchObject({resolution:'attended'});
+    });
+
     it('creates exactly one plan through CRM when the member had no plan',async()=>{
         const {t,owner,ids,service}=await fixture();
         await t.run(ctx=>ctx.db.patch(ids.person,{member_status:'member'})); await service();

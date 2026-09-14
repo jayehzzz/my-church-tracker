@@ -10,7 +10,6 @@
   import EvangelismDetailModal from "$lib/components/evangelism/EvangelismDetailModal.svelte";
   import EvangelismInsights from "$lib/components/evangelism/EvangelismInsights.svelte";
   import InviterProfilePopup from "$lib/components/dashboard/InviterProfilePopup.svelte";
-  import { mockPeople, mockEvangelismContacts } from "$lib/data/mockData";
   import { dateRange } from "$lib/stores/filterStore";
   import {
     buildEvangelismRows,
@@ -28,14 +27,14 @@
     getDashboard as getCrmDashboard,
   } from "$lib/services/followUpCrmService.js";
 
-  let contacts = $state(mockEvangelismContacts);
-  let people = $state(mockPeople);
+  let contacts = $state([]);
+  let people = $state([]);
   let crmWorkspace = $state({
     leaders: [], active_assignments: [], tasks: [], member_care_tasks: [],
     confirmed_commitments: [], later_contacts: [], unassigned_contacts: [],
   });
   let activeView = $state("contacts");
-  let loading = $state(false);
+  let loading = $state(true);
   let error = $state(null);
   let hasLoadedClientData = $state(false);
 
@@ -47,14 +46,14 @@
   let isFormOpen = $state(false);
   let isDetailModalOpen = $state(false);
   let isDeleteModalOpen = $state(false);
-  let isConvertModalOpen = $state(false);
+  let isJoinChurchModalOpen = $state(false);
   let isInviterPopupOpen = $state(false);
   let selectedContact = $state(null);
   let selectedInviter = $state(null);
   let contactProfile = $state(null);
   let profileLoading = $state(false);
   let deleting = $state(false);
-  let converting = $state(false);
+  let joiningChurch = $state(false);
 
   const responseOptions = [
     { value: "not_assessed", label: "Not assessed" },
@@ -68,12 +67,9 @@
   ];
 
   const journeyOptions = [
-    { value: "outreach", label: "Outreach" },
-    { value: "saved", label: "Salvation decision" },
-    { value: "visited", label: "First-time attendee" },
-    { value: "engaged", label: "Saved and attended" },
+    { value: "outreach", label: "Outreach Contact" },
+    { value: "guest", label: "Guest" },
     { value: "joined", label: "Joined church" },
-    { value: "closed", label: "Closed" },
   ];
 
   const followUpOptions = [
@@ -91,8 +87,9 @@
     { key: "full_name", label: "Person", sortable: true, width: "190px" },
     { key: "contact_date_label", label: "Contacted", sortable: true, width: "145px" },
     { key: "response_label", label: "Follow-up posture", sortable: true, width: "170px" },
-    { key: "invited_by_name", label: "Invited by", sortable: true, width: "160px" },
+    { key: "invited_by_name", label: "Invited / credited by", sortable: true, width: "190px" },
     { key: "journey_label", label: "Journey", sortable: true, width: "150px" },
+    { key: "sunday_reliability_label", label: "Sunday follow-through", sortable: true, width: "190px" },
     { key: "follow_up_label", label: "Follow-up", sortable: true, width: "190px" },
   ];
 
@@ -127,8 +124,7 @@
       contacts = result.data || [];
     } catch (loadError) {
       console.warn("Failed to load evangelism contacts:", loadError?.message);
-      contacts = mockEvangelismContacts;
-      error = "Contacts could not be refreshed. Showing the latest available records.";
+      error = "Contacts could not be loaded. Retry when the connection is available.";
     } finally {
       loading = false;
     }
@@ -142,7 +138,6 @@
       if (!result.error) people = result.data || [];
     } catch (loadError) {
       console.warn("Failed to load people:", loadError?.message);
-      people = mockPeople;
     }
   }
 
@@ -217,23 +212,29 @@
     }
   }
 
-  async function handleConfirmConvert() {
+  async function handleConfirmJoinChurch() {
     if (!selectedContact) return;
-    converting = true;
+    joiningChurch = true;
     try {
       const evangelismService = await import("$lib/services/evangelismService");
       const id = contactId(selectedContact);
-      const result = await evangelismService.markAsConverted(id, true);
+      const result = await evangelismService.markAsJoinedChurch(id);
       if (result.error) throw result.error;
       contacts = contacts.map((contact) => String(contactId(contact)) === String(id)
-        ? { ...contact, converted: true, status: "member", conversion_date: new Date().toISOString().slice(0, 10) }
+        ? {
+            ...contact,
+            ...(result.data || {}),
+            member_status: result.data?.member_status || "member",
+            membership_date: result.data?.membership_date || new Date().toISOString().slice(0, 10),
+          }
         : contact);
-      isConvertModalOpen = false;
+      isJoinChurchModalOpen = false;
       selectedContact = null;
-    } catch (convertError) {
-      console.error("Error converting contact:", convertError);
+    } catch (joinError) {
+      console.error("Error recording church membership:", joinError);
+      error = joinError?.message || "Could not record that this person joined church.";
     } finally {
-      converting = false;
+      joiningChurch = false;
     }
   }
 
@@ -258,7 +259,7 @@
     <div class="flex flex-wrap items-center gap-2">
       <Button variant="secondary" onclick={() => goto("/pipeline")}>
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m-6-6l6 6-6 6" /></svg>
-        Follow-Up CRM
+        Follow-Up
       </Button>
       <Button onclick={handleAddContact}>
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m-7-7h14" /></svg>
@@ -309,7 +310,7 @@
     <div class="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
       <div class="flex flex-wrap items-start gap-3">
         <MultiSelectFilter label="Posture" options={responseOptions} bind:selected={responseFilter} placeholder="Search follow-up postures..." />
-        <MultiSelectFilter label="Journey" options={journeyOptions} bind:selected={journeyFilter} placeholder="Search milestones..." />
+        <MultiSelectFilter label="Journey stage" options={journeyOptions} bind:selected={journeyFilter} placeholder="Search journey stages..." />
         <MultiSelectFilter label="Follow-up" options={followUpOptions} bind:selected={followUpFilter} placeholder="Search follow-up states..." />
       </div>
       <p class="pb-2 text-sm text-muted-foreground">Showing <span class="font-medium text-foreground">{directoryRows.length}</span> of {outreachRows.length} contacts</p>
@@ -334,7 +335,7 @@
         rowActionLabel="View"
         pageSize={15}
         searchKeys={["first_name", "last_name", "phone", "email", "invited_by_name"]}
-        searchPlaceholder="Search people, phone, email, or inviter..."
+        searchPlaceholder="Search people, phone, email, or inviter/credit..."
         emptyMessage={outreachRows.length ? "No contacts match these filters." : "No outreach contacts yet. Add the first person you reached."}
         storageKey="evangelism-outreach-directory-v3"
       />
@@ -378,17 +379,17 @@
   {/snippet}
 </Modal>
 
-<Modal bind:isOpen={isConvertModalOpen} title="Promote to member" size="sm" zIndex={60}>
+<Modal bind:isOpen={isJoinChurchModalOpen} title="Record joined church" size="sm" zIndex={60}>
   <div class="text-center">
     <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-success/10 text-success">
       <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 6L9 17l-5-5" /></svg>
     </div>
-    <p class="text-foreground">Promote <strong>{personName(selectedContact, "this contact")}</strong> to a church member?</p>
-    <p class="mt-2 text-sm text-muted-foreground">Their journey will be marked as joined and they will remain in the People Directory.</p>
+    <p class="text-foreground">Record that <strong>{personName(selectedContact, "this contact")}</strong> has joined the church?</p>
+    <p class="mt-2 text-sm text-muted-foreground">This records church membership as a separate journey milestone.</p>
   </div>
   {#snippet footer()}
-    <Button variant="secondary" onclick={() => isConvertModalOpen = false} disabled={converting}>Cancel</Button>
-    <Button onclick={handleConfirmConvert} loading={converting}>Promote to member</Button>
+    <Button variant="secondary" onclick={() => isJoinChurchModalOpen = false} disabled={joiningChurch}>Cancel</Button>
+    <Button onclick={handleConfirmJoinChurch} loading={joiningChurch}>Record joined church</Button>
   {/snippet}
 </Modal>
 
@@ -402,7 +403,7 @@
   onOpenCrm={() => goto("/pipeline")}
   onEdit={handleEditContact}
   onDelete={(contact) => { selectedContact = contact; isDeleteModalOpen = true; }}
-  onConvert={(contact) => { selectedContact = contact; isConvertModalOpen = true; }}
+  onJoinChurch={(contact) => { selectedContact = contact; isJoinChurchModalOpen = true; }}
   onQuickUpdate={async (id, updates) => {
     const evangelismService = await import("$lib/services/evangelismService");
     const result = await evangelismService.update(id, updates);

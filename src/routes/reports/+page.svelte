@@ -21,9 +21,12 @@
     import { dateRange } from "$lib/stores/filterStore";
     import { exportToCSV, exportColumns } from "$lib/utils/exportUtils";
     import {
+        buildPeopleJourneySummary,
         buildReportSummary,
         completedCareCount,
+        hasJoinedChurch,
         hasOpenCareFollowUp,
+        hasOutreachSalvation,
         isCompletedService,
         isHeldMeeting,
         isWithinReportingRange,
@@ -89,6 +92,7 @@
             visitations: fVisitations,
         });
     });
+    const peopleJourney = $derived(buildPeopleJourneySummary(people));
 
     async function loadReports() {
         if (!browser) return;
@@ -320,15 +324,23 @@
                     trend={null}
                 />
                 <KPICard
-                    title="Conversions"
-                    value={summaryKPIs().conversions}
+                    title="Joined Church"
+                    value={summaryKPIs().joinedChurch}
                     icon="check-circle"
                     variant="success"
                     description={$dateRange.label}
                     trend={null}
                 />
                 <KPICard
-                    title="Salvation Decisions"
+                    title="Saved on Outreach"
+                    value={summaryKPIs().outreachSalvationDecisions}
+                    icon="heart"
+                    variant="success"
+                    description={$dateRange.label}
+                    trend={null}
+                />
+                <KPICard
+                    title="Service Salvation Decisions"
                     value={summaryKPIs().salvationDecisions}
                     icon="heart"
                     variant="success"
@@ -375,7 +387,7 @@
                 <div class="card-base flex items-center justify-between">
                     <div>
                         <h4 class="text-sm font-medium text-foreground">
-                            People Directory
+                            People
                         </h4>
                         <p class="text-xs text-muted-foreground">
                             {people.length} records
@@ -474,7 +486,7 @@
             <div class="card-base">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-lg font-semibold text-foreground">
-                        People Directory
+                        People
                     </h3>
                     <Button size="sm" onclick={handleExportPeople} disabled={Boolean(error)}>
                         <svg
@@ -496,38 +508,44 @@
                 <p class="text-sm text-muted-foreground mb-4">
                     {people.length} total people in directory (not filtered by reporting period)
                 </p>
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <p class="mb-3 text-xs text-muted-foreground">
+                    Journey status and church roles are shown separately. Leadership and Basonta involvement can overlap with membership.
+                </p>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                     <div class="p-3 bg-secondary/30 rounded-lg">
-                        <p class="text-xs text-muted-foreground">Guests</p>
+                        <p class="text-xs text-muted-foreground">Outreach Contacts</p>
                         <p class="text-xl font-semibold text-foreground">
-                            {people.filter(
-                                (p) =>
-                                    p.member_status === "guest" ||
-                                    p.member_status === "visitor",
-                            )
-                                .length}
+                            {peopleJourney.outreachContacts}
+                        </p>
+                    </div>
+                    <div class="p-3 bg-secondary/30 rounded-lg">
+                        <p class="text-xs text-muted-foreground">Current Guests</p>
+                        <p class="text-xl font-semibold text-foreground">
+                            {peopleJourney.guests}
                         </p>
                     </div>
                     <div class="p-3 bg-secondary/30 rounded-lg">
                         <p class="text-xs text-muted-foreground">Members</p>
                         <p class="text-xl font-semibold text-foreground">
-                            {people.filter((p) => p.member_status === "member")
-                                .length}
+                            {peopleJourney.members}
                         </p>
                     </div>
                     <div class="p-3 bg-secondary/30 rounded-lg">
-                        <p class="text-xs text-muted-foreground">Leaders</p>
+                        <p class="text-xs text-muted-foreground">Bacenta Leaders</p>
                         <p class="text-xl font-semibold text-foreground">
-                            {people.filter((p) => p.member_status === "leader")
-                                .length}
+                            {peopleJourney.bacentaLeaders}
                         </p>
                     </div>
                     <div class="p-3 bg-secondary/30 rounded-lg">
-                        <p class="text-xs text-muted-foreground">Archived</p>
+                        <p class="text-xs text-muted-foreground">Basonta Leaders</p>
                         <p class="text-xl font-semibold text-foreground">
-                            {people.filter(
-                                (p) => p.member_status === "archived",
-                            ).length}
+                            {peopleJourney.basontaLeaders}
+                        </p>
+                    </div>
+                    <div class="p-3 bg-secondary/30 rounded-lg">
+                        <p class="text-xs text-muted-foreground">In a Basonta</p>
+                        <p class="text-xl font-semibold text-foreground">
+                            {peopleJourney.basontaMembers}
                         </p>
                     </div>
                 </div>
@@ -561,7 +579,7 @@
                 <p class="text-sm text-muted-foreground mb-4">
                     {filteredContacts().length} contacts in selected period
                 </p>
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-4">
                     <div class="p-3 bg-secondary/30 rounded-lg">
                         <p class="text-xs text-muted-foreground">Responsive</p>
                         <p class="text-xl font-semibold text-success">
@@ -571,9 +589,16 @@
                         </p>
                     </div>
                     <div class="p-3 bg-secondary/30 rounded-lg">
-                        <p class="text-xs text-muted-foreground">Converted</p>
+                        <p class="text-xs text-muted-foreground">Saved on Outreach</p>
                         <p class="text-xl font-semibold text-success">
-                            {filteredContacts().filter((c) => c.converted)
+                            {filteredContacts().filter(hasOutreachSalvation)
+                                .length}
+                        </p>
+                    </div>
+                    <div class="p-3 bg-secondary/30 rounded-lg">
+                        <p class="text-xs text-muted-foreground">Joined Church</p>
+                        <p class="text-xl font-semibold text-success">
+                            {filteredContacts().filter(hasJoinedChurch)
                                 .length}
                         </p>
                     </div>
@@ -640,13 +665,16 @@
                     </div>
                     <div class="p-3 bg-secondary/30 rounded-lg">
                         <p class="text-xs text-muted-foreground">
-                            Total Guests
+                            Guest Attendance
                         </p>
                         <p class="text-xl font-semibold text-info">
                             {filteredServices().reduce(
                                 (sum, s) => sum + (s.guests_count || 0),
                                 0,
                             )}
+                        </p>
+                        <p class="mt-1 text-[11px] text-muted-foreground">
+                            Includes first timers; they are already part of total attendance.
                         </p>
                     </div>
                     <div class="p-3 bg-secondary/30 rounded-lg">
@@ -685,7 +713,7 @@
             <div class="card-base">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-lg font-semibold text-foreground">
-                        Meetings & Attendance
+                        Meetings
                     </h3>
                     <Button size="sm" onclick={handleExportMeetings} disabled={Boolean(error)}>
                         <svg

@@ -84,6 +84,7 @@
     } else if (attendeeFilter === "guests") {
       result = result.filter(
         (person) =>
+          person.member_status === "contact" ||
           person.member_status === "guest" ||
           person.member_status === "visitor" ||
           (!person.member_status && person.contact_date),
@@ -260,7 +261,9 @@
 
   function isGuest(person) {
     return (
-      person.member_status === "guest" || person.member_status === "visitor"
+      person.member_status === "contact" ||
+      person.member_status === "guest" ||
+      person.member_status === "visitor"
     );
   }
 
@@ -579,7 +582,7 @@
               type="button"
               onclick={() => (attendeeFilter = "guests")}
               class="rounded-full px-3 py-1.5 text-xs font-medium {attendeeFilter === 'guests' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}"
-            >Guests</button>
+            >Guests &amp; outreach contacts</button>
             <button
               type="button"
               onclick={() => (attendeeFilter = "all")}
@@ -612,7 +615,7 @@
             class="rounded-lg bg-secondary px-3 py-1.5 font-medium text-foreground hover:bg-secondary/80"
             onclick={() => (showQuickAdd = !showQuickAdd)}
           >
-            + Add a new guest
+            + Add a new attendee
           </button>
         </div>
 
@@ -654,7 +657,7 @@
                       {person.first_name} {person.last_name}
                     </p>
                     <p class="text-xs capitalize text-muted-foreground">
-                      {isGuest(person) ? "Guest" : person.member_status || "Guest"}
+                      {person.member_status === "contact" ? "Outreach Contact" : isGuest(person) ? "Guest" : person.member_status || "Guest"}
                       {#if recordingMode === "programme" && rosterIds.has(String(person.id))} · Programme roster{/if}
                     </p>
                   </div>

@@ -31,9 +31,15 @@ test("an owner records actual attendance and completes the linked care workflow"
   await careDialog.getByRole("button", { name: /Care leader/ }).click();
   await careDialog.getByPlaceholder("Search leaders…").fill("Browser Leader");
   await careDialog.getByRole("button", { name: "Browser Leader", exact: true }).click();
+  await careDialog.getByLabel("Interaction date").fill("2026-08-03");
   await careDialog.getByRole("checkbox", { name: /Create a next action/ }).check();
-  await careDialog.getByLabel("Next action due").fill("2026-09-09");
+  await careDialog.getByLabel("Next action due").fill("2026-08-02");
   await careDialog.getByLabel("Care notes").fill("Checked in and agreed a next step.");
+  await careDialog.getByRole("button", { name: "Log care", exact: true }).click();
+
+  await expect(careDialog.getByText("The next action must be on or after the care date")).toBeVisible();
+  await expect(careDialog).toBeVisible();
+  await careDialog.getByLabel("Next action due").fill("2026-08-04");
   await careDialog.getByRole("button", { name: "Log care", exact: true }).click();
 
   await expect(careDialog).toBeHidden();

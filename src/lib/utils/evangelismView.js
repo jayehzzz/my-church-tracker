@@ -1,7 +1,17 @@
-const CLOSED_RESPONSES = new Set(["do_not_contact", "has_church"]);
+import { sundayReliabilityLabel } from "$lib/utils/sundayReliability.js";
 
-function hasJoined(contact) {
-  return Boolean(contact.converted || ["member", "leader"].includes(contact.status) || ["member", "leader"].includes(contact.member_status));
+const CLOSED_RESPONSES = new Set(["do_not_contact", "has_church", "wrong_number"]);
+
+export function hasJoinedChurch(contact) {
+  return ["member", "leader"].includes(contact?.member_status);
+}
+
+export function hasFirstAttended(contact) {
+  return Boolean(contact?.first_visit_date || contact?.attended_church);
+}
+
+export function isOutreachSalvation(contact) {
+  return Boolean(contact?.outreach_salvation_decision ?? contact?.salvation_decision);
 }
 
 export function contactId(contact) {
@@ -42,23 +52,18 @@ function daysSince(value, today) {
 }
 
 function journeyFor(contact) {
-  const member = hasJoined(contact);
+  const member = hasJoinedChurch(contact);
   if (member) return { key: "joined", label: "Joined church" };
 
-  const saved = Boolean(contact.salvation_decision);
-  const visited = Boolean(contact.attended_church || contact.first_visit_date);
-  if (saved && visited) return { key: "engaged", label: "Saved · Attended" };
-  if (saved) return { key: "saved", label: "Salvation decision" };
-  if (visited) return { key: "visited", label: "First-time attendee" };
-  if (CLOSED_RESPONSES.has(contact.response || contact.contact_category)) {
-    return { key: "closed", label: "Closed" };
-  }
-  return { key: "outreach", label: "Outreach" };
+  const visited = hasFirstAttended(contact);
+  if (visited) return { key: "guest", label: "Guest" };
+  return { key: "outreach", label: "Outreach Contact" };
 }
 
 export function buildEvangelismRows(contacts = [], people = [], crmWorkspace = {}, now = new Date()) {
   const assignments = crmWorkspace.active_assignments || [];
   const tasks = [...(crmWorkspace.tasks || []), ...(crmWorkspace.member_care_tasks || [])];
+  const crmContacts = crmWorkspace.contacts || [];
   const laterIds = new Set((crmWorkspace.later_contacts || []).map((item) => String(contactId(item))));
   const unassignedIds = new Set((crmWorkspace.unassigned_contacts || []).map((item) => String(contactId(item))));
   const today = now.toISOString().slice(0, 10);
@@ -70,10 +75,13 @@ export function buildEvangelismRows(contacts = [], people = [], crmWorkspace = {
       .filter((item) => String(item.person_id) === id && item.status === "open")
       .sort((a, b) => String(a.due_date || "").localeCompare(String(b.due_date || "")))[0] || null;
     const inviter = people.find((person) => String(contactId(person)) === String(contact.invited_by_id));
+    const crmContact = crmContacts.find((item) => String(contactId(item)) === id) || null;
+    const sundayReliability = crmContact?.sunday_reliability || contact.sunday_reliability || null;
     const journey = journeyFor(contact);
     const age = daysSince(contact.contact_date, now);
     const member = journey.key === "joined";
-    const closed = journey.key === "closed";
+    const closed = contact.follow_up_status === "closed"
+      || CLOSED_RESPONSES.has(contact.response || contact.contact_category);
     const unassigned = !member && !closed && (unassignedIds.has(id) || (!assignment && !laterIds.has(id)));
 
     let followUpLabel = "No next action";
@@ -104,14 +112,26 @@ export function buildEvangelismRows(contacts = [], people = [], crmWorkspace = {
     return {
       ...contact,
       id: contactId(contact),
+      outreach_salvation_decision: isOutreachSalvation(contact),
+      outreach_salvation_date: contact.outreach_salvation_date
+        || (isOutreachSalvation(contact) ? contact.contact_date : undefined),
+      outreach_salvation_source: contact.outreach_salvation_source
+        || (contact.outreach_salvation_decision === undefined && contact.salvation_decision
+          ? "legacy_salvation_decision"
+          : undefined),
       full_name: personName(contact),
       contact_date_label: formatOutreachDate(contact.contact_date),
       response_label: formatResponse(contact.response || contact.contact_category),
       invited_by_name: contact.invited_by_name || personName(inviter, "Not recorded"),
+      inviter_ids: Array.isArray(contact.inviter_ids) && contact.inviter_ids.length
+        ? contact.inviter_ids
+        : contact.invited_by_id ? [contact.invited_by_id] : [],
       journey_key: journey.key,
       journey_label: journey.label,
       follow_up_key: followUpKey,
       follow_up_label: followUpLabel,
+      sunday_reliability: sundayReliability,
+      sunday_reliability_label: sundayReliabilityLabel(sundayReliability),
       freshness_label: age === null ? "Date unknown" : age <= 14 ? `Fresh · ${age}d` : `Older · ${Math.floor(age / 7)}w`,
       assigned_leader_id: assignment?.assigned_leader_id || nextTask?.assigned_leader_id || null,
       crm_assignment: assignment,
@@ -131,7 +151,7 @@ export function filterEvangelismRows(rows, filters = {}) {
 
   return rows.filter((row) =>
     (!responses.length || responses.includes(row.response || row.contact_category))
-    && (!inviters.length || inviters.includes(row.invited_by_id))
+    && (!inviters.length || (row.inviter_ids || [row.invited_by_id]).some((id) => inviters.includes(id)))
     && (!journeys.length || journeys.includes(row.journey_key))
     && (!followUp.length || followUp.includes(row.follow_up_key))
   );
@@ -146,14 +166,13 @@ export function isWithinDateRange(value, range) {
 }
 
 export function outreachMetrics(rows = []) {
-  const savedRows = rows.filter((row) => row.salvation_decision);
-  const visitedRows = rows.filter((row) => row.attended_church || row.first_visit_date || row.converted);
-  const joinedRows = rows.filter(hasJoined);
+  const savedRows = rows.filter(isOutreachSalvation);
+  const visitedRows = rows.filter(hasFirstAttended);
+  const joinedRows = rows.filter(hasJoinedChurch);
   return {
     reached: rows.length,
     saved: savedRows.length,
     visited: visitedRows.length,
-    engaged: rows.filter((row) => row.salvation_decision && (row.attended_church || row.first_visit_date || row.converted)).length,
     joined: joinedRows.length,
   };
 }
@@ -174,9 +193,9 @@ export function monthlyOutreach(rows = [], limit = 12) {
       joined: 0,
     };
     item.count += 1;
-    if (row.salvation_decision) item.saved += 1;
-    if (row.attended_church || row.first_visit_date || row.converted) item.visited += 1;
-    if (hasJoined(row)) item.joined += 1;
+    if (isOutreachSalvation(row)) item.saved += 1;
+    if (hasFirstAttended(row)) item.visited += 1;
+    if (hasJoinedChurch(row)) item.joined += 1;
     months.set(key, item);
   });
   return [...months.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, value]) => value).slice(-limit);
@@ -185,11 +204,13 @@ export function monthlyOutreach(rows = [], limit = 12) {
 export function topInviters(rows = [], people = [], limit = 5) {
   const counts = new Map();
   rows.forEach((row) => {
-    if (!row.invited_by_id) return;
-    const current = counts.get(row.invited_by_id) || { id: row.invited_by_id, count: 0, joined: 0 };
-    current.count += 1;
-    if (hasJoined(row)) current.joined += 1;
-    counts.set(row.invited_by_id, current);
+    const ids = [...new Set((Array.isArray(row.inviter_ids) && row.inviter_ids.length ? row.inviter_ids : [row.invited_by_id]).filter(Boolean))];
+    ids.forEach((id) => {
+      const current = counts.get(id) || { id, count: 0, joined: 0 };
+      current.count += 1;
+      if (hasJoinedChurch(row)) current.joined += 1;
+      counts.set(id, current);
+    });
   });
   return [...counts.values()].map((item) => ({
     ...item,

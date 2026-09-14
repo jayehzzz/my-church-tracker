@@ -3,7 +3,7 @@
 
   let {
     data = [],
-    title = "Attendance & guests",
+    title = "Attendance & guest attendance",
     contextLabel = "Selected period",
   } = $props();
 
@@ -62,7 +62,7 @@
     </div>
     <div class="flex flex-wrap items-center gap-3 text-xs text-muted-foreground sm:justify-end" aria-label="Chart legend">
       <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-primary"></span>Attendance</span>
-      <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-warning"></span>Guests</span>
+      <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-warning"></span>Guest attendance</span>
       <ChartViewToggle value={chartType} onChange={(next) => (chartType = next)} />
     </div>
   </header>
@@ -77,7 +77,7 @@
         {#if chartType === "bar"}
           <div class="absolute inset-x-0 bottom-0 top-7 flex gap-2 sm:gap-3">
             {#each chartData as item}
-              <button type="button" class="group grid h-full min-w-0 flex-1 grid-rows-[minmax(0,1fr)_2rem] gap-2 rounded-md focus-visible:ring-offset-0" aria-label={`${item.label}: ${item.attendance} attendees, ${item.guests} guests`}>
+              <button type="button" class="group grid h-full min-w-0 flex-1 grid-rows-[minmax(0,1fr)_2rem] gap-2 rounded-md focus-visible:ring-offset-0" aria-label={`${item.label}: ${item.attendance} attendees, ${item.guests} guest attendances`}>
                 <span class="relative flex min-h-0 items-end justify-center">
                   <span class="flex h-full w-full max-w-16 items-end justify-center gap-1">
                     <span class="relative flex h-full w-1/2 max-w-8 flex-col justify-end" style={`height: ${barHeight(item.attendance)}%`}>
@@ -132,6 +132,7 @@
     </div>
     <div class="px-4 py-4 text-center">
       <p class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Total guest attendance</p>
+      <p class="mt-0.5 text-[10px] text-muted-foreground">Includes first timers</p>
       <p class="mt-0.5 text-[10px] text-muted-foreground">{contextLabel}</p>
       <p class="mt-1 text-xl font-semibold text-warning">{guestTotal}</p>
     </div>

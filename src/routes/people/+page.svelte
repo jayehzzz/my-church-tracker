@@ -56,6 +56,8 @@
   // Status options for filter
   const statusOptions = [
     { value: "all", label: "All Statuses" },
+    { value: "church_family", label: "Church Members (Members + Leaders)" },
+    { value: "contact", label: "Outreach Contacts" },
     { value: "guest", label: "Guests" },
     { value: "member", label: "Members" },
     { value: "leader", label: "Leaders" },
@@ -64,10 +66,10 @@
 
   // Role options for filter
   const roleOptions = [
-    { value: "all", label: "All Roles" },
+    { value: "all", label: "All Leadership Roles" },
     { value: "basonta_leader", label: "Basonta Leaders" },
     { value: "bacenta_leader", label: "Bacenta Leaders" },
-    { value: "no_role", label: "No Role" },
+    { value: "no_role", label: "No Leadership Role" },
   ];
 
   // Activity level options for filter
@@ -105,7 +107,7 @@
     },
     {
       key: "member_status",
-      label: "Status",
+      label: "Church Journey",
       sortable: true,
       width: "100px",
       render: (value) => formatStatus(value),
@@ -120,14 +122,7 @@
 
   // Format status for display
   function formatStatus(status) {
-    const statusMap = {
-      visitor: "Guest",
-      guest: "Guest",
-      member: "Member",
-      leader: "Leader",
-      archived: "Archived",
-    };
-    return statusMap[status] || status || "Unknown";
+    return peopleService.formatJourneyStatus(status, "Not recorded");
   }
 
   // Get status badge variant
@@ -148,7 +143,9 @@
 
     if (statusFilter !== "all") {
       filtered = filtered.filter((p) =>
-        statusFilter === "guest"
+        statusFilter === "church_family"
+          ? p.member_status === "member" || p.member_status === "leader"
+          : statusFilter === "guest"
           ? p.member_status === "guest" || p.member_status === "visitor"
           : p.member_status === statusFilter,
       );
@@ -380,7 +377,7 @@
   <div class="mb-6 flex flex-wrap items-center gap-4">
     <div class="flex items-center gap-2">
       <label for="status-filter" class="text-sm text-muted-foreground"
-        >Status:</label
+        >Journey:</label
       >
       <select
         id="status-filter"
@@ -396,7 +393,7 @@
 
     <div class="flex items-center gap-2">
       <label for="role-filter" class="text-sm text-muted-foreground"
-        >Role:</label
+        >Leadership:</label
       >
       <select
         id="role-filter"
@@ -496,7 +493,7 @@
       </div>
     {:else}
       <!-- MAP VIEW -->
-      <PeopleDashboard people={filteredPeople} {loading} />
+      <PeopleDashboard people={filteredPeople} {loading} onEditPerson={handleEditPerson} />
     {/if}
   {/if}
 </DashboardLayout>
@@ -506,6 +503,7 @@
   bind:isOpen={isFormOpen}
   person={selectedPerson}
   onsave={handleSave}
+  oncancel={() => (selectedPerson = null)}
 />
 
 <!-- Archive Confirmation Modal -->

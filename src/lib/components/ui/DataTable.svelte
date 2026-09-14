@@ -59,7 +59,10 @@
   // State
   let searchQuery = $state("");
   let debouncedSearchQuery = $state("");
-  let searchDebounceTimer = $state(null);
+  // Timer identity is implementation state, not UI state. Keeping it reactive
+  // makes the debounce effect depend on the same value it replaces and can
+  // trigger an effect-update loop as soon as somebody searches the table.
+  let searchDebounceTimer = null;
   let sortColumn = $state(null);
   let sortDirection = $state("asc"); // 'asc' or 'desc'
   let currentPage = $state(1);
