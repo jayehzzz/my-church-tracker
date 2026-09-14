@@ -1,11 +1,12 @@
 <script>
   import { Button } from "$lib/components/ui";
   import { personAddress } from "$lib/utils/peopleView.js";
+  import { formatLeadershipRole, normalizeJourneyStatus } from "$lib/services/peopleService.js";
   import CopyButton from "$lib/components/ui/CopyButton.svelte";
 
   let { person, onUpdateStatus, onUpdateActivity, onEdit, updatingStatus, statusUpdateError } = $props();
   let address = $derived(personAddress(person));
-  let status = $derived(person.member_status === "visitor" ? "guest" : person.member_status || "");
+  let status = $derived(normalizeJourneyStatus(person.member_status) || "");
 </script>
 
 <div class="profile-toolbar">
@@ -19,7 +20,7 @@
       <p class="eyebrow">Person profile</p>
       <h1>{person.first_name} {person.last_name}</h1>
       {#if person.preferred_name}<p class="preferred">Known as {person.preferred_name}</p>{/if}
-      {#if person.role && person.role !== "no_role"}<p class="role">{person.role.replaceAll("_", " ")}</p>{/if}
+      {#if person.role && person.role !== "no_role"}<p class="role">Leadership: {formatLeadershipRole(person.role)}</p>{/if}
     </div>
   </div>
   <div class="contact-grid">
@@ -28,10 +29,10 @@
     <div class="address"><span class="label">Address</span><div class="contact-value"><span class:missing={!address}>{address || "No address recorded"}</span>{#if address}<CopyButton format="text" data={address} label="Copy address" />{/if}</div></div>
   </div>
   <div class="status-row">
-    <label>Status
-      <select aria-label="Member status" value={status} disabled={updatingStatus} onchange={(e) => onUpdateStatus(e.currentTarget.value)}>
+    <label>Church journey
+      <select aria-label="Church journey status" value={status} disabled={updatingStatus} onchange={(e) => onUpdateStatus(e.currentTarget.value)}>
         <option value="" disabled>Not recorded</option>
-        <option value="guest">Guest</option><option value="member">Member</option><option value="leader">Leader</option><option value="archived">Archived</option>
+        <option value="contact">Outreach Contact</option><option value="guest">Guest</option><option value="member">Member</option><option value="leader">Leader</option><option value="archived">Archived</option>
       </select>
     </label>
     <label>Activity
@@ -39,7 +40,7 @@
         <option value="" disabled>Not recorded</option><option value="regular">Regular</option><option value="irregular">Irregular</option><option value="dormant">Dormant</option>
       </select>
     </label>
-    <span class="status-hint">{updatingStatus ? "Saving…" : "Activity is manually recorded."}</span>
+    <span class="status-hint">{updatingStatus ? "Saving…" : "First Timer is recorded on attendance, not as a profile status. Activity is manually recorded."}</span>
   </div>
   {#if person.contact_category === "do_not_contact"}<p class="contact-warning">Do not contact — recorded contact preference.</p>{/if}
   {#if statusUpdateError}<p class="error" role="alert">{statusUpdateError}</p>{/if}

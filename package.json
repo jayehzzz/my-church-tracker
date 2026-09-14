@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "vite dev",
-    "dev:rehearsal": "vite dev --mode rehearsal",
+    "dev:rehearsal": "npm run rehearsal:refresh && vite dev --mode rehearsal",
+    "dev:rehearsal:keep": "vite dev --mode rehearsal",
     "convex:dev": "convex dev",
     "rehearsal:refresh": "python3 scripts/refresh-rehearsal.py",
     "build": "vite build",

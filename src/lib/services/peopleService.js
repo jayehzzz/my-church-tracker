@@ -28,23 +28,41 @@ function withTimeout(promise, timeoutMs = 3500) {
 }
 
 // Helper to map _id to id
+export function normalizeJourneyStatus(status) {
+  return status === "visitor" ? "guest" : status;
+}
+
+export function formatJourneyStatus(status, fallback = "Not recorded") {
+  const labels = {
+    contact: "Outreach Contact",
+    guest: "Guest",
+    member: "Member",
+    leader: "Leader",
+    archived: "Archived",
+  };
+  return labels[normalizeJourneyStatus(status)] || status || fallback;
+}
+
+export function formatLeadershipRole(role, fallback = "No leadership role") {
+  const labels = {
+    basonta_leader: "Basonta Leader",
+    bacenta_leader: "Bacenta Leader",
+    no_role: fallback,
+  };
+  return labels[role] || role || fallback;
+}
+
 function mapDoc(doc) {
   if (!doc) return null;
   return {
     ...doc,
     id: doc._id || doc.id,
-    member_status:
-      doc.member_status === "visitor" ? "guest" : doc.member_status,
+    member_status: normalizeJourneyStatus(doc.member_status),
   };
 }
 
 function matchesStatus(person, status) {
-  if (status === "guest") {
-    return (
-      person.member_status === "guest" || person.member_status === "visitor"
-    );
-  }
-  return person.member_status === status;
+  return normalizeJourneyStatus(person.member_status) === normalizeJourneyStatus(status);
 }
 
 export async function getAll() {
@@ -257,6 +275,26 @@ export async function search(searchTerm) {
   try {
     const data = await withTimeout(client.query(api.people.search, { searchTerm }), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+export async function getCollectors(personId) {
+  const client = getClient();
+  if (!client || !isConvexId(personId)) return { data: [], error: client ? new Error("Invalid person ID") : unavailableError() };
+  try {
+    return { data: await withTimeout(client.query(api.people.getCollectors, { personId }), 3500), error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}
+
+export async function setCollectors(personId, collectorIds = []) {
+  const client = getClient();
+  if (!client || !isConvexId(personId)) return { data: null, error: client ? new Error("Invalid person ID") : unavailableError() };
+  try {
+    return { data: await withTimeout(client.mutation(api.people.setCollectors, { personId, collectorIds }), 5000), error: null };
   } catch (error) {
     return { data: null, error };
   }

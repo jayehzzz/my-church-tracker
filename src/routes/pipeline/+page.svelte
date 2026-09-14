@@ -14,6 +14,10 @@
 
   let actualAttendance = $state(null);
   let isActualAttendanceOpen = $state(false);
+  let sundayNoteAction = $state(null);
+  let sundayActionNote = $state("");
+  let isSundayNoteOpen = $state(false);
+  let savingSundayNote = $state(false);
 
   const TABS = [
     { id: 'week', label: 'This week' },
@@ -97,6 +101,7 @@
       snoozePeriod: '90',
       snoozeDate: '',
       notes: '',
+      confirmationNote: '',
     };
   }
   function dateOnly(value) {
@@ -214,7 +219,7 @@
     const result = await completeTask(selectedTask._id || selectedTask.id, {
       leaderId: selectedTask.assigned_leader_id || personId(selectedTask.assigned_leader), method: taskForm.method, outcome: taskForm.outcome, ...(confidential && notes ? { notes } : {}), skipAutomaticNextTask: true,
       ...(taskForm.decision === 'schedule' ? { nextActionDate: taskForm.nextActionDate, nextTaskType: taskForm.nextTaskType, ...(confidential ? { nextReason: 'Leader planned the next call' } : {}) } : {}),
-      ...(taskForm.decision === 'expected' ? { attendanceResponse: 'yes', gatheringType: 'sunday_service', gatheringDate: workspace.service_date } : {}),
+      ...(taskForm.decision === 'expected' ? { attendanceResponse: 'yes', gatheringType: 'sunday_service', gatheringDate: workspace.service_date, ...(taskForm.confirmationNote.trim() ? { commitmentNote: taskForm.confirmationNote.trim() } : {}) } : {}),
       ...(taskForm.decision === 'later' ? { moveToLater: true, resumeDate, ...(confidential ? { nextReason: notes || 'Not ready for weekly follow-up' } : {}) } : {}),
       ...(taskForm.decision === 'close' ? { closeContact: true, closeReason: taskForm.closeReason } : {}),
     });
@@ -227,19 +232,21 @@
     await loadWorkspace({ quiet: true });
   }
 
-  async function handleCommitmentResolution(commitment, resolution, gathering) {
+  async function handleCommitmentResolution(commitment, resolution, gathering, note = '') {
     if (resolution === 'attended' && !gathering) {
       actualAttendance = { commitment, person: commitment.person, gatheringType: commitment.gathering_type, gatheringDate: commitment.gathering_date };
       isActualAttendanceOpen = true;
       return;
     }
-    const result = await resolveCommitment(commitment._id || commitment.id, resolution, gathering);
+    const leaderId = currentLeaderId(commitment.leader_id || commitment.person?.assigned_leader_id);
+    const result = await resolveCommitment(commitment._id || commitment.id, resolution, { ...(gathering || {}), ...(leaderId ? { leaderId } : {}), ...(note.trim() ? { note: note.trim() } : {}) });
     if (result.error) { errorMessage = result.error.message || 'The Sunday result could not be saved.'; return result; }
     const count = result.data?.confirmed_sunday_no_shows || ((commitment.person?.confirmed_no_shows || 0) + (resolution === 'no_show' ? 1 : 0));
     successMessage = resolution === 'attended' ? `${personName(commitment.person)} attended. Their attendance history has been updated.` : resolution === 'no_show' && count >= 2 ? `${personName(commitment.person)} has missed ${count} Sundays after saying yes. Moving them to Later is now recommended.` : `${personName(commitment.person)} was marked as ${resolution === 'no_show' ? 'did not attend' : 'cancelled'}.`;
     await loadWorkspace({ quiet: true });
+    return result;
   }
-  async function handleAttendanceStatus(person, status, gathering) {
+  async function handleAttendanceStatus(person, status, gathering, note = '') {
     if (status === 'attended' && !gathering) {
       actualAttendance = { person, gatheringType: 'sunday_service', gatheringDate: workspace.service_date };
       isActualAttendanceOpen = true;
@@ -249,13 +256,60 @@
     const leaderId = currentLeaderId(person.assigned_leader_id);
     if (!leaderId) { errorMessage = 'A leader is required to update the Sunday list.'; return { error: new Error(errorMessage) }; }
     savingAttendanceIds = [...savingAttendanceIds, id];
-    const result = await setAttendancePlan(personId(person), leaderId, workspace.service_date, status, undefined, gathering);
+    const result = await setAttendancePlan(personId(person), leaderId, workspace.service_date, status, note.trim() || undefined, gathering);
     savingAttendanceIds = savingAttendanceIds.filter((savingId) => savingId !== id);
     if (result.error) { errorMessage = result.error.message || 'The Sunday status could not be saved.'; return result; }
     const messages = { away: 'was marked away for this Sunday.', confirmed: 'is confirmed for Sunday.', expected: 'is expected for Sunday.', attended: 'was marked as attended.', absent: 'was marked as did not attend.' };
     successMessage = `${personName(person)} ${messages[status] || 'was updated.'}`;
     await loadWorkspace({ quiet: true });
+    return result;
   }
+  function requestCommitmentResolution(commitment, resolution, gathering) {
+    if (resolution === 'attended') return handleCommitmentResolution(commitment, resolution, gathering);
+    sundayNoteAction = { kind: 'commitment', commitment, resolution };
+    sundayActionNote = '';
+    isSundayNoteOpen = true;
+  }
+  function requestAttendanceStatus(person, status, gathering) {
+    if (status === 'attended') return handleAttendanceStatus(person, status, gathering);
+    sundayNoteAction = { kind: 'member', person, status };
+    sundayActionNote = '';
+    isSundayNoteOpen = true;
+  }
+  function sundayActionTitle() {
+    if (!sundayNoteAction) return 'Sunday update';
+    const person = sundayNoteAction.person || sundayNoteAction.commitment?.person;
+    const action = sundayNoteAction.kind === 'commitment'
+      ? (sundayNoteAction.resolution === 'no_show' ? 'Record missed Sunday' : 'Record cancellation')
+      : ({ confirmed: 'Confirm Sunday', expected: 'Change to expected', away: 'Mark away', absent: 'Record missed Sunday' }[sundayNoteAction.status] || 'Update Sunday status');
+    return `${action} — ${personName(person)}`;
+  }
+  function sundayActionHelp() {
+    if (!sundayNoteAction) return '';
+    if (sundayNoteAction.kind === 'commitment' && sundayNoteAction.resolution === 'cancelled') return 'Record why the person cancelled or changed their Sunday plan.';
+    if (sundayNoteAction.kind === 'commitment' && sundayNoteAction.resolution === 'no_show') return 'Record any known context for why they did not attend after saying yes.';
+    if (sundayNoteAction.status === 'confirmed') return 'A note is optional. Add one only when there is useful context to remember.';
+    if (sundayNoteAction.status === 'absent') return 'Record any known context for the missed Sunday after their confirmation.';
+    return 'Record why this Sunday status changed so the history makes sense later.';
+  }
+  function sundayActionNoteRequired() {
+    if (!sundayNoteAction) return false;
+    if (sundayNoteAction.kind === 'commitment') return ['no_show', 'cancelled'].includes(sundayNoteAction.resolution);
+    return ['away', 'absent'].includes(sundayNoteAction.status);
+  }
+  async function submitSundayNoteAction() {
+    const note = sundayActionNote.trim();
+    if (sundayActionNoteRequired() && !note) { errorMessage = 'Add a short note explaining this Sunday update.'; return; }
+    if (!sundayNoteAction) return;
+    savingSundayNote = true;
+    const action = sundayNoteAction;
+    const result = action.kind === 'commitment'
+      ? await handleCommitmentResolution(action.commitment, action.resolution, undefined, note)
+      : await handleAttendanceStatus(action.person, action.status, undefined, note);
+    savingSundayNote = false;
+    if (!result?.error) { isSundayNoteOpen = false; sundayNoteAction = null; sundayActionNote = ''; }
+  }
+
   async function changeSunday(amount) {
     workspace = { ...workspace, service_date: addDays(workspace.service_date || today, amount) };
     await loadWorkspace({ quiet: true });
@@ -403,8 +457,8 @@
       forecast={workspace.attendance_forecast || {}}
       {today}
       savingIds={savingAttendanceIds}
-      onStatusChange={handleAttendanceStatus}
-      onResolve={handleCommitmentResolution}
+      onStatusChange={requestAttendanceStatus}
+      onResolve={requestCommitmentResolution}
       onOpen={openPerson}
       onPreviousSunday={() => changeSunday(-7)}
       onNextSunday={() => changeSunday(7)}
@@ -493,7 +547,13 @@
             <div class="grid gap-3 sm:grid-cols-2"><label class="text-sm font-medium text-foreground">Date<input type="date" min={today} bind:value={taskForm.nextActionDate} class="mt-1.5 w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm" /></label><label class="text-sm font-medium text-foreground">Type of call<select bind:value={taskForm.nextTaskType} class="mt-1.5 w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm"><option value="follow_up">Call or message</option><option value="sunday_confirmation">Confirm Sunday</option><option value="reengagement">Review again</option></select></label></div>
           </div>
         {:else if taskForm.decision === 'expected'}
-          <p class="rounded-xl bg-secondary/50 px-4 py-3 text-sm text-foreground">They join the newcomer list for <strong>{formatDate(workspace.service_date)}</strong>. After the service, record whether they came on the Sunday tab.</p>
+          <div class="space-y-3 rounded-xl bg-secondary/50 px-4 py-3">
+            <p class="text-sm text-foreground">They join the newcomer list for <strong>{formatDate(workspace.service_date)}</strong>. After the service, record whether they came on the Sunday tab.</p>
+            <label class="block text-sm font-medium text-foreground">Sunday confirmation note <span class="font-normal text-muted-foreground">(optional)</span>
+              <textarea bind:value={taskForm.confirmationNote} rows="2" placeholder="e.g. Confirmed on WhatsApp; said they are coming with a friend." class="mt-1.5 w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm"></textarea>
+              <span class="mt-1 block text-xs font-normal text-muted-foreground">Use this only when there is useful context worth keeping.</span>
+            </label>
+          </div>
         {:else if taskForm.decision === 'later'}
           <div class="space-y-3 rounded-xl bg-secondary/40 p-4 text-xs">
             <p class="text-sm text-foreground">Weekly calls stop now. Choose when this person returns to <strong>This week</strong> for review:</p>
@@ -514,6 +574,16 @@
       </fieldset>
     </form>
     {#snippet footer()}<Button variant="secondary" onclick={() => isCompleteModalOpen = false}>Cancel</Button><Button loading={savingTask} onclick={submitTask}>Save</Button>{/snippet}
+  </Modal>
+
+  <Modal bind:isOpen={isSundayNoteOpen} title={sundayActionTitle()} size="md">
+    <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); submitSundayNoteAction(); }}>
+      <p class="text-sm text-muted-foreground">{sundayActionHelp()}</p>
+      <label class="block text-sm font-medium text-foreground">Note / reason{#if !sundayActionNoteRequired()} <span class="font-normal text-muted-foreground">(optional)</span>{/if}
+        <textarea bind:value={sundayActionNote} rows="3" required={sundayActionNoteRequired()} placeholder={sundayActionNoteRequired() ? 'Add enough context for someone reviewing this months later.' : 'Optional context, if there is anything useful to remember.'} class="mt-1.5 w-full resize-none rounded-lg border border-border bg-secondary px-3 py-2 text-sm"></textarea>
+      </label>
+    </form>
+    {#snippet footer()}<Button variant="secondary" disabled={savingSundayNote} onclick={() => isSundayNoteOpen = false}>Cancel</Button><Button loading={savingSundayNote} onclick={submitSundayNoteAction}>Save update</Button>{/snippet}
   </Modal>
 </DashboardLayout>
 

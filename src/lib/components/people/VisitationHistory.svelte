@@ -2,7 +2,17 @@
     import { Card, Badge } from "$lib/components/ui";
     import { formatInteraction } from "$lib/utils/pastoralCare.js";
 
-    let { visitations } = $props();
+    let { visitations, onRecordClick = null } = $props();
+
+    function openRecord(visit) {
+        onRecordClick?.(visit);
+    }
+
+    function handleRowKeydown(event, visit) {
+        if (!onRecordClick || !["Enter", " "].includes(event.key)) return;
+        event.preventDefault();
+        openRecord(visit);
+    }
 
     function formatShortDate(dateStr) {
         if (!dateStr) return "—";
@@ -68,8 +78,14 @@
         {:else}
             <div class="space-y-4">
                 {#each visitations as visit}
+                    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
                     <div
-                        class="border-b border-border last:border-0 pb-3 last:pb-0 hover:bg-muted/30 p-2 rounded-lg -mx-2 transition-colors"
+                        class="border-b border-border last:border-0 pb-3 last:pb-0 p-2 rounded-lg -mx-2 transition-colors {onRecordClick ? 'cursor-pointer hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary' : 'hover:bg-muted/30'}"
+                        tabindex={onRecordClick ? 0 : undefined}
+                        role={onRecordClick ? "button" : undefined}
+                        aria-label={onRecordClick ? `View pastoral care details for ${formatShortDate(visit.visit_date)}` : undefined}
+                        onclick={() => openRecord(visit)}
+                        onkeydown={(event) => handleRowKeydown(event, visit)}
                     >
                         <div class="flex justify-between items-start mb-1">
                             <span class="text-sm font-medium">
@@ -88,6 +104,7 @@
                             {#if visit.visited_by_id}
                                 <a
                                     href="/people/{visit.visited_by_id}"
+                                    onclick={(event) => event.stopPropagation()}
                                     class="text-foreground hover:text-primary hover:underline font-medium"
                                 >
                                     {visit.visited_by_name || "Unknown"}

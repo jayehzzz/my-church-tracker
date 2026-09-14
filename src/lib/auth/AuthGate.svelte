@@ -31,13 +31,13 @@
   {/key}
 {:else}
   <main class="min-h-screen flex items-center justify-center p-6">
-    <section class="w-full max-w-lg rounded-2xl border border-border bg-card p-8 space-y-5" aria-labelledby="access-title">
+    <section class="w-full max-w-lg rounded-2xl border border-border bg-card p-8 space-y-5" class:session-check={$session.status === 'loading'} aria-labelledby="access-title">
       <p class="text-sm text-primary font-semibold">Church Tracker</p>
       {#if $session.status === 'authenticated'}
         <h1 id="access-title" class="text-2xl font-bold">Church summary</h1>
         <p class="text-muted-foreground">Signed in as {$session.user.name}. Your account has summary access.</p>
         {#if summary}
-          <dl class="grid grid-cols-3 gap-4">
+          <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {#each Object.entries(summary) as [label, value]}
               <div><dt class="capitalize text-sm text-muted-foreground">{label}</dt><dd class="text-3xl font-semibold">{value}</dd></div>
             {/each}
@@ -63,7 +63,11 @@
         <h1 id="access-title" class="text-2xl font-bold">Sign in to your church</h1>
         <p class="text-muted-foreground">Sign in with your email and password. New accounts need approval from a church owner.</p>
         {#if $session.error}<p role="alert">{$session.error}</p>{/if}
-        <button class="px-5 py-3 bg-primary text-primary-foreground font-semibold rounded-lg" onclick={login}>Sign in or create account</button>
+        <div class="flex flex-wrap gap-3">
+          <button class="px-5 py-3 bg-primary text-primary-foreground font-semibold rounded-lg" onclick={login}>Sign in or create account</button>
+          <button class="px-4 py-3 border border-border rounded-lg font-semibold" onclick={login}>Forgot password?</button>
+        </div>
+        <p class="text-sm text-muted-foreground">For an email/password account, choose <strong class="text-foreground">Forgot password</strong> on the sign-in page and the sign-in service will email you a reset link. Your Church Tracker role and approval stay the same. Google users should use Google account recovery instead.</p>
         {#if $session.status === 'access-denied'}
           <button class="px-4 py-2 border border-border rounded-lg" onclick={signOut}>Sign out</button>
         {/if}
@@ -72,3 +76,20 @@
     </section>
   </main>
 {/if}
+
+<style>
+  /* Most approved sessions restore in well under this delay. Keeping the
+     transient card hidden avoids a bright auth-card flash before the app shell. */
+  .session-check {
+    animation: reveal-session-check 140ms 220ms both;
+  }
+
+  @keyframes reveal-session-check {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .session-check { animation: none; }
+  }
+</style>

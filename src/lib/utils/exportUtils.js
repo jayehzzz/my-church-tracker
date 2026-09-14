@@ -141,7 +141,7 @@ export const exportColumns = {
         { key: 'last_name', label: 'Last Name' },
         { key: 'email', label: 'Email' },
         { key: 'phone', label: 'Phone', type: 'text' },
-        { key: 'member_status', label: 'Status' },
+        { key: 'member_status', label: 'Journey Status' },
         { key: 'membership_date', label: 'Membership Date', format: formatDateForExport }
     ],
 
@@ -152,8 +152,31 @@ export const exportColumns = {
         { key: 'email', label: 'Email' },
         { key: 'contact_date', label: 'Contact Date', format: formatDateForExport },
         { key: 'response', label: 'Response' },
-        { key: 'converted', label: 'Converted', format: formatBooleanForExport },
-        { key: 'conversion_date', label: 'Conversion Date', format: formatDateForExport }
+        {
+            key: 'outreach_salvation_decision',
+            label: 'Saved During Outreach',
+            format: (value, row) => formatBooleanForExport(value ?? row.salvation_decision)
+        },
+        {
+            key: 'outreach_salvation_date',
+            label: 'Outreach Salvation Date',
+            format: (value, row) => formatDateForExport(
+                value || ((row.outreach_salvation_decision ?? row.salvation_decision) ? row.contact_date : null)
+            )
+        },
+        {
+            key: 'member_status',
+            label: 'Joined Church',
+            format: (value, row) => formatBooleanForExport(
+                ["member", "leader"].includes(value)
+                || (value == null && Boolean(row.converted))
+            )
+        },
+        {
+            key: 'membership_date',
+            label: 'Membership Date',
+            format: (value, row) => formatDateForExport(value || (row.member_status == null ? row.conversion_date : null))
+        }
     ],
 
     services: [
@@ -162,7 +185,7 @@ export const exportColumns = {
         { key: 'sermon_topic', label: 'Topic' },
         { key: 'sermon_speaker', label: 'Speaker' },
         { key: 'total_attendance', label: 'Total Attendance' },
-        { key: 'guests_count', label: 'Guests' },
+        { key: 'guests_count', label: 'Guest Attendance (Includes First Timers)' },
         { key: 'salvation_decisions', label: 'Salvation Decisions' }
     ],
 

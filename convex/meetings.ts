@@ -22,8 +22,16 @@ const RENAMED_MEETING_TYPES: Record<string, string> = {
     farley_prayer: "acts_prayer",
 };
 
-async function getPerson(ctx: any, personId: string | undefined) {
+async function getPerson(ctx: any, personId: string | undefined, personCache?: Map<string, Promise<any>>) {
     if (!personId) return null;
+    if (personCache) {
+        const key = String(personId);
+        const existing = personCache.get(key);
+        if (existing) return await existing;
+        const pending: Promise<any> = ctx.db.get(personId as Id<"people">).catch(() => null);
+        personCache.set(key, pending);
+        return await pending;
+    }
     try {
         return await ctx.db.get(personId as Id<"people">);
     } catch {
@@ -31,34 +39,52 @@ async function getPerson(ctx: any, personId: string | undefined) {
     }
 }
 
-async function getProgramForMeeting(ctx: any, meeting: any) {
+async function getProgramForMeeting(ctx: any, meeting: any, programCache?: Map<string, Promise<any>>) {
     if (meeting.program_id) {
-        const program = await ctx.db.get(meeting.program_id);
+        const key = String(meeting.program_id);
+        const existing = programCache?.get(key);
+        const pending: Promise<any> = existing || ctx.db.get(meeting.program_id);
+        if (!existing) programCache?.set(key, pending);
+        const program = await pending;
         if (program) return program;
     }
     const code = LEGACY_PROGRAM_CODES[meeting.meeting_type];
     if (!code) return null;
-    return await ctx.db
+    const key = `code:${code}`;
+    const existing = programCache?.get(key);
+    if (existing) return await existing;
+    const pending: Promise<any> = ctx.db
         .query("meeting_programs")
         .withIndex("by_code", (q: any) => q.eq("code", code))
         .first();
+    programCache?.set(key, pending);
+    return await pending;
 }
 
 async function getProgramLeaders(
     ctx: any,
     programId: Id<"meeting_programs"> | undefined,
+    personCache?: Map<string, Promise<any>>,
+    leadersCache?: Map<string, Promise<any[]>>,
 ) {
     if (!programId) return [];
-    const links = await ctx.db
-        .query("meeting_program_leaders")
-        .withIndex("by_program", (q: any) => q.eq("program_id", programId))
-        .collect();
-    return (await Promise.all(
-        links.map(async (link: any) => {
-            const person = await ctx.db.get(link.person_id);
-            return person ? { ...person, is_primary: link.is_primary } : null;
-        }),
-    )).filter(Boolean);
+    const key = String(programId);
+    const existing = leadersCache?.get(key);
+    if (existing) return await existing;
+    const pending: Promise<any[]> = (async () => {
+        const links = await ctx.db
+            .query("meeting_program_leaders")
+            .withIndex("by_program", (q: any) => q.eq("program_id", programId))
+            .collect();
+        return (await Promise.all(
+            links.map(async (link: any) => {
+                const person = await getPerson(ctx, String(link.person_id), personCache);
+                return person ? { ...person, is_primary: link.is_primary } : null;
+            }),
+        )).filter(Boolean);
+    })();
+    leadersCache?.set(key, pending);
+    return await pending;
 }
 
 async function getPriorProgrammeAttendeeIds(ctx: any, meeting: any) {
@@ -98,16 +124,24 @@ async function getPriorProgrammeAttendeeIds(ctx: any, meeting: any) {
     );
 }
 
-async function hydrateMeeting(ctx: any, meeting: any) {
+async function hydrateMeeting(
+    ctx: any,
+    meeting: any,
+    caches?: {
+        people: Map<string, Promise<any>>;
+        programs: Map<string, Promise<any>>;
+        leaders: Map<string, Promise<any[]>>;
+    },
+) {
     const [program, attendanceRecords, legacyLeader] = await Promise.all([
-        getProgramForMeeting(ctx, meeting),
+        getProgramForMeeting(ctx, meeting, caches?.programs),
         ctx.db
             .query("meeting_attendance")
             .withIndex("by_meeting", (q: any) =>
                 q.eq("meeting_id", meeting._id),
             )
             .collect(),
-        getPerson(ctx, meeting.leader_id),
+        getPerson(ctx, meeting.leader_id, caches?.people),
     ]);
     const presentRecords = attendanceRecords.filter(
         (record: any) =>
@@ -115,12 +149,12 @@ async function hydrateMeeting(ctx: any, meeting: any) {
     );
     const attendees = (await Promise.all(
         presentRecords.map(async (record: any) => {
-            const person = await ctx.db.get(record.person_id);
+            const person = await getPerson(ctx, String(record.person_id), caches?.people);
             return person ? { ...record, person } : null;
         }),
     )).filter(Boolean);
     const leaders = program
-        ? await getProgramLeaders(ctx, program._id)
+        ? await getProgramLeaders(ctx, program._id, caches?.people, caches?.leaders)
         : legacyLeader
           ? [legacyLeader]
           : [];
@@ -148,15 +182,16 @@ async function hydrateMeeting(ctx: any, meeting: any) {
 export const getAll = queryFor("meetings:getAll")({
     args: {},
     handler: async (ctx) => {
-        const meetings = await ctx.db.query("meetings").collect();
+        const meetings = await ctx.db.query("meetings").withIndex("by_meeting_date").order("desc").collect();
+        const caches = {
+            people: new Map<string, Promise<any>>(),
+            programs: new Map<string, Promise<any>>(),
+            leaders: new Map<string, Promise<any[]>>(),
+        };
         const results = await Promise.all(
-            meetings.map((meeting) => hydrateMeeting(ctx, meeting)),
+            meetings.map((meeting) => hydrateMeeting(ctx, meeting, caches)),
         );
-        return results.sort(
-            (a, b) =>
-                new Date(b.meeting_date).getTime() -
-                new Date(a.meeting_date).getTime(),
-        );
+        return results;
     },
 });
 

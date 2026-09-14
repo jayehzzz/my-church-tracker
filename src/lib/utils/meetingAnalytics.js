@@ -177,7 +177,7 @@ export function filterMeetingRecords(
 
     const hasNamedGuests = ids.some((personId) => {
       const status = peopleMap.get(personId)?.member_status;
-      return status === "guest" || status === "visitor";
+      return status === "contact" || status === "guest" || status === "visitor";
     });
     const hasUnnamedGuests = Number(meeting.unnamed_guests_count || 0) > 0;
     if (filters.guestRecording === "named" && !hasNamedGuests) return false;

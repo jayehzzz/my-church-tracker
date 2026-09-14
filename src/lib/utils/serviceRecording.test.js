@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAttendanceData,
+  isGuest,
+  isOutreachContact,
   resolveServiceCounts,
   summarizeNamedAttendance,
   validateServiceCounts,
@@ -10,6 +12,7 @@ import {
 const people = [
   { id: "p1", first_name: "Ama", member_status: "member" },
   { id: "p2", first_name: "Kojo", member_status: "guest" },
+  { id: "p3", first_name: "Esi", member_status: "contact", contact_date: "2026-09-01" },
 ];
 
 describe("service recording", () => {
@@ -19,7 +22,21 @@ describe("service recording", () => {
       p2: { first_timer: true, made_salvation_decision: true },
     }, people);
 
-    expect(summary).toEqual({ named: 2, guests: 1, firstTimers: 1, salvationDecisions: 1, tithers: 1 });
+    expect(summary).toEqual({ named: 2, guests: 1, returningGuests: 0, firstTimers: 1, salvationDecisions: 1, tithers: 1 });
+  });
+
+  it("keeps outreach contacts distinct until they are checked in", () => {
+    expect(isOutreachContact(people[2])).toBe(true);
+    expect(isGuest(people[2])).toBe(false);
+
+    const withoutContactAttendance = summarizeNamedAttendance(new Set(["p2"]), {}, people);
+    expect(withoutContactAttendance.guests).toBe(1);
+    expect(withoutContactAttendance.returningGuests).toBe(1);
+
+    const withContactAttendance = summarizeNamedAttendance(new Set(["p2", "p3"]), {
+      p3: { first_timer: true },
+    }, people);
+    expect(withContactAttendance).toMatchObject({ named: 2, guests: 2, returningGuests: 1, firstTimers: 1 });
   });
 
   it("uses named records as sensible defaults while allowing a larger headcount", () => {
@@ -33,7 +50,7 @@ describe("service recording", () => {
     const summary = { named: 5, guests: 2, firstTimers: 1, salvationDecisions: 1, tithers: 2 };
     expect(validateServiceCounts({ total_attendance: 4, guests_count: 5, salvation_decisions: 0, tithers_count: 1 }, summary)).toEqual({
       total_attendance: "Cannot be lower than 5 named check-ins",
-      guests_count: "Guest count cannot exceed total attendance",
+      guests_count: "Non-member attendance cannot exceed total attendance",
       salvation_decisions: "Cannot be lower than 1 named decisions",
       tithers_count: "Cannot be lower than 2 named tithers",
     });

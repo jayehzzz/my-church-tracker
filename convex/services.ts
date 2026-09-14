@@ -15,8 +15,17 @@ async function servicePhotoReferences(ctx: any, serviceId: any) {
     return { ids: available.map((entry: any) => entry.id), urls: available.map((entry: any) => entry.url) };
 }
 
-async function enrichService(ctx: any, service: any, attendance: any[]) {
-    const individuals = (await Promise.all(attendance.map((record: any) => ctx.db.get(record.person_id))))
+async function enrichService(ctx: any, service: any, attendance: any[], personCache?: Map<string, Promise<any>>) {
+    const getPerson = (personId: any) => {
+        if (!personCache) return ctx.db.get(personId);
+        const key = String(personId);
+        const existing = personCache.get(key);
+        if (existing) return existing;
+        const pending: Promise<any> = ctx.db.get(personId);
+        personCache.set(key, pending);
+        return pending;
+    };
+    const individuals = (await Promise.all(attendance.map((record: any) => getPerson(record.person_id))))
         .filter(Boolean);
     const photos = await servicePhotoReferences(ctx, service._id);
     return {
@@ -33,18 +42,16 @@ async function enrichService(ctx: any, service: any, attendance: any[]) {
 export const getAll = queryFor("services:getAll")({
     args: {},
     handler: async (ctx) => {
-        const services = await ctx.db.query("services").collect();
+        const services = await ctx.db.query("services").withIndex("by_service_date").order("desc").collect();
+        const personCache = new Map<string, Promise<any>>();
         const enriched = await Promise.all(services.map(async (service) => {
             const attendance = await ctx.db
                 .query("attendance")
                 .withIndex("by_service", (q) => q.eq("service_id", service._id))
                 .collect();
-            return await enrichService(ctx, service, attendance);
+            return await enrichService(ctx, service, attendance, personCache);
         }));
-        return enriched.sort(
-            (a, b) =>
-                new Date(b.service_date).getTime() - new Date(a.service_date).getTime()
-        );
+        return enriched;
     },
 });
 

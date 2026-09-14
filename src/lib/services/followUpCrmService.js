@@ -17,6 +17,7 @@ import {
   quarterlyReengagementCandidates,
   sortTasks,
 } from "$lib/services/followUpCrmLogic.js";
+import { summarizeSundayCommitments } from "$lib/utils/sundayReliability.js";
 
 const STORAGE_KEY = "church-tracker-follow-up-crm-v1";
 const STORAGE_VERSION = 1;
@@ -64,6 +65,15 @@ function fullName(person) {
   return [person?.first_name, person?.last_name].filter(Boolean).join(" ") || "Unknown person";
 }
 
+function outreachMemberStatus(person = {}) {
+  const explicit = person.member_status || person.status;
+  if (["member", "leader", "archived"].includes(explicit)) return explicit;
+  if (person.first_visit_date || person.attended_church || Number(person.attended_meetings || person.promises_kept || 0) > 0) {
+    return "guest";
+  }
+  return explicit === "guest" ? "guest" : "contact";
+}
+
 function buildDemoCareTasks(people = mockPeople, today = dateOnly()) {
   const peopleById = new Map(
     people.map((person) => [String(person._id || person.id), person]),
@@ -98,7 +108,7 @@ function buildDemoCareTasks(people = mockPeople, today = dateOnly()) {
       taskType: "visitation",
       dueOffset: 0,
       priority: "high",
-      reason: "Welcome visit for a recent guest",
+      reason: "Welcome visit after a recent attendance",
     },
     {
       id: "demo-care-irregular",
@@ -157,7 +167,7 @@ function seedLocalState() {
   const contacts = mockEvangelismContacts.slice(0, 80).map((contact) => ({
     ...contact,
     _id: contact._id || contact.id,
-    member_status: contact.member_status || contact.status || "guest",
+    member_status: outreachMemberStatus(contact),
     contact_category: contact.contact_category || contact.response,
     follow_up_status:
       contact.response === "do_not_contact" || contact.response === "has_church"
@@ -267,10 +277,7 @@ function seedLocalState() {
 function normalizeLocalState(state) {
   let legacyLaterCount = 0;
   const contacts = (state.contacts || []).map((contact) => {
-    const currentStatus = contact.member_status;
-    const memberStatus = ["member", "leader", "archived"].includes(currentStatus)
-      ? currentStatus
-      : "guest";
+    const memberStatus = outreachMemberStatus(contact);
     let followUpStatus = contact.follow_up_status
       || (["do_not_contact", "has_church"].includes(contact.contact_category || contact.response)
         ? "closed"
@@ -298,7 +305,7 @@ function normalizeLocalState(state) {
     contacts.push({
       ...source,
       _id: sourceId,
-      member_status: source.member_status || source.status || "guest",
+      member_status: outreachMemberStatus(source),
       contact_category: category,
       follow_up_status: ["do_not_contact", "has_church"].includes(category) ? "closed" : "active",
     });
@@ -572,6 +579,9 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
       return {
         ...contact,
         ...deriveCandidateSignals({ contact, followUps: state.followUps, commitments: state.commitments }),
+        sunday_reliability: summarizeSundayCommitments(
+          state.commitments.filter((commitment) => String(commitment.person_id) === contactId),
+        ),
         assigned_leader_id: assignment?.assigned_leader_id || null,
         assigned_leader: people.find(
           (person) => String(person._id || person.id) === String(assignment?.assigned_leader_id),
@@ -668,7 +678,8 @@ function normalizeDashboard(data, source) {
     contacts: data?.contacts || data?.crm_contacts || [],
     team_stats: (data?.team_stats || []).map((stat) => ({
       ...stat,
-      confirmed_guests: stat.confirmed_guests ?? stat.confirmed_this_sunday ?? 0,
+      confirmed_non_members: stat.confirmed_non_members ?? stat.confirmed_guests ?? stat.confirmed_this_sunday ?? 0,
+      confirmed_guests: stat.confirmed_guests ?? stat.confirmed_non_members ?? stat.confirmed_this_sunday ?? 0,
     })),
     attendance_roster: data?.attendance_roster || [],
     recent_sunday_results: data?.recent_sunday_results || [],
@@ -678,11 +689,12 @@ function normalizeDashboard(data, source) {
       known_away: forecast.known_away ?? forecast.regular_away ?? 0,
       expected_total: forecast.expected_total ?? forecast.total_expected ?? 0,
       confirmed_regular: forecast.confirmed_regular ?? 0,
+      confirmed_non_members: forecast.confirmed_non_members ?? forecast.confirmed_guests ?? 0,
       confirmed_total:
         forecast.confirmed_total
         ?? ((forecast.confirmed_regular ?? 0)
           + (forecast.confirmed_irregular ?? 0)
-          + (forecast.confirmed_guests ?? 0)),
+          + (forecast.confirmed_non_members ?? forecast.confirmed_guests ?? 0)),
     },
     source,
   };
@@ -764,6 +776,9 @@ function buildLocalContactProfile(personId) {
     .sort((a, b) => String(b.assigned_at).localeCompare(String(a.assigned_at)))[0] || null;
   return {
     person,
+    sunday_reliability: summarizeSundayCommitments(
+      state.commitments.filter((commitment) => String(commitment.person_id) === String(personId)),
+    ),
     active_assignment: activeAssignment ? {
       ...activeAssignment,
       assigned_leader: leaderFor(activeAssignment.assigned_leader_id),
@@ -813,6 +828,31 @@ export async function getContactProfile(personId) {
     return { data: buildLocalContactProfile(personId), error: null, source: "local" };
   } catch (error) {
     return { data: null, error, source: "local" };
+  }
+}
+
+export async function getSundayCommitments() {
+  const client = getClient();
+  if (client) {
+    try {
+      const data = await withTimeout(client.query(api.crm.getSundayCommitments, {}));
+      return { data: data || [], error: null, source: "convex" };
+    } catch (error) {
+      return { data: null, error, source: "convex" };
+    }
+  }
+  if (!isDemoMode()) return { data: null, error: unavailableError(), source: "unavailable" };
+  try {
+    const state = readLocalState();
+    return {
+      data: (state.commitments || [])
+        .filter((commitment) => commitment.gathering_type === "sunday_service" && commitment.response === "yes")
+        .sort((a, b) => String(b.gathering_date).localeCompare(String(a.gathering_date))),
+      error: null,
+      source: "demo",
+    };
+  } catch (error) {
+    return { data: null, error, source: "demo" };
   }
 }
 
@@ -898,7 +938,7 @@ export async function captureLocalEvangelismContact(contact) {
   const normalized = {
     ...contact,
     _id: personId,
-    member_status: contact.member_status || contact.status || "guest",
+    member_status: outreachMemberStatus(contact),
     contact_category: contact.contact_category || contact.response,
     follow_up_status: closed ? "closed" : "active",
   };
@@ -1053,9 +1093,13 @@ export async function completeTask(taskId, details) {
       gathering_date: details.gatheringDate,
       created_at: new Date().toISOString(),
     };
+    const commitmentNote = String(details.commitmentNote || details.notes || "").trim() || undefined;
+    const commitmentAt = new Date().toISOString();
     commitment.response = details.attendanceResponse;
     commitment.resolution = "pending";
-    commitment.updated_at = new Date().toISOString();
+    if (details.attendanceResponse === "yes" && commitmentNote) commitment.confirmation_note = commitmentNote;
+    commitment.history = [...(commitment.history || []), { at: commitmentAt, leader_id: details.leaderId || task.assigned_leader_id, action: details.attendanceResponse === "yes" ? "confirmed" : `response_${details.attendanceResponse}`, ...(commitmentNote ? { note: commitmentNote } : {}) }];
+    commitment.updated_at = commitmentAt;
     if (!existing) state.commitments.push(commitment);
   }
 
@@ -1101,9 +1145,7 @@ export async function completeTask(taskId, details) {
       contact.moved_to_later_at = undefined;
       contact.resume_date = undefined;
       if (details.closeReason === "settled") {
-        contact.member_status = "member";
         contact.activity_status = "regular";
-        contact.membership_date = contact.membership_date || today;
       }
       state.tasks.forEach((openTask) => {
         if (String(openTask.person_id) === String(task.person_id) && openTask.status === "open") {
@@ -1150,9 +1192,14 @@ export async function resolveCommitment(commitmentId, resolution, gathering = {}
   if (!commitment) {
     return { data: null, error: new Error("Commitment not found"), source: "local" };
   }
+  const resolutionAt = new Date().toISOString();
+  const resolutionNote = String(gathering?.note || "").trim() || undefined;
+  const resolutionLeaderId = gathering?.leaderId || commitment.leader_id;
   commitment.resolution = resolution;
-  commitment.resolved_at = new Date().toISOString();
-  commitment.updated_at = new Date().toISOString();
+  commitment.resolution_note = resolutionNote;
+  commitment.history = [...(commitment.history || []), { at: resolutionAt, leader_id: resolutionLeaderId, action: resolution, ...(resolutionNote ? { note: resolutionNote } : {}) }];
+  commitment.resolved_at = resolutionAt;
+  commitment.updated_at = resolutionAt;
 
   if (resolution === "no_show") {
     const noShowCount = new Set(
@@ -1318,6 +1365,16 @@ export async function setAttendancePlan(personId, leaderId, serviceDate, status,
   const existing = state.attendancePlans.find(
     (plan) => String(plan.person_id) === String(personId) && plan.service_date === serviceDate,
   );
+  const previousStatus = existing?.status;
+  const cleanNote = String(notes || "").trim() || undefined;
+  let commitment = state.commitments.find((item) => String(item.person_id) === String(personId) && item.gathering_type === "sunday_service" && item.gathering_date === serviceDate);
+  const changedAt = new Date().toISOString();
+  if (status === "confirmed") {
+    if (!commitment) { commitment = { _id: makeId("local-commitment"), person_id: personId, leader_id: leaderId, gathering_type: "sunday_service", gathering_date: serviceDate, response: "yes", resolution: "pending", created_at: changedAt }; state.commitments.push(commitment); }
+    commitment.response = "yes"; commitment.resolution = "pending"; commitment.confirmation_note = cleanNote || commitment.confirmation_note; commitment.resolution_note = undefined; commitment.resolved_at = undefined; commitment.history = [...(commitment.history || []), { at: changedAt, leader_id: leaderId, action: previousStatus === "confirmed" ? "confirmation_updated" : "confirmed", ...(cleanNote ? { note: cleanNote } : {}) }]; commitment.updated_at = changedAt;
+  } else if (previousStatus === "confirmed" && commitment?.response === "yes" && commitment.resolution === "pending" && ["expected", "away", "absent"].includes(status)) {
+    const resolution = status === "absent" ? "no_show" : "cancelled"; commitment.resolution = resolution; commitment.resolution_note = cleanNote; commitment.history = [...(commitment.history || []), { at: changedAt, leader_id: leaderId, action: resolution, ...(cleanNote ? { note: cleanNote } : {}) }]; commitment.resolved_at = changedAt; commitment.updated_at = changedAt;
+  }
   const plan = existing || {
     _id: makeId("local-plan"),
     person_id: personId,
@@ -1325,8 +1382,8 @@ export async function setAttendancePlan(personId, leaderId, serviceDate, status,
     service_date: serviceDate,
   };
   plan.status = status;
-  plan.notes = notes;
-  plan.updated_at = new Date().toISOString();
+  plan.notes = cleanNote;
+  plan.updated_at = changedAt;
   if (!existing) state.attendancePlans.push(plan);
   writeLocalState(state);
   return { data: plan, error: null, source: "local" };

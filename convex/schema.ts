@@ -45,7 +45,7 @@ export default defineSchema({
         avatar_url: v.optional(v.string()), // Profile picture
 
         // Status & Role (The Core State Machine)
-        member_status: v.string(), // "guest", "member", "leader", "archived" (Normalized from visitor->guest)
+        member_status: v.string(), // "contact", "guest", "member", "leader", "archived" (visitor is legacy guest)
         church_role: v.optional(v.string()), // "no_role" | "basonta" (membership, not leadership)
         role: v.optional(v.string()), // "basonta_leader", "bacenta_leader", "no_role" (Leadership roles only)
         activity_status: v.optional(v.string()), // "regular", "irregular", "dormant"
@@ -77,6 +77,11 @@ export default defineSchema({
         first_visit_date: v.optional(v.string()), // Manual history plus earliest recorded gathering.
         entry_point: v.optional(v.string()), // "sunday_service" | "bacenta_meeting" | "evangelism" | "referral" | "other"
         membership_date: v.optional(v.string()), // When they became a "Member"
+        // Outreach salvation is separate from a decision recorded at a church
+        // gathering. Gathering decisions remain on attendance rows.
+        outreach_salvation_decision: v.optional(v.boolean()),
+        outreach_salvation_date: v.optional(v.string()),
+        outreach_salvation_source: v.optional(v.string()), // "evangelism_outreach" | "legacy_salvation_decision"
         is_baptised: v.optional(v.boolean()),
         is_tither: v.optional(v.boolean()),
         completed_schools: v.optional(v.array(v.string())),
@@ -92,7 +97,9 @@ export default defineSchema({
             recorded_by_name: v.string(),
         }))),
         merged_into_id: v.optional(v.id("people")), // Archived duplicate retained after a reviewed merge
-        salvation_decision: v.optional(v.boolean()), // Made salvation decision during evangelism outreach
+        // Legacy compatibility mirror for outreach salvation. Attendance
+        // reconciliation must never write this field from a service/meeting.
+        salvation_decision: v.optional(v.boolean()),
 
         // Pipeline Tracking (cached, updated by follow-up mutations)
         pipeline_stage: v.optional(v.string()),        // "new" | "contacted" | "promised" | "showed_up" | "no_show" | "cold" | "paused"
@@ -165,7 +172,8 @@ export default defineSchema({
         target_service_id: v.optional(v.id("services")),
         created_at: v.string(),
     }).index("by_source_key", ["source_key"])
-      .index("by_batch", ["batch_id"]),
+      .index("by_batch", ["batch_id"])
+      .index("by_target_person", ["target_person_id"]),
     historical_import_notes: defineTable({
         batch_id: v.id("church_import_batches"),
         source_key: v.string(),
@@ -527,6 +535,7 @@ export default defineSchema({
     }).index("by_person", ["person_id"])
       .index("by_person_status", ["person_id", "status"])
       .index("by_leader_status", ["assigned_leader_id", "status"])
+      .index("by_assigned_by", ["assigned_by_id"])
       .index("by_status", ["status"]),
 
     follow_up_tasks: defineTable({
@@ -572,6 +581,8 @@ export default defineSchema({
     }).index("by_person", ["person_id"])
       .index("by_person_status", ["person_id", "status"])
       .index("by_assignee_status", ["assigned_leader_id", "status"])
+      .index("by_created_by", ["created_by_id"])
+      .index("by_completed_by", ["completed_by_id"])
       .index("by_status_due_date", ["status", "due_date"])
       .index("by_status_completed_at", ["status", "completed_at"]),
 
@@ -598,6 +609,14 @@ export default defineSchema({
             v.literal("no_show"),
             v.literal("cancelled"),
         ),
+        confirmation_note: v.optional(v.string()),
+        resolution_note: v.optional(v.string()),
+        history: v.optional(v.array(v.object({
+            at: v.string(),
+            leader_id: v.optional(v.id("people")),
+            action: v.string(),
+            note: v.optional(v.string()),
+        }))),
         resolved_at: v.optional(v.string()),
         created_at: v.string(),
         updated_at: v.string(),

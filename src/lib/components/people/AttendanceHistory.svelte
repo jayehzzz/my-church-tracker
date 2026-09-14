@@ -56,6 +56,15 @@
         const item = gathering(record);
         return item.start_time || item.service_time || "Regular time";
     }
+
+    function canOpenRecord(record) {
+        return Boolean(!record.meeting && onRecordClick);
+    }
+
+    function openRecord(record) {
+        if (canOpenRecord(record)) onRecordClick(record);
+    }
+
 </script>
 
 <div class="space-y-4" id="attendance-history">
@@ -87,7 +96,14 @@
         {:else}
             <ul class="mobile-attendance divide-y divide-border">
                 {#each attendanceHistory.slice(0, visibleCount) as record}
-                    <li class="p-5 space-y-2">
+                    <li>
+                      <button
+                        type="button"
+                        class="block w-full p-5 text-left space-y-2 transition-colors {canOpenRecord(record) ? 'cursor-pointer hover:bg-secondary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary' : 'cursor-default'}"
+                        disabled={!canOpenRecord(record)}
+                        aria-label={canOpenRecord(record) ? `View service on ${formatDate(gatheringDate(record))}` : undefined}
+                        onclick={() => openRecord(record)}
+                      >
                         <div class="flex items-start justify-between gap-3">
                             <p class="font-medium text-foreground">{gatheringName(record)}</p>
                             <span class="text-xs text-muted-foreground whitespace-nowrap">{gatheringTime(record)}</span>
@@ -95,7 +111,8 @@
                         <p class="text-sm text-muted-foreground">{formatDate(gatheringDate(record))}</p>
                         {#if gathering(record).sermon_topic || gathering(record).notes}<p class="text-xs text-muted-foreground break-words">{gathering(record).sermon_topic || gathering(record).notes}</p>{/if}
                         {#if record.first_timer || record.first_program_attendance}<p class="text-xs text-primary">First attendance</p>{/if}
-                        {#if !record.meeting && onRecordClick}<button type="button" class="text-sm text-primary hover:underline" onclick={() => onRecordClick(record)} aria-label="View service on {formatDate(gatheringDate(record))}">View service →</button>{/if}
+                        {#if canOpenRecord(record)}<span class="text-sm text-primary">View service →</span>{/if}
+                      </button>
                     </li>
                 {/each}
             </ul>
@@ -120,13 +137,24 @@
                     <tbody class="divide-y divide-border">
                         {#each attendanceHistory.slice(0, visibleCount) as record}
                             <tr
-                                class="group hover:bg-secondary/30 transition-colors"
+                                class="group transition-colors {canOpenRecord(record) ? 'cursor-pointer hover:bg-secondary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary' : 'hover:bg-secondary/20'}"
+                                onclick={() => openRecord(record)}
                             >
                                 <td
                                     class="px-6 py-4 font-medium text-foreground group-hover:text-primary transition-colors"
                                 >
-                                    {#if !record.meeting && onRecordClick}
-                                        <button type="button" class="text-primary hover:underline text-left" onclick={() => onRecordClick(record)} aria-label="View service on {formatDate(gatheringDate(record))}">{formatDate(gatheringDate(record))}</button>
+                                    {#if canOpenRecord(record)}
+                                        <button
+                                            type="button"
+                                            class="text-left text-primary group-hover:underline"
+                                            onclick={(event) => {
+                                                event.stopPropagation();
+                                                openRecord(record);
+                                            }}
+                                            aria-label="View service on {formatDate(gatheringDate(record))}"
+                                        >
+                                            {formatDate(gatheringDate(record))}
+                                        </button>
                                     {:else}
                                         {formatDate(gatheringDate(record))}
                                     {/if}

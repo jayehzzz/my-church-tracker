@@ -3,7 +3,7 @@
   import Button from '$lib/components/ui/Button.svelte';
 
   /**
-   * Sunday view. Three visually distinct groups: newcomers who said yes
+   * Sunday view. Three visually distinct groups: outreach contacts/guests who said yes
    * (owned by follow-up), regular members (expected unless marked away) and
    * members who are away. A summary strip at the top gives the counts and
    * lets the leader focus on one group. Before the service the lists are about
@@ -90,6 +90,11 @@
     return status === 'away' ? 'Away' : 'Expected';
   }
 
+  function nonMemberJourney(person) {
+    if (person?.member_status === 'guest' || person?.first_visit_date || (person?.attended_meetings || person?.promises_kept || 0) > 0) return 'Guest';
+    return 'Outreach contact';
+  }
+
   function newcomerStatus(commitment) {
     if (commitment.resolution === 'attended') return 'Attended';
     if (commitment.resolution === 'no_show') return 'Didn’t attend';
@@ -124,6 +129,7 @@
   const newcomers = $derived(
     (commitments || [])
       .filter((commitment) => (commitment.response || 'yes') === 'yes')
+      .filter((commitment) => !['member', 'leader'].includes(commitment.person?.member_status))
       .map((commitment) => ({ commitment, person: commitment.person, status: newcomerStatus(commitment) }))
       .sort((a, b) => personName(a.person).localeCompare(personName(b.person))),
   );
@@ -148,7 +154,7 @@
   const tiles = $derived([
     {
       id: 'newcomer',
-      label: 'Newcomers who said yes',
+      label: 'Contacts & guests who said yes',
       count: newcomerActive,
       accent: 'bg-primary',
       detail: afterService
@@ -180,7 +186,9 @@
   ]);
 
   const lastSunday = $derived.by(() => {
-    const previous = (results || []).filter((result) => !serviceDate || (result.gathering_date && result.gathering_date < serviceDate));
+    const previous = (results || [])
+      .filter((result) => !['member', 'leader'].includes(result.person?.member_status))
+      .filter((result) => !serviceDate || (result.gathering_date && result.gathering_date < serviceDate));
     if (!previous.length) return null;
     const date = previous.map((result) => result.gathering_date).sort().at(-1);
     const rows = previous.filter((result) => result.gathering_date === date);
@@ -230,7 +238,7 @@
       </div>
       <p class="mt-1 text-sm text-muted-foreground">
         {#if afterService}
-          {recordedTotal} of {expectedTotal} recorded · {attendedTotal} attended so far
+          {recordedTotal} of {expectedTotal} recorded · {attendedTotal} attended so far · confirmations stay pending until actual attendance or a missed result is recorded
         {:else}
           {plural(expectedTotal, 'person', 'people')} expected in total
         {/if}
@@ -264,11 +272,11 @@
 
   {#if showSection('newcomer')}
   <section aria-labelledby="newcomers-title" class="overflow-hidden rounded-xl border border-border bg-card">
-    {@render sectionHeader('newcomers-title', 'Newcomers who said yes', afterService ? 'Record whether each newcomer came.' : 'Added when a worker logs a clear yes. Cancel if plans change.', newcomerActive, 'newcomer')}
+    {@render sectionHeader('newcomers-title', 'Outreach contacts & guests who said yes', afterService ? 'Record whether each person came.' : 'Outreach contacts and returning guests appear here after a worker logs a clear yes.', newcomerActive, 'newcomer')}
     {#if newcomers.length === 0}
-      <p class="px-5 py-10 text-center text-sm text-muted-foreground">No newcomer has said yes for this Sunday yet.</p>
+      <p class="px-5 py-10 text-center text-sm text-muted-foreground">No outreach contact or guest has said yes for this Sunday yet.</p>
     {:else}
-      <div class="divide-y divide-border" role="list" aria-label="Newcomers expected this Sunday">
+      <div class="divide-y divide-border" role="list" aria-label="Outreach contacts and guests expected this Sunday">
         {#each newcomers as row (row.commitment._id || row.commitment.id)}
           <div class="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between {row.status === 'Cancelled' ? 'opacity-60' : ''}" role="listitem">
             <div class="flex min-w-0 items-center gap-3">
@@ -303,7 +311,8 @@
                     </div>
                   {/if}
                 </div>
-                <p class="mt-0.5 text-xs text-muted-foreground">Newcomer · {ownerName(row.person) || 'No worker'}</p>
+                <p class="mt-0.5 text-xs text-muted-foreground">{nonMemberJourney(row.person)} · {ownerName(row.person) || 'No worker'}</p>
+                {#if row.commitment.resolution_note || row.commitment.confirmation_note}<p class="mt-1 text-xs text-muted-foreground"><span class="font-medium text-foreground">Note:</span> {row.commitment.resolution_note || row.commitment.confirmation_note}</p>{/if}
               </div>
             </div>
             {#if afterService && row.status === 'Said yes'}
@@ -366,6 +375,7 @@
               <div class="min-w-0">
                 <button type="button" class="truncate text-left text-sm font-semibold text-foreground hover:underline" onclick={() => onOpen(row.person)}>{personName(row.person)}</button>
                 <p class="mt-0.5 text-xs text-muted-foreground">Regular member</p>
+                {#if row.person.attendance_plan?.notes}<p class="mt-1 text-xs text-muted-foreground"><span class="font-medium text-foreground">Latest note:</span> {row.person.attendance_plan.notes}</p>{/if}
               </div>
             </div>
             <div class="flex shrink-0 items-center gap-2">

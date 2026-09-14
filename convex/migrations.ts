@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { requireDisposable, requireMaintenance } from "./lib/maintenance";
 import { internalMutation } from "./_generated/server";
+import { present } from "./lib/attendanceWorkflow";
 
 /**
  * MIGRATION: Remove basonta_worker role
@@ -241,7 +242,7 @@ export const seedEvangelismContacts = internalMutation({
                 phone: contact.phone,
                 email: contact.email,
                 address: contact.address,
-                member_status: "guest", // All evangelism contacts start as guests
+                member_status: "contact", // Outreach-only people become guests after recorded attendance.
                 contact_category: contact.contact_category,
                 contact_date: contact.contact_date,
                 salvation_decision: contact.salvation_decision,
@@ -265,5 +266,40 @@ export const seedEvangelismContacts = internalMutation({
                 do_not_contact: EVANGELISM_CONTACTS.filter(c => c.contact_category === "do_not_contact").length,
             }
         };
+    },
+});
+
+/**
+ * Reclassify historical outreach-only people that predate the contact status.
+ *
+ * The candidate rule is intentionally evidence based: the person must still
+ * be a guest, have outreach evidence, have no known first visit, and have no
+ * recorded service or present meeting attendance. Run with apply=false first.
+ */
+export const reclassifyOutreachOnlyGuests = internalMutation({
+    args: { apply: v.boolean() },
+    handler: async (ctx, args) => {
+        const [guests, serviceAttendance, meetingAttendance] = await Promise.all([
+            ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", "guest")).collect(),
+            ctx.db.query("attendance").collect(),
+            ctx.db.query("meeting_attendance").collect(),
+        ]);
+        const attendeeIds = new Set([
+            ...serviceAttendance.map((row) => String(row.person_id)),
+            ...meetingAttendance.filter(present).map((row) => String(row.person_id)),
+        ]);
+        const candidates = guests.filter((person) =>
+            Boolean(person.contact_date || person.entry_point === "evangelism")
+            && !person.first_visit_date
+            && !attendeeIds.has(String(person._id)),
+        );
+
+        if (!args.apply) return { candidates: candidates.length, updated: 0 };
+        requireMaintenance();
+        const updatedAt = new Date().toISOString();
+        for (const person of candidates) {
+            await ctx.db.patch(person._id, { member_status: "contact", updated_at: updatedAt });
+        }
+        return { candidates: candidates.length, updated: candidates.length };
     },
 });

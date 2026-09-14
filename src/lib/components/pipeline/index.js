@@ -5,7 +5,5 @@ export { default as KanbanColumn } from './KanbanColumn.svelte';
 export { default as FollowUpForm } from './FollowUpForm.svelte';
 export { default as ContactTimeline } from './ContactTimeline.svelte';
 export { default as ConfirmationSheet } from './ConfirmationSheet.svelte';
-export { default as ConversionFunnel } from './ConversionFunnel.svelte';
-export { default as LeaderScoreboard } from './LeaderScoreboard.svelte';
 export { default as StaleAlerts } from './StaleAlerts.svelte';
 export { default as PausedContacts } from './PausedContacts.svelte';

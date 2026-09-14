@@ -21,28 +21,45 @@ export const seed = internalMutation({
 
         console.log("Created leader with basontas:", leaderId);
 
-        // 2. Create an evangelism contact who is converted - Verifies conversion tracking
-        const convertId = await ctx.db.insert("people", {
+        const today = new Date().toISOString().split("T")[0];
+
+        // 2. Create an outreach contact who made a salvation decision but has not joined church.
+        const outreachSalvationId = await ctx.db.insert("people", {
             first_name: "John",
-            last_name: "Convert",
-            member_status: "member", // Converted status
-            membership_date: new Date().toISOString().split("T")[0],
+            last_name: "Outreach",
+            member_status: "guest",
+            outreach_salvation_decision: true,
+            outreach_salvation_date: today,
+            outreach_salvation_source: "evangelism_outreach",
+            // Legacy compatibility mirror for older demo consumers.
             salvation_decision: true,
-            // Note: 'converted' field was removed as it doesn't exist in schema
             contact_category: "responsive",
+            contact_date: today,
             invited_by_id: leaderId,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         });
 
-        console.log("Created converted contact:", convertId);
+        console.log("Created outreach salvation contact:", outreachSalvationId);
 
-        // 3. Create a guest
+        // 3. Create a church member independently of the outreach-salvation milestone.
+        const memberId = await ctx.db.insert("people", {
+            first_name: "Mary",
+            last_name: "Member",
+            member_status: "member",
+            membership_date: today,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        });
+
+        console.log("Created church member:", memberId);
+
+        // 4. Create a guest with neither milestone.
         await ctx.db.insert("people", {
             first_name: "Jane",
             last_name: "Guest",
             member_status: "guest",
-            contact_date: new Date().toISOString().split("T")[0],
+            contact_date: today,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         });

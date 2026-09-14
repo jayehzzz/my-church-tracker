@@ -14,6 +14,8 @@
         outreachContacts = [],
         visitations = [],
         onRecordClick = null,
+        onOutreachClick = null,
+        onVisitationClick = null,
         storageKey = "profileHistoryTab",
     } = $props();
 
@@ -82,9 +84,9 @@
         {:else if activeTab === "attendance"}
             <AttendanceHistory {attendanceHistory} {onRecordClick} />
         {:else if activeTab === "outreach"}
-            <OutreachHistory {outreachContacts} />
+            <OutreachHistory {outreachContacts} onRecordClick={onOutreachClick} />
         {:else if activeTab === "visitation"}
-            <VisitationHistory {visitations} />
+            <VisitationHistory {visitations} onRecordClick={onVisitationClick} />
         {/if}
     </div>
 </div>

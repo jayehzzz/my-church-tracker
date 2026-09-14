@@ -44,7 +44,7 @@ interface PersonData {
     email: string;
     phone: string;
     address: string;
-    member_status: "guest" | "member" | "leader" | "archived";
+    member_status: "contact" | "guest" | "member" | "leader" | "archived";
     role?: string;
     activity_status: "regular" | "irregular" | "dormant";
     is_baptised?: boolean;

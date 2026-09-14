@@ -4,7 +4,7 @@
   import { hasMapLocation } from "$lib/utils/peopleView.js";
   import "leaflet/dist/leaflet.css";
 
-  let { people = [], churchLocation = null, routeEstimate = null, onPersonSelected = null, scrollWheelZoom = false } = $props();
+  let { people = [], churchLocation = null, routeEstimate = null, onPersonSelected = null, onPersonHovered = null, scrollWheelZoom = false } = $props();
   let mapElement = $state();
   let map;
   let L;
@@ -13,6 +13,20 @@
   let ready = $state(false);
   let mapError = $state("");
   let tileError = $state(false);
+
+  function markerColorClass(person) {
+    return person.member_status === "leader" ? "bg-emerald-500"
+      : person.member_status === "member" ? "bg-blue-500"
+      : person.member_status === "archived" ? "bg-slate-500" : "bg-amber-500";
+  }
+
+  function popupFor(person, colorClass, estimate = null, currentChurchLocation = churchLocation) {
+    return createPersonPopup(person, {
+      colorClass,
+      travelEstimate: estimate,
+      canEstimateTravel: Boolean(currentChurchLocation),
+    });
+  }
 
   $effect(() => {
     const element = mapElement;
@@ -45,20 +59,19 @@
   $effect(() => {
     if (!ready) return;
     const locations = people.filter(hasMapLocation);
+    const currentChurchLocation = churchLocation;
     untrack(() => {
       if (markersLayer) map.removeLayer(markersLayer);
       markers = new Map();
       markersLayer = L.layerGroup();
-      if (churchLocation) {
+      if (currentChurchLocation) {
         const churchIcon = L.divIcon({ className: "church-map-icon", html: '<div aria-hidden="true">⌂</div>', iconSize: [34, 34], iconAnchor: [17, 17] });
-        L.marker([churchLocation.lat, churchLocation.lng], { icon: churchIcon, title: churchLocation.name, alt: churchLocation.name })
-          .bindPopup(`<strong>${escapeMapText(churchLocation.name)}</strong><br>Church location`, { className: "person-map-popup", maxWidth: 220 })
+        L.marker([currentChurchLocation.lat, currentChurchLocation.lng], { icon: churchIcon, title: currentChurchLocation.name, alt: currentChurchLocation.name })
+          .bindPopup(`<strong>${escapeMapText(currentChurchLocation.name)}</strong><br>Church location`, { className: "person-map-popup", maxWidth: 220 })
           .addTo(markersLayer);
       }
       for (const person of locations) {
-        const colorClass = person.member_status === "leader" ? "bg-emerald-500"
-          : person.member_status === "member" ? "bg-blue-500"
-          : person.member_status === "archived" ? "bg-slate-500" : "bg-amber-500";
+        const colorClass = markerColorClass(person);
         const initials = ((person.first_name?.[0] || "") + (person.last_name?.[0] || "")).toUpperCase() || "?";
         const name = `${person.first_name || ""} ${person.last_name || ""}`.trim();
         const icon = L.divIcon({
@@ -68,17 +81,42 @@
         });
         const marker = L.marker([person.lat, person.lng], { icon, title: name, alt: name });
         const personId = person.id || person._id;
-        marker.bindPopup(createPersonPopup(person, {
-          colorClass,
-          travelEstimate: routeEstimate?.personId === personId ? routeEstimate : null,
-        }), { className: "person-map-popup", maxWidth: 280 });
-        marker.on("popupopen", () => onPersonSelected?.(person));
+        marker.bindPopup(
+          popupFor(
+            person,
+            colorClass,
+            routeEstimate?.personId === personId ? routeEstimate : null,
+            currentChurchLocation,
+          ),
+          { className: "person-map-popup", maxWidth: 240 },
+        );
+        marker.on("mouseover", () => {
+          marker.openPopup();
+          onPersonHovered?.(person);
+        });
+        marker.on("click", () => onPersonSelected?.(person));
         markersLayer.addLayer(marker);
         markers.set(personId, marker);
       }
       markersLayer.addTo(map);
       for (const person of locations) markers.get(person.id || person._id)?.getElement()?.setAttribute("aria-label", `${person.first_name || ""} ${person.last_name || ""}`.trim());
       fitEveryone(false);
+    });
+  });
+
+  // Route calculations finish after a popup has already opened. Update that
+  // popup in place so its loading/ready/error state stays in sync with the
+  // route estimate without rebuilding the whole marker layer or resetting zoom.
+  $effect(() => {
+    if (!ready || !routeEstimate?.personId) return;
+    const estimate = routeEstimate;
+    const currentChurchLocation = churchLocation;
+    const person = people.find((candidate) => (candidate.id || candidate._id) === estimate.personId);
+    if (!person) return;
+    untrack(() => {
+      const marker = markers.get(estimate.personId);
+      if (!marker) return;
+      marker.setPopupContent(popupFor(person, markerColorClass(person), estimate, currentChurchLocation));
     });
   });
 
@@ -124,7 +162,7 @@
   :global(.person-map-icon) { background: transparent; border: none; }
   :global(.church-map-icon) { background: transparent; border: none; } :global(.church-map-icon div) { width: 34px; height: 34px; display: grid; place-items: center; border: 2px solid white; border-radius: 9px; background: #0f172a; color: white; box-shadow: 0 2px 7px #0005; font-size: 20px; font-weight: 700; }
   :global(.person-map-popup .leaflet-popup-content-wrapper), :global(.person-map-popup .leaflet-popup-tip) { background: hsl(var(--card)); color: hsl(var(--foreground)); }
-  :global(.person-map-popup .leaflet-popup-content) { margin: 20px; line-height: 1.6; }
-  :global(.person-map-popup a.profile-link) { color: hsl(var(--primary)); display: inline-block; margin-top: 8px; font-weight: 600; }
+  :global(.person-map-popup .leaflet-popup-content) { margin: 12px 14px; line-height: 1.45; }
+  :global(.person-map-popup a.profile-link) { color: hsl(var(--primary)); font-weight: 600; }
   :global(.leaflet-container) { font-family: inherit; }
 </style>

@@ -3,14 +3,16 @@ import { fireEvent, render } from "@testing-library/svelte";
 import AttendanceTrend from "./AttendanceTrend.svelte";
 
 const mockAttendanceData = [
-  { date: "2026-08-16", total: 120, guests: 20, members: 100 },
-  { date: "2026-08-23", total: 135, guests: 25, members: 110 },
-  { date: "2026-08-30", total: 150, guests: 30, members: 120 },
+  { date: "2026-08-16", total: 120, guests: 20, members: 100, firstTimers: 4, decisions: 2 },
+  { date: "2026-08-23", total: 135, guests: 25, members: 110, firstTimers: 5, decisions: 3 },
+  { date: "2026-08-30", total: 150, guests: 30, members: 120, firstTimers: 6, decisions: 4 },
 ];
 
 const comparisonOptions = [
   { key: "guests", label: "Guests", color: "info" },
   { key: "members", label: "Members", color: "success" },
+  { key: "firstTimers", label: "First timers", color: "warning" },
+  { key: "decisions", label: "Salvation decisions", color: "success" },
 ];
 
 describe("AttendanceTrend", () => {
@@ -49,6 +51,24 @@ describe("AttendanceTrend", () => {
   });
 
   it("handles comparison selection and shows legend", async () => {
+    const { getByRole, getAllByText, getByLabelText } = render(AttendanceTrend, {
+      props: {
+        data: mockAttendanceData,
+        comparisonOptions,
+      },
+    });
+
+    await fireEvent.change(getByRole("combobox", { name: "Compare attendance with" }), {
+      target: { value: "guests" },
+    });
+
+    expect(getByLabelText("Series A controls")).toBeDefined();
+    expect(getByLabelText("Series B controls")).toBeDefined();
+    expect(getAllByText("Attendance").length).toBeGreaterThan(0);
+    expect(getAllByText("Guests").length).toBeGreaterThan(0);
+  });
+
+  it("can compare average attendance with actual total salvation decisions", async () => {
     const { getByRole, getByText, getAllByText } = render(AttendanceTrend, {
       props: {
         data: mockAttendanceData,
@@ -56,11 +76,34 @@ describe("AttendanceTrend", () => {
       },
     });
 
-    await fireEvent.click(getByRole("button", { name: "Compare attendance with" }));
-    await fireEvent.click(getByRole("button", { name: "Guests" }));
+    await fireEvent.change(getByRole("combobox", { name: "Chart time scale" }), {
+      target: { value: "month" },
+    });
+    await fireEvent.change(getByRole("combobox", { name: "Compare attendance with" }), {
+      target: { value: "decisions" },
+    });
+    await fireEvent.change(getByRole("combobox", { name: "Comparison calculation" }), {
+      target: { value: "total" },
+    });
 
-    expect(getByText("Actual attendance")).toBeDefined();
-    expect(getAllByText("Guests").length).toBeGreaterThan(0);
+    expect(getByText("Overall average attendance")).toBeDefined();
+    expect(getByText("Period total salvation decisions")).toBeDefined();
+    expect(getAllByText("135").length).toBeGreaterThan(0);
+    expect(getAllByText("9").length).toBeGreaterThan(0);
+  });
+
+  it("can show a non-attendance metric by itself", async () => {
+    const { getByRole, getByText, getAllByText, queryByText } = render(AttendanceTrend, {
+      props: { data: mockAttendanceData, comparisonOptions },
+    });
+
+    await fireEvent.change(getByRole("combobox", { name: "Primary metric" }), {
+      target: { value: "firstTimers" },
+    });
+
+    expect(getAllByText("First timers").length).toBeGreaterThan(0);
+    expect(getByText("Overall average first timers")).toBeDefined();
+    expect(queryByText("Overall average attendance")).toBeNull();
   });
 
   it("shows empty state when no data provided", () => {

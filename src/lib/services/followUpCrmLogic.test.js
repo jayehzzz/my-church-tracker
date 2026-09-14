@@ -41,9 +41,9 @@ describe('follow-up CRM date and task rules', () => {
 
   it('returns an owned older contact after 90 days without creating duplicate work', () => {
     const contacts = [
-      { id: 'eligible', member_status: 'guest', contact_date: '2026-05-01' },
-      { id: 'already-open', member_status: 'guest', contact_date: '2026-04-01' },
-      { id: 'closed', member_status: 'guest', contact_date: '2026-01-01', contact_category: 'do_not_contact' },
+      { id: 'eligible', member_status: 'contact', contact_date: '2026-05-01' },
+      { id: 'already-open', member_status: 'contact', contact_date: '2026-04-01' },
+      { id: 'closed', member_status: 'contact', contact_date: '2026-01-01', contact_category: 'do_not_contact' },
     ];
     const candidates = quarterlyReengagementCandidates({
       contacts,
@@ -126,13 +126,14 @@ describe('attendance forecasting', () => {
     { id: 'regular-away', member_status: 'leader', activity_status: 'regular' },
     { id: 'irregular-confirmed', member_status: 'member', activity_status: 'irregular' },
     { id: 'irregular-unconfirmed', member_status: 'leader', activity_status: 'irregular' },
-    { id: 'guest-yes', member_status: 'guest' },
+    { id: 'outreach-yes', member_status: 'contact' },
+    { id: 'guest-yes', member_status: 'guest', first_visit_date: '2026-08-23' },
     { id: 'guest-maybe', member_status: 'guest' },
     { id: 'guest-resolved', member_status: 'guest' },
     { id: 'archived', member_status: 'archived', activity_status: 'regular' }
   ];
 
-  it('uses the regular baseline, known absences and explicit pending guest yeses', () => {
+  it('separates pending yeses from outreach contacts and returning guests', () => {
     const forecast = buildAttendanceForecast({
       people,
       serviceDate: '2026-08-30',
@@ -143,6 +144,7 @@ describe('attendance forecasting', () => {
         { person_id: 'irregular-unconfirmed', service_date: '2026-08-30', status: 'maybe' }
       ],
       commitments: [
+        { id: 'outreach-yes', contact_id: 'outreach-yes', service_date: '2026-08-30', response: 'yes' },
         { id: 'yes-1', contact_id: 'guest-yes', service_date: '2026-08-30', response: 'yes' },
         { id: 'yes-duplicate', contact_id: 'guest-yes', service_date: '2026-08-30', response: 'yes' },
         { id: 'maybe', contact_id: 'guest-maybe', service_date: '2026-08-30', response: 'maybe' },
@@ -161,13 +163,16 @@ describe('attendance forecasting', () => {
       regular_baseline: 2,
       known_away: 1,
       confirmed_irregular: 1,
-      confirmed_guests: 1,
+      confirmed_outreach_contacts: 1,
+      confirmed_returning_guests: 1,
+      confirmed_non_members: 2,
+      confirmed_guests: 2,
       confirmed_regular: 1,
-      confirmed_total: 3,
-      expected_total: 3
+      confirmed_total: 4,
+      expected_total: 4
     });
     expect(new Set(forecast.expected_person_ids)).toEqual(
-      new Set(['regular-coming', 'irregular-confirmed', 'guest-yes'])
+      new Set(['regular-coming', 'irregular-confirmed', 'outreach-yes', 'guest-yes'])
     );
   });
 
@@ -192,9 +197,9 @@ describe('leader oversight stats', () => {
       today: '2026-08-27',
       leaders: [{ id: 'leader-1', first_name: 'Ama', last_name: 'Mensah' }],
       people: [
-        { id: 'fresh-contacted', contact_date: '2026-08-25', member_status: 'guest' },
-        { id: 'fresh-untouched', contact_date: '2026-08-26', member_status: 'guest' },
-        { id: 'older', contact_date: '2026-07-01', member_status: 'guest' }
+        { id: 'fresh-contacted', contact_date: '2026-08-25', member_status: 'contact' },
+        { id: 'fresh-untouched', contact_date: '2026-08-26', member_status: 'contact' },
+        { id: 'older', contact_date: '2026-07-01', member_status: 'contact' }
       ],
       assignments: [
         { leader_id: 'leader-1', person_id: 'fresh-contacted' },
@@ -236,6 +241,9 @@ describe('leader oversight stats', () => {
       tasks_due_today: 1,
       people_without_next_action: 1,
       confirmed_this_sunday: 1,
+      confirmed_non_members: 1,
+      confirmed_outreach_contacts: 1,
+      confirmed_returning_guests: 0,
       follow_ups_this_week: 1,
       unique_contacts_this_week: 1,
       last_activity: '2026-08-26'

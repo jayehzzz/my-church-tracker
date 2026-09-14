@@ -10,6 +10,7 @@
   import { fade, fly } from 'svelte/transition';
   import Badge from '$lib/components/ui/Badge.svelte';
   import Button from '$lib/components/ui/Button.svelte';
+  import SundayReliabilitySummary from '$lib/components/shared/SundayReliabilitySummary.svelte';
   import { getContactProfile } from '$lib/services/followUpCrmService.js';
 
   let {
@@ -45,6 +46,13 @@
     return (
       (parts[0]?.[0] || '') + (parts.length > 1 ? parts.at(-1)[0] : '')
     ).toUpperCase() || '?';
+  }
+
+  function journeyLabel(target) {
+    if (target?.member_status === 'leader') return 'Leader';
+    if (target?.member_status === 'member') return 'Member';
+    if (target?.member_status === 'guest' || target?.first_visit_date || (target?.attended_meetings || target?.promises_kept || 0) > 0) return 'Guest';
+    return 'Outreach Contact';
   }
 
   function cleanPhoneNumber(phone) {
@@ -257,8 +265,11 @@
         <!-- Overview Chips -->
         <div class="flex flex-wrap gap-2">
           <Badge variant="default" size="sm">
-            {person.member_status === 'member' ? 'Regular Member' : 'Newcomer / Follow-Up'}
+            {journeyLabel(person)}
           </Badge>
+          {#if person.first_visit_date}
+            <Badge variant="success" size="sm">First Timer · {formatDate(person.first_visit_date)}</Badge>
+          {/if}
           {#if person.assigned_leader}
             <Badge variant="info" size="sm">
               Worker: {person.assigned_leader.name || person.assigned_leader.first_name || 'Assigned'}
@@ -284,7 +295,7 @@
               <span class="font-medium">{person.city || person.address || 'Not recorded'}</span>
             </div>
             <div>
-              <span class="text-xs text-muted-foreground block">Invited by</span>
+              <span class="text-xs text-muted-foreground block">Invited / credited by</span>
               <span class="font-medium">{person.invited_by_name || 'Direct / Walk-in'}</span>
             </div>
             <div>
@@ -293,6 +304,8 @@
             </div>
           </div>
         </section>
+
+        <SundayReliabilitySummary commitments={profileData?.commitments || []} summary={profileData?.sunday_reliability || null} compact />
 
         <!-- Sunday Commitment History -->
         <section class="space-y-2.5">
@@ -318,12 +331,21 @@
                     <p class="text-muted-foreground text-[11px]">
                       {commitment.gathering_type === 'sunday_service' ? 'Sunday Service' : (commitment.gathering_type || 'Gathering')}
                     </p>
+                    {#if commitment.history?.length}
+                      <div class="mt-1.5 space-y-1">
+                        {#each [...commitment.history].reverse() as change, changeIndex (`${commitment._id || commitment.id}-${change.at}-${changeIndex}`)}
+                          <p class="text-[11px] leading-relaxed text-muted-foreground"><span class="font-medium text-foreground">{String(change.action || 'updated').replaceAll('_', ' ')}</span>{#if change.note} — {change.note}{/if}</p>
+                        {/each}
+                      </div>
+                    {:else if commitment.resolution_note || commitment.confirmation_note}
+                      <p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">{commitment.resolution_note || commitment.confirmation_note}</p>
+                    {/if}
                   </div>
                   <Badge
                     size="sm"
-                    variant={commitment.resolution === 'attended' ? 'success' : commitment.resolution === 'no_show' ? 'danger' : 'info'}
+                    variant={commitment.resolution === 'attended' ? 'success' : commitment.resolution === 'no_show' ? 'danger' : commitment.resolution === 'cancelled' ? 'default' : 'info'}
                   >
-                    {commitment.resolution === 'attended' ? 'Attended' : commitment.resolution === 'no_show' ? 'Didn’t attend' : 'Said yes'}
+                    {commitment.resolution === 'attended' ? 'Attended' : commitment.resolution === 'no_show' ? 'Didn’t attend' : commitment.resolution === 'cancelled' ? 'Cancelled' : 'Said yes'}
                   </Badge>
                 </div>
               {/each}

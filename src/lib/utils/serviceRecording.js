@@ -5,8 +5,19 @@ export function toCount(value, fallback = 0) {
 }
 
 export function isGuest(person) {
-  return ["guest", "visitor"].includes(person?.member_status)
+  return ["guest", "visitor"].includes(person?.member_status);
+}
+
+export function isOutreachContact(person) {
+  return person?.member_status === "contact"
     || (!person?.member_status && Boolean(person?.contact_date));
+}
+
+export function isGuestAttendance(person) {
+  // This helper is intentionally attendance-scoped: an outreach contact is not
+  // a guest while they are only in the directory, but their first check-in is a
+  // guest attendance and the backend then promotes them to Guest.
+  return isGuest(person) || isOutreachContact(person);
 }
 
 export function summarizeNamedAttendance(selectedPersonIds, metadata = {}, people = []) {
@@ -18,13 +29,16 @@ export function summarizeNamedAttendance(selectedPersonIds, metadata = {}, peopl
   return selected.reduce((summary, personId) => {
     const person = peopleById.get(String(personId));
     const personMetadata = metadata[personId] || {};
+    const guestAttendance = isGuestAttendance(person);
+    const firstTimer = Boolean(personMetadata.first_timer);
     summary.named += 1;
-    if (isGuest(person)) summary.guests += 1;
-    if (personMetadata.first_timer) summary.firstTimers += 1;
+    if (guestAttendance) summary.guests += 1;
+    if (firstTimer) summary.firstTimers += 1;
+    if (guestAttendance && !firstTimer) summary.returningGuests += 1;
     if (personMetadata.made_salvation_decision) summary.salvationDecisions += 1;
     if (personMetadata.gave_tithe) summary.tithers += 1;
     return summary;
-  }, { named: 0, guests: 0, firstTimers: 0, salvationDecisions: 0, tithers: 0 });
+  }, { named: 0, guests: 0, returningGuests: 0, firstTimers: 0, salvationDecisions: 0, tithers: 0 });
 }
 
 export function resolveServiceCounts(formData, namedSummary) {
@@ -53,9 +67,9 @@ export function validateServiceCounts(counts, namedSummary) {
     errors.total_attendance = `Cannot be lower than ${namedSummary.named} named check-ins`;
   }
   if (counts.guests_count > counts.total_attendance) {
-    errors.guests_count = "Guest count cannot exceed total attendance";
+    errors.guests_count = "Non-member attendance cannot exceed total attendance";
   } else if (counts.guests_count < namedSummary.guests) {
-    errors.guests_count = `Cannot be lower than ${namedSummary.guests} named guests`;
+    errors.guests_count = `Cannot be lower than ${namedSummary.guests} named non-member attendances`;
   }
   if (counts.salvation_decisions > counts.total_attendance) {
     errors.salvation_decisions = "Decisions cannot exceed total attendance";
@@ -68,7 +82,7 @@ export function validateServiceCounts(counts, namedSummary) {
     errors.tithers_count = `Cannot be lower than ${namedSummary.tithers} named tithers`;
   }
   if (counts.guests_count < namedSummary.firstTimers) {
-    errors.guests_count = `Cannot be lower than ${namedSummary.firstTimers} named first timers`;
+    errors.guests_count = `Cannot be lower than ${namedSummary.firstTimers} first-timer visits`;
   }
   return errors;
 }

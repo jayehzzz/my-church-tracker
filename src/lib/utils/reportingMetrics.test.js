@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildPeopleJourneySummary,
   buildReportSummary,
   completedCareCount,
   isWithinReportingRange,
@@ -52,6 +53,24 @@ describe("reporting definitions", () => {
     expect(csv).toContain("'07123456789");
   });
 
+  it("keeps journey membership separate from leadership and Basonta roles", () => {
+    expect(buildPeopleJourneySummary([
+      { id: "contact", member_status: "contact", role: "no_role" },
+      { id: "guest", member_status: "guest", role: "no_role" },
+      { id: "member", member_status: "member", role: "no_role", church_role: "basonta" },
+      { id: "bacenta", member_status: "member", role: "bacenta_leader", church_role: "basonta" },
+      { id: "legacy-leader", member_status: "leader", role: "basonta_leader" },
+      { id: "archived", member_status: "archived", role: "bacenta_leader", church_role: "basonta" },
+    ])).toEqual({
+      outreachContacts: 1,
+      guests: 1,
+      members: 3,
+      bacentaLeaders: 1,
+      basontaLeaders: 1,
+      basontaMembers: 2,
+    });
+  });
+
   it("reconciles report overview totals with the detail records", () => {
     const meetings = [
       {
@@ -65,7 +84,12 @@ describe("reporting definitions", () => {
     ];
     const summary = buildReportSummary({
       people: [{ id: "p1" }],
-      contacts: [{ converted: true }, { converted: false }],
+      contacts: [
+        { member_status: "member", membership_date: "2026-09-03", converted: false, outreach_salvation_decision: true },
+        { member_status: "guest", converted: true, salvation_decision: true },
+        { conversion_date: "2026-09-04", converted: true, salvation_decision: false },
+        { member_status: "guest", outreach_salvation_decision: false, salvation_decision: true },
+      ],
       services: [{ total_attendance: 20, salvation_decisions: 2 }],
       meetings,
       visitations: [
@@ -77,8 +101,10 @@ describe("reporting definitions", () => {
     expect(meetingAttendance(meetings[0])).toBe(5);
     expect(summary).toEqual({
       totalPeople: 1,
-      newContacts: 2,
-      conversions: 1,
+      newContacts: 4,
+      conversions: 2,
+      joinedChurch: 2,
+      outreachSalvationDecisions: 2,
       totalAttendance: 20,
       salvationDecisions: 2,
       prayerHours: 1.5,

@@ -15,8 +15,8 @@
 
   const stats = $derived([
     { label: "People reached", value: metrics.reached, note: "New outreach contacts", tone: "text-primary", icon: "users" },
-    { label: "Salvation decisions", value: metrics.saved, note: "Faith decisions recorded", tone: "text-warning", icon: "heart" },
-    { label: "First-time attendees", value: metrics.visited, note: "Reached people who attended a gathering", tone: "text-info", icon: "calendar" },
+    { label: "Saved on outreach", value: metrics.saved, note: "Salvation decisions made during outreach", tone: "text-warning", icon: "heart" },
+    { label: "First Timers", value: metrics.visited, note: "People from outreach with a first church attendance recorded", tone: "text-info", icon: "calendar" },
     { label: "Joined church", value: metrics.joined, note: metrics.reached ? `${Math.round((metrics.joined / metrics.reached) * 100)}% of people reached` : "No join rate yet", tone: "text-success", icon: "check" },
   ]);
 </script>
@@ -72,8 +72,8 @@
           subtitle="Compare contacts reached with the outcomes recorded each month."
           {periodLabel}
           comparisonOptions={[
-            { key: "saved", label: "Salvation decisions", color: "warning" },
-            { key: "visited", label: "First-time attendees", color: "info" },
+            { key: "saved", label: "Saved on outreach", color: "warning" },
+            { key: "visited", label: "First Timers", color: "info" },
             { key: "joined", label: "Joined church", color: "success" },
           ]}
           onPointClick={onMonthClick}

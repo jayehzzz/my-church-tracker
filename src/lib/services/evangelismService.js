@@ -26,7 +26,27 @@ function withTimeout(promise, timeoutMs = 3500) {
 // Helper to map _id to id for consistent frontend usage
 function mapDoc(doc) {
   if (!doc) return null;
-  return { ...doc, id: doc._id || doc.id };
+  const explicitStatus = doc.member_status || doc.status;
+  const memberStatus = ["contact", "guest", "member", "leader", "archived"].includes(explicitStatus)
+    ? explicitStatus
+    : doc.converted
+      ? "member"
+      : (doc.first_visit_date || doc.attended_church ? "guest" : "contact");
+  const outreachSalvationDecision = doc.outreach_salvation_decision ?? doc.salvation_decision;
+  return {
+    ...doc,
+    id: doc._id || doc.id,
+    member_status: memberStatus,
+    ...(doc.membership_date || doc.conversion_date
+      ? { membership_date: doc.membership_date || doc.conversion_date }
+      : {}),
+    ...(outreachSalvationDecision !== undefined
+      ? { outreach_salvation_decision: outreachSalvationDecision }
+      : {}),
+    ...(doc.outreach_salvation_date || (outreachSalvationDecision && doc.contact_date)
+      ? { outreach_salvation_date: doc.outreach_salvation_date || doc.contact_date }
+      : {}),
+  };
 }
 
 export async function getAll() {
@@ -67,7 +87,7 @@ export async function create(contactData) {
     mockEvangelismContacts.unshift(newContact);
     const crmService = await import("./followUpCrmService.js");
     await crmService.captureLocalEvangelismContact(newContact);
-    return { data: newContact, error: null };
+    return { data: mapDoc(newContact), error: null };
   }
 
   try {
@@ -87,7 +107,7 @@ export async function update(id, contactData) {
       mockEvangelismContacts[index] = { ...mockEvangelismContacts[index], ...contactData };
       const crmService = await import("./followUpCrmService.js");
       await crmService.captureLocalEvangelismContact(mockEvangelismContacts[index]);
-      return { data: mockEvangelismContacts[index], error: null };
+      return { data: mapDoc(mockEvangelismContacts[index]), error: null };
     }
     return { data: null, error: new Error('Contact not found in mock data') };
   }
@@ -149,21 +169,28 @@ export async function getRequiringFollowUp() {
   }
 }
 
-export async function getConverted() {
+export async function getJoinedChurch() {
   const client = getClient();
   if (!client) {
     if (!isDemoMode()) return unavailable();
-    const filtered = mockEvangelismContacts.filter(c => c.converted || c.response === 'converted');
+    const filtered = mockEvangelismContacts.filter(c =>
+      ["member", "leader"].includes(c.member_status || c.status)
+      || (c.member_status == null && c.status == null && c.converted)
+    );
     return { data: filtered.map(mapDoc), error: null };
   }
 
   try {
+    // Backend query keeps the legacy name for compatibility.
     const data = await withTimeout(client.query(api.evangelism.getConverted), 3500);
     return { data: data ? data.map(mapDoc) : [], error: null };
   } catch (error) {
     return { data: null, error };
   }
 }
+
+/** @deprecated Use getJoinedChurch(). */
+export const getConverted = getJoinedChurch;
 
 export async function getByDateRange(startDate, endDate) {
   const client = getClient();
@@ -181,25 +208,31 @@ export async function getByDateRange(startDate, endDate) {
   }
 }
 
-export async function markAsConverted(id, addToPeople = false) {
+export async function markAsJoinedChurch(id) {
   const client = getClient();
   if (!client) {
     if (!isDemoMode()) return unavailable();
     const contact = mockEvangelismContacts.find(c => c.id === id);
     if (contact) {
-      contact.converted = true;
-      contact.response = 'converted';
-      return { data: contact, error: null };
+      contact.member_status = "member";
+      contact.status = "member";
+      contact.membership_date = new Date().toISOString().slice(0, 10);
+      return { data: mapDoc(contact), error: null };
     }
     return { data: null, error: new Error('Contact not found') };
   }
 
   try {
-    const data = await withTimeout(client.mutation(api.evangelism.markAsConverted, { id, addToPeople }), 5000);
+    const data = await withTimeout(client.mutation(api.evangelism.markAsJoinedChurch, { id }), 5000);
     return { data: mapDoc(data), error: null };
   } catch (error) {
     return { data: null, error };
   }
+}
+
+/** @deprecated Use markAsJoinedChurch(). */
+export async function markAsConverted(id) {
+  return markAsJoinedChurch(id);
 }
 
 export async function getByInviter(personId) {

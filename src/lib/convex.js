@@ -3,8 +3,10 @@ import { accessErrorCode } from './auth/errors.js';
 
 const environment = import.meta.env?.VITE_APP_ENV || (import.meta.env?.DEV ? "development" : "production");
 const requestedMode = import.meta.env?.VITE_APP_MODE || "live";
+const appVariant = import.meta.env?.VITE_APP_VARIANT?.trim().toLowerCase() || "";
 const convexUrl = import.meta.env?.VITE_CONVEX_URL?.trim();
 const validEnvironments = new Set(["development", "staging", "production"]);
+const rehearsalConvexUrl = "https://standing-mongoose-699.convex.cloud";
 
 let configurationError = null;
 if (!validEnvironments.has(environment)) {
@@ -19,6 +21,8 @@ if (!validEnvironments.has(environment)) {
 
 /** Demo is intentionally local-only and never creates a Convex client. */
 export const isDemoMode = () => requestedMode === "demo" && !configurationError;
+export const isRehearsalMode = () =>
+  appVariant === "rehearsal" || convexUrl === rehearsalConvexUrl;
 export const isConvexConfigured = () => !configurationError && !isDemoMode() && Boolean(convexUrl);
 export const getConfigurationError = () => configurationError;
 export const getDataSource = () => (isDemoMode() ? "demo" : isConvexConfigured() ? "convex" : "unavailable");
