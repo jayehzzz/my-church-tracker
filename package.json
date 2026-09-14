@@ -16,7 +16,8 @@
     "test:coverage": "vitest run --coverage",
     "test:backend": "vitest run --config vitest.backend.config.js",
     "check:backend": "tsc -p convex/tsconfig.json",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "verify": "npm run test:unit && npm run test:backend && npm run check:backend && npm run build"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",

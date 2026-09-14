@@ -73,15 +73,23 @@ configuration from the normal untracked local environment.
 
 ## Preview and release
 
+- Run `npm run verify` before review. The repository CI repeats frontend tests,
+  backend tests, backend TypeScript and the production build, plus coverage and
+  the isolated Playwright critical workflow on pull requests and `main`.
 - A feature branch gets a Vercel preview only after Vercel is configured for it.
   Set `VITE_APP_ENV=staging`, `VITE_APP_MODE=live`, and the *staging* Convex URL
   in Vercel Preview environment variables.
 - Test the generated preview against staging; do not seed or reset it unless its
   deployment has been explicitly marked disposable.
-- Merge an approved change to `main` only after preview checks pass. Vercel
-  Production variables must be `VITE_APP_ENV=production`, `VITE_APP_MODE=live`,
-  and the production Convex URL. Deploy the corresponding Convex functions to
-  that production deployment as part of the release procedure.
+- Every hosted release must start from a clean source commit. Record the exact
+  `git rev-parse HEAD` value, Vercel deployment identifier, and Convex deployment
+  name in the release handoff. Do not publish a dirty working tree directly;
+  that produces a deployment which cannot be reproduced from source control.
+- Merge an approved change to `main` only after preview and CI checks pass.
+  Vercel Production variables must be `VITE_APP_ENV=production`,
+  `VITE_APP_MODE=live`, and the production Convex URL. Deploy the corresponding
+  Convex functions from that same reviewed source commit as part of the release
+  procedure.
 
 Vercel configuration files cannot create or verify hosted environment variables.
 Before the first preview or production release, a project administrator must set

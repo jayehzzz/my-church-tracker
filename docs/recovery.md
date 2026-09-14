@@ -25,18 +25,28 @@ retention obligations in the Convex dashboard before relying on these defaults.
 
 ## Routine backup
 
-As of 9 September 2026, the confirmed shared deployment is `elated-bee-284`
-(`jayden-ayeh:church-tracker:production`). A file-inclusive provider backup and
-private local export are complete; **regular backups are not yet enabled**.
-The user is choosing between Mac-dependent automation and a paid provider
-schedule. Current evidence and expiration: [shared launch handoff](implementation/shared-launch-handoff.md).
+The confirmed shared deployment is `elated-bee-284`
+(`jayden-ayeh:church-tracker:production`). On 14 September 2026 a fresh private
+file-inclusive export completed successfully and passed ZIP and SHA-256 checks.
+The backup command is pinned to that deployment and rejects an unexpected team,
+project or deployment reference before exporting.
 
-For an operator-requested private local backup from this saved project, run
-`python3 scripts/backup-live.py`. It verifies the named live destination,
-includes file storage, checks archive integrity and saves a manifest under
-`~/.codex/private/church-backups/elated-bee-284/`. It does not restore, delete,
-or schedule anything. Keep snapshots out of this public repository. The Mac
-copy alone does not provide off-device disaster recovery or a recurring policy.
+For a private local backup from this saved project, run
+`python3 scripts/backup-live.py`. It includes file storage, checks archive
+integrity and saves a manifest under
+`~/.codex/private/church-backups/elated-bee-284/`. Run
+`python3 scripts/check-backup-health.py` to verify the newest snapshot still
+exists, includes file storage, matches its manifest hash and is no more than 36
+hours old. Both commands avoid printing church records or credentials.
+
+A recurring local Codex automation was requested during the 14 September
+operational-reliability task, but the app's automatic approval layer rejected
+creation of the schedule. Convex provider-run periodic backups also remain
+unavailable without the paid plan recorded in the shared-launch handoff. Do not
+claim regular backups are active until one of those schedulers is successfully
+enabled and read back. The local health check makes missed/stale runs visible
+once a scheduler is available. Keep snapshots out of this public repository;
+the Mac copy alone is not off-device disaster recovery.
 
 1. Confirm the deployment name and environment; never back up, restore, or
    import into a deployment merely because its URL resembles a test name.
