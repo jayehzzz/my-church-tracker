@@ -39,14 +39,15 @@ integrity and saves a manifest under
 exists, includes file storage, matches its manifest hash and is no more than 36
 hours old. Both commands avoid printing church records or credentials.
 
-A recurring local Codex automation was requested during the 14 September
-operational-reliability task, but the app's automatic approval layer rejected
-creation of the schedule. Convex provider-run periodic backups also remain
-unavailable without the paid plan recorded in the shared-launch handoff. Do not
-claim regular backups are active until one of those schedulers is successfully
-enabled and read back. The local health check makes missed/stale runs visible
-once a scheduler is available. Keep snapshots out of this public repository;
-the Mac copy alone is not off-device disaster recovery.
+A recurring Codex heartbeat named `Church Tracker daily backup` is active as of
+14 September 2026. It runs daily at 18:30 local time from this saved project,
+executes `scripts/backup-live.py` and then `scripts/check-backup-health.py`, stays
+quiet on successful healthy runs, and notifies only when a run fails or operator
+action is required. It remains dependent on this Mac/Codex environment and the
+operator's Convex login. Convex provider-run periodic backups still require the
+paid plan recorded in the shared-launch handoff; no paid upgrade was made. Keep
+snapshots out of this public repository; the Mac copy alone is not off-device
+disaster recovery.
 
 1. Confirm the deployment name and environment; never back up, restore, or
    import into a deployment merely because its URL resembles a test name.
