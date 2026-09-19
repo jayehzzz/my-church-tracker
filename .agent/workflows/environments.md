@@ -73,9 +73,10 @@ configuration from the normal untracked local environment.
 
 ## Preview and release
 
-- Run `npm run verify` before review. The repository CI repeats frontend tests,
-  backend tests, backend TypeScript and the production build, plus coverage and
-  the isolated Playwright critical workflow on pull requests and `main`.
+- Run `npm run verify` before review. A GitHub Actions workflow has been prepared
+  to repeat frontend tests, backend tests, backend TypeScript, the production
+  build, coverage and the isolated Playwright critical workflow on pull requests
+  and `main`, but it is not active until GitHub accepts the workflow file.
 - A feature branch gets a Vercel preview only after Vercel is configured for it.
   Set `VITE_APP_ENV=staging`, `VITE_APP_MODE=live`, and the *staging* Convex URL
   in Vercel Preview environment variables.
@@ -85,7 +86,9 @@ configuration from the normal untracked local environment.
   `git rev-parse HEAD` value, Vercel deployment identifier, and Convex deployment
   name in the release handoff. Do not publish a dirty working tree directly;
   that produces a deployment which cannot be reproduced from source control.
-- Merge an approved change to `main` only after preview and CI checks pass.
+- Merge an approved change to `main` only after preview and the available
+  verification checks pass. Once the GitHub workflow is accepted, its CI check
+  must also pass before merge.
   Vercel Production variables must be `VITE_APP_ENV=production`,
   `VITE_APP_MODE=live`, and the production Convex URL. Deploy the corresponding
   Convex functions from that same reviewed source commit as part of the release
