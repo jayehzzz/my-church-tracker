@@ -46,6 +46,8 @@
   let journeyFilter = $state([]);
   let followUpFilter = $state([]);
   let selectedMonth = $state("");
+  let monthDetail = $state(null);
+  let monthDetailOpen = $state(false);
 
   let isFormOpen = $state(false);
   let isDetailModalOpen = $state(false);
@@ -106,7 +108,7 @@
   }).filter((row) => !selectedMonth || String(row.contact_date || "").startsWith(selectedMonth)));
   const insightRows = $derived(outreachRows.filter((row) => isWithinDateRange(row.contact_date, $dateRange)));
   const insightMetrics = $derived(outreachMetrics(insightRows));
-  const monthlyData = $derived(monthlyOutreach(insightRows));
+  const monthlyData = $derived(monthlyOutreach(insightRows, Infinity));
   const inviterLeaders = $derived(topInviters(insightRows, people));
   const allMetrics = $derived(outreachMetrics(outreachRows));
   const responsiveCount = $derived(outreachRows.filter((row) => row.response === "responsive").length);
@@ -239,8 +241,8 @@
   }
 
   function showMonthContacts(point) {
-    selectedMonth = point.month || "";
-    activeView = "contacts";
+    monthDetail = { ...point, month: `${point.year}-${String(point.month).padStart(2, "0")}`, label: `${point.label} ${point.year}` };
+    monthDetailOpen = true;
   }
 </script>
 
@@ -359,6 +361,7 @@
       rows={insightRows}
       topInviters={inviterLeaders}
       periodLabel={$dateRange.label}
+      periodRange={$dateRange}
       onInviterClick={openInviter}
       onMonthClick={showMonthContacts}
     />
@@ -402,3 +405,20 @@
   onEdit={handleEditContact}
   onDelete={(contact) => { selectedContact = contact; isDeleteModalOpen = true; }}
 />
+
+<Modal bind:isOpen={monthDetailOpen} title={monthDetail ? `Outreach · ${monthDetail.label}` : "Monthly outreach"} size="2xl">
+  {#if monthDetail}
+    <p class="mb-4 text-sm text-muted-foreground">{$dateRange.label} · Contacts reached in this month and their recorded outcomes.</p>
+    <dl class="grid grid-cols-2 gap-3 mb-4">
+      {#each [{label:'Contacts reached',value:monthDetail.count},{label:'Saved on outreach',value:monthDetail.saved},{label:'First timers',value:monthDetail.visited},{label:'Joined church',value:monthDetail.joined}] as metric}
+        <div class="rounded-lg border border-border p-3"><dt class="text-xs text-muted-foreground">{metric.label}</dt><dd class="mt-1 text-xl font-semibold">{metric.value ?? 0}</dd></div>
+      {/each}
+    </dl>
+    <div class="divide-y divide-border">
+      {#each insightRows.filter(row => String(row.contact_date || '').startsWith(monthDetail.month)) as row}
+        <button type="button" class="flex w-full items-center justify-between gap-3 py-3 text-left text-sm hover:text-primary" onclick={() => handleViewContact(row)}><span>{row.full_name || [row.first_name,row.last_name].filter(Boolean).join(' ')}</span><span class="text-xs text-muted-foreground">{row.contact_date}</span></button>
+      {:else}<p class="text-sm text-muted-foreground">No contacts recorded in this month.</p>{/each}
+    </div>
+    <Button variant="secondary" onclick={() => {selectedMonth = monthDetail.month; activeView = 'contacts'; monthDetailOpen = false;}}>Open contacts list</Button>
+  {/if}
+</Modal>

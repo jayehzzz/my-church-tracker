@@ -1,7 +1,7 @@
 export function toCount(value, fallback = 0) {
   if (value === "" || value === null || value === undefined) return fallback;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
 }
 
 export function isGuest(person) {

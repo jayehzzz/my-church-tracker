@@ -46,6 +46,21 @@ describe("service recording", () => {
     });
   });
 
+  it("rejects decimal headcounts instead of silently truncating them", () => {
+    const summary = { named: 0, guests: 0, firstTimers: 0, salvationDecisions: 0, tithers: 0 };
+    const counts = resolveServiceCounts({
+      total_attendance: "12.5",
+      guests_count: "3",
+      salvation_decisions: "1",
+      tithers_count: "2",
+    }, summary);
+
+    expect(counts.total_attendance).toBe(12.5);
+    expect(validateServiceCounts(counts, summary)).toMatchObject({
+      total_attendance: "Enter a whole number of 0 or more",
+    });
+  });
+
   it("prevents aggregate totals from contradicting named attendance", () => {
     const summary = { named: 5, guests: 2, firstTimers: 1, salvationDecisions: 1, tithers: 2 };
     expect(validateServiceCounts({ total_attendance: 4, guests_count: 5, salvation_decisions: 0, tithers_count: 1 }, summary)).toEqual({

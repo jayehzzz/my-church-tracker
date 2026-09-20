@@ -1,4 +1,6 @@
 <script>
+  import MetricComparison from "$lib/components/charts/MetricComparison.svelte";
+  import FullscreenWrapper from "$lib/components/ui/FullscreenWrapper.svelte";
   import { onDestroy } from "svelte";
   import LeafletMap from "$lib/components/map/LeafletMap.svelte";
   import { hasMapLocation, personAddress } from "$lib/utils/peopleView.js";
@@ -161,8 +163,15 @@
   }
 </script>
 
+<FullscreenWrapper title="People comparison">
+  <section class="card-base p-5 mb-5"><h2 class="mb-4 pr-12 text-base font-semibold">People comparison</h2>
+    <MetricComparison metrics={[{key:'all',label:'People in this view',total:people.length},{key:'mapped',label:'People with a map pin',total:mapped.length},{key:'missing',label:'People without a map pin',total:missing},{key:'address',label:'People with an address',total:addressed.length}]} periodLabel="Current people snapshot" />
+    <p class="mt-3 text-xs text-muted-foreground">These are current person counts; a time average does not apply.</p>
+  </section>
+</FullscreenWrapper>
+<FullscreenWrapper title="People locations">
 <section class="people-map" aria-label="People locations">
-  <header class="map-heading">
+  <header class="map-heading pr-12">
     <div>
       <h2>People locations</h2>
       <p>Find someone nearby or open their profile to arrange care.</p>
@@ -245,6 +254,7 @@
     </footer>
   {/if}
 </section>
+</FullscreenWrapper>
 
 <style>
   .people-map { border: 1px solid hsl(var(--border)); border-radius: 16px; background: hsl(var(--card)); overflow: hidden; }

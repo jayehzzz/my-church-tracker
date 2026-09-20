@@ -5,6 +5,10 @@
 -->
 
 <script>
+  import { roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import ComparisonControls from "./ComparisonControls.svelte";
+  import ChartPointDetails from "./ChartPointDetails.svelte";
+  let detail = $state(null);
   import ChartViewToggle from "./ChartViewToggle.svelte";
   import {
     DEFAULT_CHART_DIMENSIONS,
@@ -27,7 +31,6 @@
     onFilterClick = null,
     activeFilterCount = 0,
     comparisonOptions = [],
-    simplifiedControls = false,
   } = $props();
 
   let hoveredIndex = $state(null);
@@ -55,7 +58,7 @@
 
   const selectedPrimary = $derived(metricOptions.find((option) => option.key === primaryKey) || metricOptions[0]);
   const selectedComparison = $derived(metricOptions.find((option) => option.key === comparisonKey));
-  const comparisonChoices = $derived(metricOptions.filter((option) => option.key !== primaryKey));
+
 
   function aggregateSeries(mode) {
     return groupChartPoints(data, granularity, mode === "total" ? "sum" : "average");
@@ -121,7 +124,7 @@
 
   $effect(() => {
     if (!metricOptions.some((option) => option.key === primaryKey)) primaryKey = "total";
-    if (comparisonKey === primaryKey || (comparisonKey && !metricOptions.some((option) => option.key === comparisonKey))) comparisonKey = "";
+    if (comparisonKey && !metricOptions.some((option) => option.key === comparisonKey)) comparisonKey = "";
   });
 
   // Series colours describe chart roles, not metric types. Keeping Series A
@@ -153,11 +156,11 @@
         : `Highest ${granularity} average ${primaryMetricLower}`,
   );
   const averagePrimary = $derived(
-    data.length ? Math.round(data.reduce((sum, item) => sum + (Number(item[selectedPrimary?.key]) || 0), 0) / data.length) : 0,
+    data.length ? roundedAverage(data.reduce((sum, item) => sum + (Number(item[selectedPrimary?.key]) || 0), 0), data.length) : 0,
   );
   const averageComparison = $derived(
     selectedComparison && data.length
-      ? Math.round(data.reduce((sum, item) => sum + (Number(item[selectedComparison.key]) || 0), 0) / data.length)
+      ? roundedAverage(data.reduce((sum, item) => sum + (Number(item[selectedComparison.key]) || 0), 0), data.length)
       : 0,
   );
   const periodAttendance = $derived(
@@ -180,119 +183,36 @@
   );
 
   function handlePointClick(point, event) {
+    event.preventDefault();
     event.stopPropagation();
-    if (onPointClick && point.id) onPointClick(point);
+    if (onPointClick && point.id && granularity === "day") onPointClick(point);
+    else detail = {
+      title: point.label || point.date,
+      subtitle: `${title} · ${periodLabel}`,
+      metrics: [
+        { label: pointMeasureLabel, value: point.primary },
+        ...(selectedComparison ? [{ label: `${selectedComparison.label}${granularity === 'day' ? '' : ` (${comparisonAggregationMode})`}`, value: point.comparison }] : []),
+      ],
+    };
   }
 
-  const isClickable = $derived(() => !!onPointClick && granularity === "day");
+  const isClickable = () => true;
 </script>
 
 <div class="card-base fullscreen-chart overflow-visible p-5" aria-labelledby="attendance-trend-title">
-  <div class="mb-4 flex flex-col gap-3 pr-12 {simplifiedControls ? '' : 'sm:flex-row sm:items-start sm:justify-between'}">
+  <div class="mb-4 flex flex-col gap-3 pr-12">
     <div>
       <h3 id="attendance-trend-title" class="text-base font-semibold text-foreground">{title}</h3>
       {#if data.length > 0}
         <p class="mt-0.5 text-xs text-muted-foreground">{data.length} {itemLabel} recorded</p>
       {/if}
     </div>
-    <div class="flex flex-wrap items-end gap-2 {simplifiedControls ? 'justify-start' : 'justify-end'}">
-      {#if simplifiedControls}
-        {#if metricOptions.length > 1}
-          <label class="block min-w-0">
-            <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Compare with</span>
-            <select id="{title.replace(/\W+/g, '-').toLowerCase()}-comparison" bind:value={comparisonKey} class="h-9 max-w-48 rounded-lg border border-border bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-primary" aria-label="Compare attendance with">
-              <option value="">No comparison</option>
-              {#each comparisonChoices as option}<option value={option.key}>{option.label}</option>{/each}
-            </select>
-          </label>
-        {/if}
-        <ChartViewToggle value={chartType} onChange={(next) => (chartType = next)} label="Attendance chart view" />
-        <details class="relative">
-          <summary class="flex h-9 cursor-pointer list-none items-center rounded-lg border border-border px-3 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground">More options</summary>
-          <div class="absolute right-0 z-20 mt-2 w-64 space-y-3 rounded-xl border border-border bg-card p-3 shadow-xl">
-            <label class="block">
-              <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Group by</span>
-              <select id="{title.replace(/\W+/g, '-').toLowerCase()}-granularity" bind:value={granularity} onchange={() => (granularityManuallySet = true)} class="h-9 w-full rounded-lg border border-border bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-primary" aria-label="Chart time scale">
-                <option value="month">Month</option>
-                <option value="week">Week</option>
-                <option value="day">Day</option>
-              </select>
-            </label>
-            <label class="block">
-              <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Main metric</span>
-              <select id="{title.replace(/\W+/g, '-').toLowerCase()}-primary-metric" bind:value={primaryKey} class="h-9 w-full rounded-lg border border-border bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-primary" aria-label="Primary metric">
-                {#each metricOptions as option}<option value={option.key}>{option.label}</option>{/each}
-              </select>
-            </label>
-            <label class="block">
-              <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Calculation</span>
-              <select id="{title.replace(/\W+/g, '-').toLowerCase()}-aggregation" bind:value={primaryAggregationMode} class="h-9 w-full rounded-lg border border-border bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-primary" aria-label="Primary calculation">
-                <option value="average">Average</option>
-                <option value="total">Total</option>
-              </select>
-            </label>
-            {#if selectedComparison}
-              <label class="block">
-                <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Comparison calculation</span>
-                <select id="{title.replace(/\W+/g, '-').toLowerCase()}-comparison-aggregation" bind:value={comparisonAggregationMode} class="h-9 w-full rounded-lg border border-border bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-primary" aria-label="Comparison calculation">
-                  <option value="average">Average</option>
-                  <option value="total">Total</option>
-                </select>
-              </label>
-            {/if}
-          </div>
-        </details>
-      {:else}
-      <label class="block">
-        <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Group by</span>
-        <select id="{title.replace(/\W+/g, '-').toLowerCase()}-granularity" bind:value={granularity} onchange={() => (granularityManuallySet = true)} class="h-9 rounded-lg border border-border bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-primary" aria-label="Chart time scale">
-          <option value="month">Month</option>
-          <option value="week">Week</option>
-          <option value="day">Day</option>
-        </select>
+    <div class="flex flex-wrap items-end gap-2 justify-start w-full">
+      <label class="block text-xs text-muted-foreground">Group by
+        <select bind:value={granularity} onchange={() => granularityManuallySet = true} class="ml-2 h-9 rounded-lg border border-border bg-input px-3 text-xs text-foreground" aria-label="Chart time scale"><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option></select>
       </label>
-
-      <div class="rounded-xl border border-primary/30 bg-primary/5 p-2 shadow-sm" aria-label="Series A controls">
-        <div class="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-          <span class="h-2 w-2 rounded-full bg-primary" aria-hidden="true"></span>
-          Series A
-        </div>
-        <div class="flex flex-wrap items-center gap-1.5">
-          <label class="sr-only" for="{title.replace(/\W+/g, '-').toLowerCase()}-primary-metric">Primary metric</label>
-          <select id="{title.replace(/\W+/g, '-').toLowerCase()}-primary-metric" bind:value={primaryKey} class="h-9 rounded-lg border border-primary/35 bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-primary" aria-label="Primary metric">
-            {#each metricOptions as option}<option value={option.key}>{option.label}</option>{/each}
-          </select>
-          <label class="sr-only" for="{title.replace(/\W+/g, '-').toLowerCase()}-aggregation">Primary calculation</label>
-          <select id="{title.replace(/\W+/g, '-').toLowerCase()}-aggregation" bind:value={primaryAggregationMode} class="h-9 rounded-lg border border-primary/35 bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-primary" aria-label="Primary calculation">
-            <option value="average">Average per gathering</option>
-            <option value="total">Actual total count</option>
-          </select>
-        </div>
-      </div>
-
-      {#if metricOptions.length > 1}
-        <div class="rounded-xl border border-warning/35 bg-warning/5 p-2 shadow-sm" aria-label="Series B controls">
-          <div class="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
-            <span class="h-2 w-2 rounded-full bg-warning" aria-hidden="true"></span>
-            Series B · optional comparison
-          </div>
-          <div class="flex flex-wrap items-center gap-1.5">
-            <label class="sr-only" for="{title.replace(/\W+/g, '-').toLowerCase()}-comparison">Compare attendance with</label>
-            <select id="{title.replace(/\W+/g, '-').toLowerCase()}-comparison" bind:value={comparisonKey} class="h-9 rounded-lg border border-warning/40 bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-warning" aria-label="Compare attendance with">
-              <option value="">None</option>
-              {#each comparisonChoices as option}<option value={option.key}>{option.label}</option>{/each}
-            </select>
-            {#if selectedComparison}
-              <label class="sr-only" for="{title.replace(/\W+/g, '-').toLowerCase()}-comparison-aggregation">Comparison calculation</label>
-              <select id="{title.replace(/\W+/g, '-').toLowerCase()}-comparison-aggregation" bind:value={comparisonAggregationMode} class="h-9 rounded-lg border border-warning/40 bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-warning" aria-label="Comparison calculation">
-                <option value="average">Average per gathering</option>
-                <option value="total">Actual total count</option>
-              </select>
-            {/if}
-          </div>
-        </div>
-      {/if}
-      <ChartViewToggle value={chartType} onChange={(next) => (chartType = next)} label="Attendance chart view" />
+      <ChartViewToggle value={chartType} onChange={(next) => chartType = next} label="Attendance chart view" />
+      <ComparisonControls options={metricOptions} bind:primaryKey bind:comparisonKey bind:primaryMode={primaryAggregationMode} bind:comparisonMode={comparisonAggregationMode} comparisonLabel="Compare attendance with" />
       {#if onFilterClick}
         <button
           type="button"
@@ -309,12 +229,11 @@
           {/if}
         </button>
       {/if}
-      {/if}
     </div>
   </div>
 
   {#if selectedComparison || primaryKey !== "total"}
-    <div class="mb-3 flex items-center justify-center gap-5 text-xs">
+    <div class="mb-3 flex flex-wrap items-center justify-center gap-3 text-xs">
       <div class="flex items-center gap-1.5">
         <span class="h-2.5 w-2.5 rounded-full bg-primary shadow-sm shadow-primary/40"></span>
         <span class="font-medium text-foreground">{pointMeasureLabel}</span>
@@ -374,7 +293,7 @@
         {/each}
 
         <!-- Hover background band -->
-        {#if hoveredIndex !== null}
+        {#if hoveredIndex !== null && chartData().points[hoveredIndex]}
           {@const activePoint = chartData().points[hoveredIndex]}
           <rect
             x={activePoint.x - activePoint.bandWidth * 0.44}
@@ -520,7 +439,7 @@
               class={isClickable() ? "cursor-pointer" : ""}
               role={isClickable() ? "button" : "presentation"}
               tabindex={isClickable() ? 0 : -1}
-              aria-label={isClickable() ? `View ${itemLabel.replace(/s$/, "")} on ${point.date}` : undefined}
+              aria-label={isClickable() ? `View ${point.label || point.date} details` : undefined}
               onmouseenter={() => (hoveredIndex = i)}
               onmouseleave={() => (hoveredIndex = null)}
               onfocus={() => (hoveredIndex = i)}
@@ -623,7 +542,7 @@
               class={isClickable() ? "cursor-pointer" : ""}
               role={isClickable() ? "button" : "presentation"}
               tabindex={isClickable() ? 0 : -1}
-              aria-label={isClickable() ? `View ${itemLabel.replace(/s$/, "")} on ${point.date}` : undefined}
+              aria-label={isClickable() ? `View ${point.label || point.date} details` : undefined}
               onmouseenter={() => (hoveredIndex = i)}
               onmouseleave={() => (hoveredIndex = null)}
               onfocus={() => (hoveredIndex = i)}
@@ -660,7 +579,7 @@
       </svg>
 
       <!-- Floating Hover Tooltip -->
-      {#if hoveredIndex !== null}
+      {#if hoveredIndex !== null && chartData().points[hoveredIndex]}
         {@const point = chartData().points[hoveredIndex]}
         {@const percentX = ((point.x / chartWidth) * 100).toFixed(1)}
         <div
@@ -698,7 +617,7 @@
       {/if}
     </div>
 
-    <div class="mt-4 grid {selectedComparison ? 'grid-cols-4' : 'grid-cols-3'} border-t border-border pt-4">
+    <div class="mt-4 grid {selectedComparison ? 'grid-cols-2 gap-y-4 sm:grid-cols-4' : 'grid-cols-3'} border-t border-border pt-4">
       <div class="text-center">
         <div class="text-lg font-bold text-foreground">{chartData().points[chartData().points.length - 1].total}</div>
         <div class="text-xs text-muted-foreground">{latestMeasureLabel}</div>
@@ -728,3 +647,5 @@
     </div>
   {/if}
 </div>
+
+<ChartPointDetails bind:detail />

@@ -14,6 +14,8 @@
 -->
 
 <script>
+  import { roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import MetricComparison from "$lib/components/charts/MetricComparison.svelte";
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { page } from "$app/state";
@@ -34,6 +36,8 @@
   import { dateRange } from "$lib/stores/filterStore";
 
   // Import chart components
+  import ChartPointDetails from "$lib/components/charts/ChartPointDetails.svelte";
+  let chartDetail = $state(null);
   import AttendanceTrend from "$lib/components/charts/AttendanceTrend.svelte";
   import WeeklyAttendanceMatrix from "$lib/components/charts/WeeklyAttendanceMatrix.svelte";
   import ServiceMemories from "$lib/components/services/ServiceMemories.svelte";
@@ -265,7 +269,7 @@
       0,
     );
     const avgAttendance =
-      filtered.length > 0 ? Math.round(totalAttendance / filtered.length) : 0;
+      filtered.length > 0 ? roundedAverage(totalAttendance, filtered.length) : 0;
 
     return {
       totalAttendance,
@@ -638,10 +642,6 @@
     return filteredServices().map(getServiceCopyData);
   }
 
-  // Get chart data for copying
-  function getChartCopyData() {
-    return trendData();
-  }
 </script>
 
 <DashboardLayout>
@@ -1153,9 +1153,6 @@
 
           <section class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]" aria-label="Attendance performance">
             <div class="relative min-w-0">
-              <div class="absolute right-3 top-3 z-10">
-                <CopyButton data={getChartCopyData()} format="json" label="Copy" />
-              </div>
               <FullscreenWrapper title="Attendance trend">
                 {#snippet filters()}
                   <FilterBar compact />
@@ -1181,7 +1178,7 @@
                   <h2 class="text-sm font-semibold text-foreground">At a glance</h2>
                   <p class="mt-1 text-xs text-muted-foreground">Useful context for this period.</p>
                 </div>
-                <span class="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">{returningGuestRate()}% returning guests</span>
+                <span class="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">{returningGuestRate()}% of attendance returning guests</span>
               </div>
 
               <div class="mt-5 space-y-1">
@@ -1249,14 +1246,23 @@
           </section>
 
           <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <section class="rounded-2xl border border-border bg-card p-5 {typeDistribution().typeEntries.length <= 1 ? 'lg:col-span-2' : ''}" aria-labelledby="attendance-mix-title">
+            <FullscreenWrapper title="Attendance & outcomes" class={typeDistribution().typeEntries.length <= 1 ? 'lg:col-span-2' : ''}>
+            <section class="card-base p-5" aria-labelledby="attendance-mix-title">
               <div>
-                <h2 id="attendance-mix-title" class="text-sm font-semibold text-foreground">Attendance &amp; outcomes</h2>
+                <h2 id="attendance-mix-title" class="pr-12 text-base font-semibold text-foreground">Attendance &amp; outcomes</h2>
                 <p class="mt-1 text-xs text-muted-foreground">Average attendance per gathering. Members, returning guests and first timers are shown as separate groups.</p>
               </div>
 
+
+              <div class="mt-4"><MetricComparison metrics={[
+                {key:'attendance',label:'Attendance',total:kpis().totalAttendance},
+                {key:'returning',label:'Returning guest visits',total:kpis().totalReturningGuests},
+                {key:'first',label:'First timers',total:kpis().totalFirstTimers},
+                {key:'decisions',label:'Salvation decisions',total:kpis().totalDecisions},
+                {key:'tithers',label:'Tither attendances',total:kpis().totalTithers},
+              ].map(metric=>({...metric,denominator:kpis().serviceCount,averageLabel:'Average per service'}))} periodLabel={$dateRange.label} /></div>
               <div class="mt-5 flex flex-col items-center gap-6 sm:flex-row">
-                <div class="relative h-36 w-36 shrink-0" role="img" aria-label="Average attendance mix per gathering: {donutData().memberPct}% members, {donutData().returningGuestPct}% returning guests, {donutData().firstTimerPct}% first timers, and {donutData().titherRate}% tither attendances among members">
+                <button type="button" onclick={() => chartDetail = {title: 'Attendance mix', subtitle: $dateRange.label, metrics: [{label:'Average members per gathering',value:donutData().members},{label:'Average returning guests per gathering',value:donutData().returningGuests},{label:'Average first timers per gathering',value:donutData().firstTimers},{label:'Average tithers per gathering (subset of members)',value:donutData().tithers}]}} class="relative h-36 w-36 shrink-0 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="View average attendance mix details: {donutData().memberPct}% members, {donutData().returningGuestPct}% returning guests, {donutData().firstTimerPct}% first timers, and {donutData().titherRate}% tither attendances among members">
                   <svg viewBox="0 0 36 36" class="h-full w-full -rotate-90">
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-secondary" />
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-primary" style="opacity: {attendanceRingVisibility.members ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.members ? `${donutData().memberPct} ${100 - donutData().memberPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-linecap="round" />
@@ -1269,7 +1275,7 @@
                     <span class="text-xl font-semibold text-foreground">{donutData().total}</span>
                     <span class="text-center text-[9px] uppercase leading-tight tracking-wide text-muted-foreground">avg / gathering</span>
                   </div>
-                </div>
+                </button>
                 <div class="w-full space-y-2">
                   <button type="button" aria-pressed={attendanceRingVisibility.members} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.members ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('members')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-primary"></span>Avg members / gathering</span>
@@ -1285,9 +1291,9 @@
                   </button>
                   <button type="button" aria-pressed={attendanceRingVisibility.tithers} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.tithers ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('tithers')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-warning"></span>Avg tithers / gathering <span class="text-[10px] text-muted-foreground">inner ring</span></span>
-                    <span class="text-sm font-semibold text-foreground">{donutData().tithers} <span class="font-normal text-muted-foreground">({donutData().titherRate}% of members)</span></span>
+                    <span class="text-sm font-semibold text-foreground">{donutData().tithers} <span class="font-normal text-muted-foreground">({donutData().titherRate}% of member attendance)</span></span>
                   </button>
-                  <p class="px-2 text-[11px] text-muted-foreground">Attendance values are averages per gathering, so a longer reporting period does not inflate the church-size measure. Tithers remain a subset of member attendance.</p>
+                  <p class="px-2 text-[11px] text-muted-foreground">Attendance values are averages per gathering, so they can contain decimals even though every recorded headcount is a whole person. Tithers remain a subset of member attendance.</p>
                 </div>
               </div>
 
@@ -1307,22 +1313,23 @@
                     <span class="h-2 w-2 rounded-full bg-warning"></span>
                   </div>
                   <p class="mt-2 text-2xl font-semibold text-foreground">{kpis().totalTithers}</p>
-                  <p class="mt-1 text-[11px] text-muted-foreground">{kpis().titherRate}% of members</p>
+                  <p class="mt-1 text-[11px] text-muted-foreground">{kpis().titherRate}% of member attendance</p>
                   <span class="mt-2 block text-[10px] font-semibold text-primary">View service breakdown →</span>
                 </button>
               </div>
-            </section>
+            </section></FullscreenWrapper>
 
             {#if typeDistribution().typeEntries.length > 1}
+            <FullscreenWrapper title="Service mix">
             <section class="rounded-2xl border border-border bg-card p-5" aria-labelledby="service-mix-title">
               <div>
-                <h2 id="service-mix-title" class="text-sm font-semibold text-foreground">Service mix</h2>
+                <h2 id="service-mix-title" class="pr-12 text-base font-semibold text-foreground">Service mix</h2>
                 <p class="mt-1 text-xs text-muted-foreground">How the selected period is distributed by gathering type.</p>
               </div>
               <div class="mt-5 space-y-4">
                 {#each typeDistribution().typeEntries as [type, count]}
                   {@const pct = Math.round((count / Math.max(typeDistribution().total, 1)) * 100)}
-                  <button type="button" aria-pressed={serviceTypeFilter === type} class="w-full rounded-lg text-left outline-none transition-colors hover:bg-secondary/30 focus-visible:ring-2 focus-visible:ring-primary" onclick={() => (serviceTypeFilter = serviceTypeFilter === type ? "all" : type)}>
+                  <button type="button" class="w-full rounded-lg text-left outline-none transition-colors hover:bg-secondary/30 focus-visible:ring-2 focus-visible:ring-primary" onclick={() => chartDetail = {title: formatServiceType(type), subtitle: $dateRange.label, metrics: [{label:"Gatherings",value:count},{label:"Share of selected period",value:`${pct}%`}]}}>
                     <span class="mb-2 flex items-center justify-between text-sm">
                       <span class="font-medium text-foreground">{formatServiceType(type)}</span>
                       <span class="text-muted-foreground">{count} · {pct}%</span>
@@ -1333,7 +1340,7 @@
                   </button>
                 {/each}
               </div>
-            </section>
+            </section></FullscreenWrapper>
             {/if}
           </div>
 
@@ -1720,3 +1727,5 @@
     </Button>
   {/snippet}
 </Modal>
+
+<ChartPointDetails bind:detail={chartDetail} />

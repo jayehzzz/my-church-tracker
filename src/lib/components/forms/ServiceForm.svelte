@@ -487,10 +487,10 @@
         <div class="rounded-xl border border-border bg-card p-4">
           <div class="mb-4"><h4 class="text-sm font-semibold text-foreground">Service totals</h4><p class="mt-1 text-xs text-muted-foreground">Blank fields use the named records as their starting value. The saved non-member total includes both returning guests and first timers; the dashboard separates them so they are not shown twice.</p></div>
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Input label="Total Attendance" type="number" min="0" bind:value={formData.total_attendance} error={errors.total_attendance} placeholder={String(namedSummary.named)} disabled={saving} />
-            <Input label="Total non-member attendance" type="number" min="0" bind:value={formData.guests_count} error={errors.guests_count} placeholder={String(namedSummary.guests)} disabled={saving} />
-            <Input label="Salvation Decisions" type="number" min="0" bind:value={formData.salvation_decisions} error={errors.salvation_decisions} placeholder={String(namedSummary.salvationDecisions)} disabled={saving} />
-            <Input label="Tithers" type="number" min="0" bind:value={formData.tithers_count} error={errors.tithers_count} placeholder={String(namedSummary.tithers)} disabled={saving} />
+            <Input label="Total Attendance" type="number" min="0" step="1" bind:value={formData.total_attendance} error={errors.total_attendance} placeholder={String(namedSummary.named)} disabled={saving} />
+            <Input label="Total non-member attendance" type="number" min="0" step="1" bind:value={formData.guests_count} error={errors.guests_count} placeholder={String(namedSummary.guests)} disabled={saving} />
+            <Input label="Salvation Decisions" type="number" min="0" step="1" bind:value={formData.salvation_decisions} error={errors.salvation_decisions} placeholder={String(namedSummary.salvationDecisions)} disabled={saving} />
+            <Input label="Tithers" type="number" min="0" step="1" bind:value={formData.tithers_count} error={errors.tithers_count} placeholder={String(namedSummary.tithers)} disabled={saving} />
           </div>
           <div class="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-secondary/25 p-3 text-center sm:grid-cols-5">
             <div><p class="text-lg font-semibold text-foreground">{namedSummary.named}</p><p class="text-[11px] text-muted-foreground">Named</p></div>

@@ -218,7 +218,6 @@
                 { key: "decisions", label: "Salvation decisions", color: "success" },
                 { key: "tithers", label: "Tithers", color: "warning" },
               ]}
-              simplifiedControls
               onPointClick={openAttendanceService}
             />
           </FullscreenWrapper>

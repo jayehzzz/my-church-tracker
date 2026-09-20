@@ -58,7 +58,7 @@ export function getNiceYScale(maxValue, targetIntervals = 4, headroom = 1.2) {
   const count = Math.round(tickMax / niceInterval);
   const ticks = [];
   for (let i = 0; i <= count; i++) {
-    ticks.push(Math.round(i * niceInterval));
+    ticks.push(Number((i * niceInterval).toFixed(6)));
   }
 
   return { max: tickMax, ticks, interval: niceInterval };
@@ -169,7 +169,7 @@ export function formatChartDate(dateStr, variant = 'short') {
  * @returns {Array<Record<string, any>>}
  */
 export function groupChartPoints(points = [], granularity = 'day', aggregation = 'average') {
-  if (granularity === 'day' || points.length < 2) return points;
+  if (granularity === 'day') return points;
 
   const buckets = new Map();
   for (const point of points) {
@@ -196,7 +196,7 @@ export function groupChartPoints(points = [], granularity = 'day', aggregation =
     const result = { ...first, date: granularity === 'month' ? `${key}-01` : key };
     for (const field of numericKeys) {
       const total = bucketPoints.reduce((sum, item) => sum + (Number(item[field]) || 0), 0);
-      result[field] = Math.round(aggregation === 'sum' ? total : total / bucketPoints.length);
+      result[field] = aggregation === 'sum' ? total : Math.round(total / bucketPoints.length * 10) / 10;
     }
     result.id = bucketPoints.length === 1 ? first.id : undefined;
     result.topic = bucketPoints.length === 1 ? first.topic : undefined;

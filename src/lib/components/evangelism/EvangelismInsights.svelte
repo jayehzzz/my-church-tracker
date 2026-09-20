@@ -8,6 +8,7 @@
     monthlyData = [],
     rows = [],
     topInviters = [],
+    periodRange = {},
     periodLabel = "Selected period",
     onInviterClick = null,
     onMonthClick = null,
@@ -71,6 +72,7 @@
           title="Outreach and outcomes over time"
           subtitle="Compare contacts reached with the outcomes recorded each month."
           {periodLabel}
+          {periodRange}
           comparisonOptions={[
             { key: "saved", label: "Saved on outreach", color: "warning" },
             { key: "visited", label: "First Timers", color: "info" },
@@ -79,7 +81,7 @@
           onPointClick={onMonthClick}
         />
       </FullscreenWrapper>
-      <EvangelismOutcomes {metrics} {periodLabel} {rows} />
+      <FullscreenWrapper title="Outreach outcomes"><EvangelismOutcomes {metrics} {periodLabel} {periodRange} {rows} /></FullscreenWrapper>
     </div>
 
     <section class="card-base overflow-hidden" aria-labelledby="top-inviters-title">

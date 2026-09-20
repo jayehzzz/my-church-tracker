@@ -1,4 +1,7 @@
 <script>
+  import ChartPointDetails from "./ChartPointDetails.svelte";
+  let detail = $state(null);
+  function inspect(axis) { selected = axis.key; detail = { title: axis.label, subtitle: `Last ${max} completed weeks`, metrics: [{ label: "Weeks with recorded attendance", value: axis.weeks }, { label: "Recorded attendances", value: axis.events }, { label: "Latest attendance", value: axis.lastDate || "Not recorded" }] }; }
   let { axes = [], max = 12, selected = $bindable('sunday') } = $props();
   const cx = 170, cy = 150, radius = 102;
   function point(index, value) {
@@ -30,7 +33,7 @@
     {#each axes as axis, index}
       {#if axis.weeks !== null}
         {@const p = point(index, axis.weeks)}
-        <circle cx={p.x} cy={p.y} r={selected === axis.key ? 6 : 4} class="data-point" />
+        <circle cx={p.x} cy={p.y} r={selected === axis.key ? 6 : 4} class="data-point cursor-pointer" role="button" tabindex="0" aria-label={`View ${axis.label} details`} onclick={() => inspect(axis)} onkeydown={event => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); inspect(axis); } }} />
       {/if}
     {/each}
   </svg>
@@ -42,3 +45,5 @@
   .radar { width: 100%; max-width: 380px; margin: auto; } svg { width: 100%; height: auto; display: block; } .grid-line { color: hsl(var(--muted-foreground) / .25); } .scale-label { font-size: 10px; fill: hsl(var(--muted-foreground)); } .axis-label { font-size: 12px; fill: hsl(var(--foreground)); } .data-shape { fill: hsl(var(--primary) / .18); stroke: hsl(var(--primary)); stroke-width: 2; stroke-linejoin: round; } .data-point { fill: hsl(var(--primary)); stroke: hsl(var(--card)); stroke-width: 2; }
   .axis-controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; } button { border-radius: 6px; padding: 7px 10px; font-size: 12px; color: hsl(var(--muted-foreground)); } button[aria-pressed="true"] { color: hsl(var(--primary)); background: hsl(var(--primary) / .12); }
 </style>
+
+<ChartPointDetails bind:detail />

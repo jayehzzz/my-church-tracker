@@ -11,6 +11,9 @@
 -->
 
 <script>
+    import MetricComparison from "$lib/components/charts/MetricComparison.svelte";
+    import { reportingMonths, roundedAverage } from "$lib/utils/comparisonMetrics.js";
+    import FullscreenWrapper from "$lib/components/ui/FullscreenWrapper.svelte";
     import { onMount } from "svelte";
     import { browser } from "$app/environment";
     import DashboardLayout from "$lib/components/layout/DashboardLayout.svelte";
@@ -93,6 +96,30 @@
         });
     });
     const peopleJourney = $derived(buildPeopleJourneySummary(people));
+    const comparisonMetrics = $derived.by(() => {
+        const summary = summaryKPIs();
+        const contacts = filteredContacts(), services = filteredServices(), meetings = filteredMeetings(), care = filteredVisitations();
+        const monthly = (dates) => ({ denominator: reportingMonths($dateRange, dates), averageLabel: 'Average per calendar month' });
+        const groups = {
+            people: Object.entries(peopleJourney).map(([key,total]) => ({key,label:({outreachContacts:'Outreach contacts',guests:'Guests',members:'Members',bacentaLeaders:'Bacenta leaders',basontaLeaders:'Basonta leaders',basontaMembers:'Basonta members'})[key],total,periodLabel:'Current people snapshot'})),
+            evangelism: [
+                {key:'newContacts',label:'People reached',total:summary.newContacts},
+                {key:'joinedChurch',label:'Reached people who joined',total:summary.joinedChurch},
+                {key:'outreachDecisions',label:'Outreach salvation decisions',total:summary.outreachSalvationDecisions},
+            ].map(item => ({...item,...monthly(contacts.map(row=>row.contact_date))})),
+            services: [
+                {key:'attendance',label:'Sunday attendance',total:summary.totalAttendance},
+                {key:'decisions',label:'Sunday salvation decisions',total:summary.salvationDecisions},
+            ].map(item=>({...item,denominator:services.length,averageLabel:'Average per service'})),
+            meetings: [{key:'meetingAttendance',label:'Meeting attendance',total:meetings.reduce((total,row)=>total+meetingAttendance(row),0),denominator:meetings.length,averageLabel:'Average per held meeting'}],
+            visitation: [
+                {key:'careCompleted',label:'Completed care',total:summary.visitsCompleted,...monthly(care.map(row=>row.visit_date))},
+                {key:'followUps',label:'Outstanding follow-ups',total:summary.followUpsNeeded},
+            ],
+        };
+        return activeTab==='overview' ? Object.values(groups).flat() : groups[activeTab] || [];
+    });
+
 
     async function loadReports() {
         if (!browser) return;
@@ -303,6 +330,14 @@
         </nav>
 
         <!-- Overview Tab -->
+        <FullscreenWrapper title="Report comparison">
+            {#snippet filters()}<FilterBar compact />{/snippet}
+            <section class="card-base p-5">
+                <h2 class="mb-4 pr-12 text-base font-semibold">Report comparison</h2>
+                <MetricComparison metrics={comparisonMetrics} periodLabel={activeTab==='people'?'Current people snapshot':$dateRange.label} />
+                <p class="mt-3 text-xs text-muted-foreground">Monthly averages include empty and partial calendar months in the selected period. People and outstanding follow-ups are current counts; an average does not apply.</p>
+            </section>
+        </FullscreenWrapper>
         {#if activeTab === "overview"}
             <p class="mb-4 text-sm text-muted-foreground">
                 Activity totals use <span class="font-medium text-foreground">{$dateRange.label}</span>. The people-directory total is all time.
@@ -483,8 +518,8 @@
 
         <!-- People Tab -->
         {#if activeTab === "people"}
-            <div class="card-base">
-                <div class="flex items-center justify-between mb-4">
+            <FullscreenWrapper title="People report">{#snippet filters()}<FilterBar compact />{/snippet}<div class="card-base">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-4 pr-12">
                     <h3 class="text-lg font-semibold text-foreground">
                         People
                     </h3>
@@ -549,13 +584,13 @@
                         </p>
                     </div>
                 </div>
-            </div>
+            </div></FullscreenWrapper>
         {/if}
 
         <!-- Evangelism Tab -->
         {#if activeTab === "evangelism"}
-            <div class="card-base">
-                <div class="flex items-center justify-between mb-4">
+            <FullscreenWrapper title="Evangelism report">{#snippet filters()}<FilterBar compact />{/snippet}<div class="card-base">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-4 pr-12">
                     <h3 class="text-lg font-semibold text-foreground">
                         Evangelism Contacts
                     </h3>
@@ -621,13 +656,13 @@
                         </p>
                     </div>
                 </div>
-            </div>
+            </div></FullscreenWrapper>
         {/if}
 
         <!-- Services Tab -->
         {#if activeTab === "services"}
-            <div class="card-base">
-                <div class="flex items-center justify-between mb-4">
+            <FullscreenWrapper title="Services report">{#snippet filters()}<FilterBar compact />{/snippet}<div class="card-base">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-4 pr-12">
                     <h3 class="text-lg font-semibold text-foreground">
                         Services
                     </h3>
@@ -694,24 +729,24 @@
                         </p>
                         <p class="text-xl font-semibold text-foreground">
                             {filteredServices().length > 0
-                                ? Math.round(
+                                ? roundedAverage(
                                       filteredServices().reduce(
                                           (sum, s) =>
                                               sum + (s.total_attendance || 0),
                                           0,
-                                      ) / filteredServices().length,
+                                      ), filteredServices().length,
                                   )
                                 : 0}
                         </p>
                     </div>
                 </div>
-            </div>
+            </div></FullscreenWrapper>
         {/if}
 
         <!-- Meetings Tab -->
         {#if activeTab === "meetings"}
-            <div class="card-base">
-                <div class="flex items-center justify-between mb-4">
+            <FullscreenWrapper title="Meetings report">{#snippet filters()}<FilterBar compact />{/snippet}<div class="card-base">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-4 pr-12">
                     <h3 class="text-lg font-semibold text-foreground">
                         Meetings
                     </h3>
@@ -772,24 +807,24 @@
                         </p>
                         <p class="text-xl font-semibold text-foreground">
                             {filteredMeetings().length > 0
-                                ? Math.round(
+                                ? roundedAverage(
                                       filteredMeetings().reduce(
                                           (sum, m) =>
                                               sum + meetingAttendance(m),
                                           0,
-                                      ) / filteredMeetings().length,
+                                      ), filteredMeetings().length,
                                   )
                                 : 0}
                         </p>
                     </div>
                 </div>
-            </div>
+            </div></FullscreenWrapper>
         {/if}
 
         <!-- Visitation Tab -->
         {#if activeTab === "visitation"}
-            <div class="card-base">
-                <div class="flex items-center justify-between mb-4">
+            <FullscreenWrapper title="Pastoral care report">{#snippet filters()}<FilterBar compact />{/snippet}<div class="card-base">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-4 pr-12">
                     <h3 class="text-lg font-semibold text-foreground">
                         Pastoral Care
                     </h3>
@@ -851,7 +886,7 @@
                         </p>
                     </div>
                 </div>
-            </div>
+            </div></FullscreenWrapper>
         {/if}
     {/if}
 </DashboardLayout>

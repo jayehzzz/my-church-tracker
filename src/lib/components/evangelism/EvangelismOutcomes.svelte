@@ -1,4 +1,6 @@
 <script>
+  import MetricComparison from "$lib/components/charts/MetricComparison.svelte";
+  import { reportingMonths } from "$lib/utils/comparisonMetrics.js";
   import Modal from "$lib/components/ui/Modal.svelte";
   import { hasFirstAttended, hasJoinedChurch, isOutreachSalvation } from "$lib/utils/evangelismView.js";
 
@@ -6,6 +8,7 @@
     metrics = { reached: 0, saved: 0, visited: 0, joined: 0 },
     periodLabel = "Selected period",
     rows = [],
+    periodRange = {},
   } = $props();
 
   let selectedOutcome = $state(null);
@@ -42,7 +45,7 @@
 </script>
 
 <section class="card-base p-5" aria-labelledby="outreach-outcomes-title">
-  <header class="mb-5">
+  <header class="mb-5 pr-12">
     <div class="flex items-start justify-between gap-3">
       <div>
         <h3 id="outreach-outcomes-title" class="text-base font-semibold text-foreground">What happened after outreach?</h3>
@@ -52,37 +55,10 @@
     </div>
   </header>
 
-  <div class="grid gap-3 sm:grid-cols-2">
-    {#each outcomes as outcome (outcome.label)}
-      <button type="button" class="rounded-xl border border-border bg-secondary/10 p-4 text-left transition-all duration-200 hover:-translate-y-0.5 {outcome.card} hover:bg-secondary/20 hover:shadow-lg hover:shadow-black/10" aria-label={`${outcome.label}: ${outcome.value}. View people.`} onclick={() => selectedOutcome = outcome}>
-        <div class="flex items-start justify-between gap-3">
-          <div class="flex items-center gap-2.5">
-            <span class="flex h-8 w-8 items-center justify-center rounded-lg {outcome.icon}" aria-hidden="true">
-              {#if outcome.iconType === "heart"}<span class="text-base">♥</span>
-              {:else if outcome.iconType === "calendar"}<span class="text-sm">◷</span>
-              {:else if outcome.iconType === "spark"}<span class="text-sm">✦</span>
-              {:else}<span class="text-sm">✓</span>{/if}
-            </span>
-            <div>
-              <h4 class="text-sm font-semibold text-foreground">{outcome.label}</h4>
-              <p class="mt-0.5 text-[11px] text-muted-foreground">{outcome.note}</p>
-            </div>
-          </div>
-          <div class="text-right">
-            <p class="text-2xl font-semibold {outcome.text}">{outcome.value}</p>
-            <p class="text-[11px] text-muted-foreground">{percentage(outcome.value)}% of reached</p>
-          </div>
-        </div>
-        <div class="mt-3 h-2 overflow-hidden rounded-full bg-background/70" aria-hidden="true">
-          <div class="h-full rounded-full {outcome.bar} transition-all duration-500" style={`width: ${Math.min(100, percentage(outcome.value))}%`}></div>
-        </div>
-        <span class="mt-3 block text-[11px] font-medium text-primary">View people →</span>
-      </button>
-    {/each}
-  </div>
+  <MetricComparison metrics={outcomes.map(outcome=>({key:outcome.key,label:outcome.label,total:outcome.value,denominator:reportingMonths(periodRange,rows.map(row=>row.contact_date)),averageLabel:'Average per calendar month',outcome}))} {periodLabel} onSelect={metric=>selectedOutcome=metric.outcome} />
 
   <footer class="mt-4 border-t border-border pt-3 text-xs text-muted-foreground">
-    Rates use people reached as the denominator; outcomes are not required to happen in a fixed order.
+    Monthly averages divide outcomes for this contact cohort by calendar months in the selected period, including empty and partial months. Outcomes may happen later than first contact.
   </footer>
 </section>
 

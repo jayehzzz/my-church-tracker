@@ -1,4 +1,6 @@
 <script>
+  import MetricComparison from "$lib/components/charts/MetricComparison.svelte";
+  import FullscreenWrapper from "$lib/components/ui/FullscreenWrapper.svelte";
   import EngagementRadar from "$lib/components/charts/EngagementRadar.svelte";
   import { buildParticipationProfile, isChurchWorker } from "$lib/utils/participationProfile.js";
   import { formatChurchSchool } from "$lib/utils/personMetrics.js";
@@ -16,6 +18,9 @@
   <div class="participation-body">
     <div class="intro"><div><h2>A starting point for a pastoral conversation</h2><p>See patterns in recorded participation, then discuss the person’s understanding, circumstances and next steps with them.</p></div><label>Period<select bind:value={weeks}><option value={12}>Last 12 completed weeks</option><option value={24}>Last 24 completed weeks</option></select></label></div>
     <p class="period">{date(profile.period.start)} – {date(profile.period.end)}</p>
+    <FullscreenWrapper title="Attendance rhythm">
+    {#snippet filters()}<p>{date(profile.period.start)} – {date(profile.period.end)}</p>{/snippet}
+    <MetricComparison metrics={profile.axes.map(axis=>({key:axis.key,label:axis.label,total:axis.events,denominator:weeks,averageLabel:'Average attendances per calendar week'}))} periodLabel={`${date(profile.period.start)} – ${date(profile.period.end)}`} />
     <div class="radar-layout">
       <div><h3>Attendance rhythm</h3><EngagementRadar axes={profile.axes} max={weeks} bind:selected /><p class="chart-note">Each ring counts weeks with recorded attendance. Multiple meetings in one week count as one week. This is frequency, with no overall score or ranking.</p></div>
       <div>
@@ -24,6 +29,7 @@
         <p class="chart-note">Fewer recorded weeks may reflect the meeting schedule or missing records. The chart does not calculate attendance against meetings offered.</p>
       </div>
     </div>
+    </FullscreenWrapper>
     <DiscipleshipReview {person} onsave={onreview} />
     <div class="context-grid">
       <section><h3>Inviting people</h3><p class="metric">{profile.invitations === null ? 'Unavailable' : `${profile.invitations.people} linked contact${profile.invitations.people === 1 ? '' : 's'}`}</p><p>{profile.invitations === null ? 'Outreach history could not be loaded.' : `Recorded across ${profile.invitations.weeks} week${profile.invitations.weeks === 1 ? '' : 's'} in this period.`}</p><p class="chart-note">Uses contacts linked to this person as inviter, dated by first contact. Repeat invitations and whether someone attended are separate from this count.</p>{#if profile.invitations?.undated}<p>{profile.invitations.undated} undated contacts excluded.</p>{/if}</section>

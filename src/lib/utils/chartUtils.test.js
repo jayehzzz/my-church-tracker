@@ -127,8 +127,23 @@ describe("chartUtils", () => {
       const months = groupChartPoints(points, "month", "average");
 
       expect(weeks[0]).toMatchObject({ date: "2026-08-03", total: 120, guests: 15, label: "Week of 3 Aug" });
-      expect(months[0]).toMatchObject({ date: "2026-08-01", total: 133, guests: 20, label: "Aug 2026" });
+      expect(months[0]).toMatchObject({ date: "2026-08-01", total: 133.3, guests: 20, label: "Aug 2026" });
       expect(months[0].id).toBeUndefined();
     });
   });
+});
+
+it('aligns singleton series to the same monthly bucket as larger comparison series', () => {
+  const one = groupChartPoints([{ date: '2026-09-09', total: 92 }], 'month');
+  const many = groupChartPoints([{ date: '2026-09-06', total: 78 }, { date: '2026-09-13', total: 76 }], 'month');
+  expect(one[0].date).toBe(many[0].date);
+  expect(one[0].label).toBe('Sept 2026');
+  expect(one[0].total).toBe(92);
+});
+
+it('retains distinct decimal ticks for small averages', () => {
+  const scale=getNiceYScale(0.7);
+  expect(new Set(scale.ticks).size).toBe(scale.ticks.length);
+  expect(scale.ticks[1]).toBeGreaterThan(0);
+  expect(scale.ticks[1]).toBeLessThan(1);
 });

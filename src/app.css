@@ -342,3 +342,15 @@
     }
   }
 }
+
+/* Shared compact chart layout: avoid tall SVG letterboxing on phones. */
+@media (max-width: 640px) {
+  .fullscreen-chart-svg {
+    height: auto !important;
+    min-height: 0 !important;
+    aspect-ratio: 540 / 280;
+  }
+  .fullscreen-chart-svg text { font-size: 16px; }
+  .fullscreen-chart > header,
+  .fullscreen-chart > div:first-child { padding-right: 2rem; }
+}

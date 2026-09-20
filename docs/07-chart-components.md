@@ -1,5 +1,7 @@
 # 📈 Chart Components
 
+> Current active-dashboard coverage and design recommendations: [20 September 2026 review](dashboard-design-2026-09-20.md). Some component examples below describe legacy charts that are no longer used in current routes.
+
 > **Complete guide to all data visualization components for displaying church metrics.**
 
 ---

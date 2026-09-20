@@ -15,6 +15,7 @@
 
 <script>
   import { fade, scale } from "svelte/transition";
+  import { registerDialog } from "$lib/utils/dialogStack.js";
   import { onMount } from "svelte";
 
   /**
@@ -34,10 +35,6 @@
     zIndex = 50,
     ...restProps
   } = $props();
-
-  // Reference to modal element for focus trap
-  let modalElement = $state(null);
-  let previousActiveElement = $state(null);
 
   // Portal container reference
   let portalTarget = $state(null);
@@ -64,33 +61,6 @@
   function handleBackdropClick(e) {
     if (closeOnBackdrop && e.target === e.currentTarget) {
       handleClose();
-    }
-  }
-
-  // Handle keydown for Escape and focus trap
-  function handleKeydown(e) {
-    if (!isOpen) return;
-
-    if (e.key === "Escape" && closeOnEscape) {
-      handleClose();
-      return;
-    }
-
-    // Focus trap
-    if (e.key === "Tab" && modalElement) {
-      const focusableElements = modalElement.querySelectorAll(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      );
-      const firstElement = focusableElements[0];
-      const lastElement = focusableElements[focusableElements.length - 1];
-
-      if (e.shiftKey && document.activeElement === firstElement) {
-        e.preventDefault();
-        lastElement?.focus();
-      } else if (!e.shiftKey && document.activeElement === lastElement) {
-        e.preventDefault();
-        firstElement?.focus();
-      }
     }
   }
 
@@ -121,73 +91,30 @@
     };
   }
 
-  // Watch for isOpen changes using $effect
-  $effect(() => {
-    if (typeof window === "undefined") return;
-
-    if (isOpen) {
-      // Store current active element
-      previousActiveElement = document.activeElement;
-
-      // Lock body scroll
-      document.body.style.overflow = "hidden";
-
-      // Focus the modal after a short delay for animation
-      setTimeout(() => {
-        if (modalElement) {
-          const firstFocusable = modalElement.querySelector(
-            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-          );
-          firstFocusable?.focus();
-        }
-      }, 50);
-    } else {
-      // Restore body scroll
-      document.body.style.overflow = "";
-
-      // Restore focus to previous element
-      if (
-        previousActiveElement &&
-        typeof previousActiveElement.focus === "function"
-      ) {
-        previousActiveElement.focus();
-      }
-    }
-  });
-
-  // Cleanup on unmount — using $effect cleanup instead of onDestroy
-  // to avoid SSR hydration errors (onDestroy requires component context)
-  $effect(() => {
-    return () => {
-      if (typeof window !== "undefined") {
-        document.body.style.overflow = "";
-        // Remove portal target
-        if (portalTarget && portalTarget.parentNode) {
-          portalTarget.parentNode.removeChild(portalTarget);
-        }
-      }
-    };
-  });
+  function manageDialog(node) {
+    return { destroy: registerDialog(node, () => { if (closeOnEscape && closable) handleClose(); }) };
+  }
+  $effect(() => () => { portalTarget?.remove(); });
+  const titleId = $props.id();
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 {#if isOpen}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     use:portal
+    use:manageDialog
+    tabindex="-1"
     class="modal-backdrop"
     role="dialog"
     aria-modal="true"
-    aria-labelledby={title ? "modal-title" : undefined}
+    aria-labelledby={title ? titleId : undefined}
     onclick={handleBackdropClick}
     transition:fade={{ duration: 200 }}
     style="z-index: {zIndex};"
     {...restProps}
   >
     <div
-      bind:this={modalElement}
       class="modal-content {sizeClasses}"
       transition:scale={{ duration: 200, start: 0.95 }}
     >
@@ -195,7 +122,7 @@
       {#if title || closable}
         <div class="modal-header">
           {#if title}
-            <h2 id="modal-title" class="text-xl font-semibold text-foreground">
+            <h2 id={titleId} class="text-xl font-semibold text-foreground">
               {title}
             </h2>
           {:else}

@@ -1,3 +1,4 @@
+import { roundedAverage } from '$lib/utils/comparisonMetrics.js';
 /**
  * Dashboard Service
  * Combines church health reporting with the lightweight activity feed used by
@@ -65,7 +66,7 @@ function attendanceCount(service) {
 
 function averageAttendance(services) {
   if (!services.length) return 0;
-  return Math.round(services.reduce((sum, service) => sum + attendanceCount(service), 0) / services.length);
+  return roundedAverage(services.reduce((sum, service) => sum + attendanceCount(service), 0), services.length);
 }
 
 function percentChange(current, previous) {
@@ -104,10 +105,10 @@ export async function getDashboardKPIs(dateRange) {
   const currentSummary = summarizeServicePeriod(currentServices, attendanceRows);
   const previousSummary = summarizeServicePeriod(previousServices, attendanceRows);
   const attendance = currentSundaySummary.serviceCount
-    ? Math.round(currentSundaySummary.totalAttendance / currentSundaySummary.serviceCount)
+    ? roundedAverage(currentSundaySummary.totalAttendance, currentSundaySummary.serviceCount)
     : 0;
   const previousAttendance = previousSundaySummary.serviceCount
-    ? Math.round(previousSundaySummary.totalAttendance / previousSundaySummary.serviceCount)
+    ? roundedAverage(previousSundaySummary.totalAttendance, previousSundaySummary.serviceCount)
     : 0;
   const guests = currentSummary.guestAttendance;
   const previousGuests = previousSummary.guestAttendance;
