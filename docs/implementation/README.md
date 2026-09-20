@@ -31,6 +31,20 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 Append one concise entry per task: status/date, changed behavior, validation results, remaining work or required user input, and current branch/commit or uncommitted state. Keep credentials and private records out of this file. If external configuration prevents verification, state that and keep the task incomplete instead of using mock success as proof.
 
+### Evangelism simplification — complete locally (19 September 2026)
+
+- Simplified contact capture to identity/contact date, shared outreach credit and assigned worker; next-contact date appears only when an initial call can be scheduled. Email, address, method, primary inviter, notes and historical milestones are optional details. Removed initial response classification and Evangelism membership controls while preserving existing categories, attribution, permissions and membership. Membership links lead to People; the profile and editor use “Church status.”
+- Evangelism defaults to Person, Who reached them, Assigned worker and Next action, with other filters/columns/statistics secondary. Sunday details are in the contact’s gatherings tab. Failed worker/name loads show a retry instead of false unassigned rows. Membership alone no longer displays follow-up as complete; “settled” copy now correctly says membership stays unchanged.
+- Category-free creation defaults to `not_assessed` and remains discoverable for follow-up. Explicit Do not contact cancels pending outreach, preserves pastoral-care/history records and blocks outreach recreation after membership changes. Outreach edits no longer change membership through legacy conversion fields; dedicated compatibility endpoints remain. Demo tests cover matching defaults, single initial tasks, preserved restrictions and contact-versus-guest status.
+- Checks: **261 frontend tests, 87 backend tests, backend TypeScript, production build, existing Playwright attendance/care workflow and `git diff --check` passed**. Built-in browser verified synthetic local-demo creation with worker/date/credit, one next task, opt-out cancellation history, People profile navigation and explicit membership, plus directory/form at 390px with no page/form horizontal overflow. Retryable load failures were not browser fault-injected. Existing non-failing localStorage and Vite warnings remain.
+- Baseline: `codex/operational-reliability-review` at `6c1f3ea`, with inherited uncommitted attendance, programme/form, picker, pipeline and handoff changes preserved. Two scoped implementation subagents were used. All work remains uncommitted; no deployment, migration or live church-record write. Production release is a separate task.
+
+### Regular programme expectation lists — complete locally (19 September 2026)
+
+- Recurring meeting programmes now expose a **Regular expectation list** for the people who normally attend. The list is available for every programme type, and Basonta is now available as a programme type. When recording attendance, expected people are preloaded as the first filter and can be marked present together with **Mark expected present**; nobody is counted until explicitly marked present.
+- Checks: focused MeetingForm interaction test passes; full `npm run test:unit` passes (**232 tests**); `npm run build` passes. Local browser control was not available in this Codex session, so no separate browser check was run.
+- State: `codex/operational-reliability-review`; changes remain uncommitted alongside inherited attendance work. No backend data, deployment or production records were changed.
+
 ### GitHub and production reconciliation — 9 September 2026
 
 - Audited the integrated workspace against GitHub and Vercel before release. GitHub `main` remains at `f7b9f2a`; the release branch remains at `9abda19` before this reconciliation, while the source/docs/CI/backup work below was local only. The existing Vercel production deployment was a direct upload (no Git source metadata) and served the integrated application, but could not be traced to a commit.

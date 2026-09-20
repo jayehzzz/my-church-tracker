@@ -29,8 +29,8 @@
     <div class="address"><span class="label">Address</span><div class="contact-value"><span class:missing={!address}>{address || "No address recorded"}</span>{#if address}<CopyButton format="text" data={address} label="Copy address" />{/if}</div></div>
   </div>
   <div class="status-row">
-    <label>Church journey
-      <select aria-label="Church journey status" value={status} disabled={updatingStatus} onchange={(e) => onUpdateStatus(e.currentTarget.value)}>
+    <label>Church status
+      <select aria-label="Church status" value={status} disabled={updatingStatus} onchange={(e) => onUpdateStatus(e.currentTarget.value)}>
         <option value="" disabled>Not recorded</option>
         <option value="contact">Outreach Contact</option><option value="guest">Guest</option><option value="member">Member</option><option value="leader">Leader</option><option value="archived">Archived</option>
       </select>

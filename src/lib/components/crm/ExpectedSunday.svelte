@@ -319,11 +319,12 @@
               <div class="flex shrink-0 flex-wrap gap-2" aria-label={`Record attendance for ${personName(row.person)}`}>
                 <Button size="sm" onclick={() => onResolve(row.commitment, 'attended')}>Attended</Button>
                 <Button size="sm" variant="secondary" onclick={() => onResolve(row.commitment, 'no_show')}>Didn’t attend</Button>
+                <Button size="sm" variant="ghost" onclick={() => onResolve(row.commitment, 'cancelled')}>Cancel confirmation</Button>
               </div>
             {:else if row.status === 'Said yes'}
               <div class="flex shrink-0 items-center gap-2">
                 <Badge size="sm" variant="info" dot>Said yes</Badge>
-                <Button size="sm" variant="ghost" onclick={() => onResolve(row.commitment, 'cancelled')}>Cancelled</Button>
+                <Button size="sm" variant="ghost" onclick={() => onResolve(row.commitment, 'cancelled')}>Cancel confirmation</Button>
               </div>
             {:else}
               <Badge size="sm" variant={statusVariant(row.status)} dot>{row.status}</Badge>
@@ -381,6 +382,7 @@
             <div class="flex shrink-0 items-center gap-2">
               <Badge size="sm" variant={statusVariant(row.status)} dot>{row.status}</Badge>
               {#if afterService}
+                {#if row.status === 'Confirmed'}<Button size="sm" variant="ghost" disabled={isSaving(row.person)} onclick={() => onStatusChange(row.person, 'expected')}>Unconfirm</Button>{/if}
                 {#if row.status !== 'Attended'}<Button size="sm" variant={row.status === 'Didn’t attend' ? 'ghost' : 'primary'} loading={isSaving(row.person)} onclick={() => onStatusChange(row.person, 'attended')}>Attended</Button>{/if}
                 {#if row.status !== 'Didn’t attend'}<Button size="sm" variant="ghost" disabled={isSaving(row.person)} onclick={() => onStatusChange(row.person, 'absent')}>Didn’t attend</Button>{/if}
               {:else}

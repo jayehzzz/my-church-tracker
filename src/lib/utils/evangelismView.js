@@ -62,7 +62,7 @@ function journeyFor(contact) {
 
 export function buildEvangelismRows(contacts = [], people = [], crmWorkspace = {}, now = new Date()) {
   const assignments = crmWorkspace.active_assignments || [];
-  const tasks = [...(crmWorkspace.tasks || []), ...(crmWorkspace.member_care_tasks || [])];
+  const tasks = [...(crmWorkspace.tasks || []), ...(crmWorkspace.member_care_tasks || []), ...(crmWorkspace.visitation_tasks || [])];
   const crmContacts = crmWorkspace.contacts || [];
   const laterIds = new Set((crmWorkspace.later_contacts || []).map((item) => String(contactId(item))));
   const unassignedIds = new Set((crmWorkspace.unassigned_contacts || []).map((item) => String(contactId(item))));
@@ -80,31 +80,44 @@ export function buildEvangelismRows(contacts = [], people = [], crmWorkspace = {
     const journey = journeyFor(contact);
     const age = daysSince(contact.contact_date, now);
     const member = journey.key === "joined";
-    const closed = contact.follow_up_status === "closed"
-      || CLOSED_RESPONSES.has(contact.response || contact.contact_category);
-    const unassigned = !member && !closed && (unassignedIds.has(id) || (!assignment && !laterIds.has(id)));
+    const category = contact.response || contact.contact_category;
+    const closed = contact.follow_up_status === "closed" || contact.pipeline_stage === "closed"
+      || crmContact?.follow_up_status === "closed" || crmContact?.pipeline_stage === "closed"
+      || CLOSED_RESPONSES.has(category);
+    const assignedId = assignment?.assigned_leader_id || nextTask?.assigned_leader_id || null;
+    const worker = people.find((person) => String(contactId(person)) === String(assignedId))
+      || crmWorkspace.leaders?.find((person) => String(contactId(person)) === String(assignedId))
+      || assignment?.assigned_leader
+      || nextTask?.assigned_leader;
+    const creditIds = [...new Set([
+      ...(contact.collector_ids || []), contact.collected_by_id, contact.invited_by_id,
+    ].filter(Boolean).map(String))];
+    const creditNames = creditIds.map((creditId) => people.find((person) => String(contactId(person)) === creditId))
+      .filter(Boolean).map((person) => personName(person));
+    const later = laterIds.has(id) || contact.is_paused || contact.follow_up_status === "later";
+    const unassigned = !member && !closed && !later && !nextTask && (unassignedIds.has(id) || !assignment);
 
     let followUpLabel = "No next action";
     let followUpKey = "none";
-    if (closed) {
-      followUpLabel = "Closed";
+    if (category === "do_not_contact") {
+      followUpLabel = "Do not contact";
       followUpKey = "closed";
-    } else if (member) {
-      followUpLabel = "Complete";
-      followUpKey = "complete";
-    } else if (unassigned) {
-      followUpLabel = "Needs owner";
-      followUpKey = "unassigned";
-    } else if (laterIds.has(id)) {
-      followUpLabel = "Follow up later";
-      followUpKey = "later";
     } else if (nextTask?.due_date && nextTask.due_date < today) {
       followUpLabel = `Overdue · ${formatOutreachDate(nextTask.due_date)}`;
       followUpKey = "overdue";
     } else if (nextTask) {
       followUpLabel = `Scheduled · ${formatOutreachDate(nextTask.due_date)}`;
       followUpKey = "scheduled";
-    } else if (assignment) {
+    } else if (closed) {
+      followUpLabel = "Follow-up ended";
+      followUpKey = "closed";
+    } else if (later) {
+      followUpLabel = "Follow up later";
+      followUpKey = "later";
+    } else if (unassigned) {
+      followUpLabel = "Assign someone";
+      followUpKey = "unassigned";
+    } else if (assignment && !member) {
       followUpLabel = "In follow-up";
       followUpKey = "active";
     }
@@ -123,6 +136,10 @@ export function buildEvangelismRows(contacts = [], people = [], crmWorkspace = {
       contact_date_label: formatOutreachDate(contact.contact_date),
       response_label: formatResponse(contact.response || contact.contact_category),
       invited_by_name: contact.invited_by_name || personName(inviter, "Not recorded"),
+      reached_by_name: contact.invited_by_name || [...new Set([
+        ...creditNames, ...(contact.collector_names || []), contact.primary_inviter_name,
+      ].filter(Boolean))].join(", ") || "Not recorded",
+      assigned_worker_name: assignedId ? personName(worker, "Assigned worker") : "Unassigned",
       inviter_ids: Array.isArray(contact.inviter_ids) && contact.inviter_ids.length
         ? contact.inviter_ids
         : contact.invited_by_id ? [contact.invited_by_id] : [],
@@ -133,7 +150,7 @@ export function buildEvangelismRows(contacts = [], people = [], crmWorkspace = {
       sunday_reliability: sundayReliability,
       sunday_reliability_label: sundayReliabilityLabel(sundayReliability),
       freshness_label: age === null ? "Date unknown" : age <= 14 ? `Fresh · ${age}d` : `Older · ${Math.floor(age / 7)}w`,
-      assigned_leader_id: assignment?.assigned_leader_id || nextTask?.assigned_leader_id || null,
+      assigned_leader_id: assignedId,
       crm_assignment: assignment,
       crm_next_task: nextTask,
       is_unassigned: unassigned,

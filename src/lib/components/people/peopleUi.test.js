@@ -13,7 +13,7 @@ describe('people profile actions', () => {
   it('connects activity and status choices to save handlers', async () => {
     const onUpdateStatus = vi.fn(), onUpdateActivity = vi.fn();
     const { getByLabelText } = render(ProfileHeader, { person, onUpdateStatus, onUpdateActivity });
-    await fireEvent.change(getByLabelText('Church journey status'), { target: { value: 'guest' } });
+    await fireEvent.change(getByLabelText('Church status'), { target: { value: 'guest' } });
     await fireEvent.change(getByLabelText('Activity status'), { target: { value: 'irregular' } });
     expect(onUpdateStatus).toHaveBeenCalledWith('guest');
     expect(onUpdateActivity).toHaveBeenCalledWith('irregular');

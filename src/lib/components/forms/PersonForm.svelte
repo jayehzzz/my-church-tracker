@@ -690,11 +690,11 @@
 
     <!-- Church journey and role section -->
     <div class="space-y-4">
-      <h3 class="text-lg font-medium text-foreground">Church Journey & Roles</h3>
+      <h3 class="text-lg font-medium text-foreground">Church status & roles</h3>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <SearchableSelect
-          label="Church Journey Status"
+          label="Church status"
           bind:value={formData.member_status}
           options={statusOptions}
           disabled={saving}
@@ -710,7 +710,7 @@
       </div>
 
       <p class="text-xs text-muted-foreground">
-        Outreach Contact = collected through evangelism but has not attended yet. Guest = has attended but is not yet a member. First timer is recorded on the person's first attendance, not as a permanent status.
+        Outreach Contact = collected through evangelism but has not attended yet. Guest = has attended but is not yet a member. Choose Member only when membership is confirmed. First timer is recorded on the person's first attendance, not as a permanent status.
       </p>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

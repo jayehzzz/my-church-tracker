@@ -57,6 +57,15 @@ describe('ExpectedSunday', () => {
     expect(onStatusChange).toHaveBeenCalledWith(member, 'attended');
   });
 
+  it('can undo accidental confirmations even on a past Sunday', async () => {
+    const onResolve = vi.fn(), onStatusChange = vi.fn();
+    const confirmed = {...member, attendance_plan: {status:'confirmed'}};
+    const {getByRole} = render(ExpectedSunday, {today:'2026-09-19',forecast:{service_date:'2026-09-13'},roster:[confirmed],commitments:[commitment],onResolve,onStatusChange});
+    await fireEvent.click(getByRole('button',{name:'Cancel confirmation'}));
+    expect(onResolve).toHaveBeenCalledWith(commitment,'cancelled');
+    await fireEvent.click(getByRole('button',{name:'Unconfirm'}));
+    expect(onStatusChange).toHaveBeenCalledWith(confirmed,'expected');
+  });
   it('summarises the previous Sunday from recorded results', () => {
     const { getByText } = render(ExpectedSunday, {
       props: {

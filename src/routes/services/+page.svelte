@@ -137,7 +137,10 @@
 
   function getServiceIndividuals(service) {
     if (!Array.isArray(service?.individuals)) return [];
-    return service.individuals.map(getPersonById).filter(Boolean);
+    return service.individuals.map(getPersonById).filter(Boolean).map(person => ({
+      ...person,
+      first_timer: attendanceRecords.some(row => recordId(row.service_id) === recordId(service) && recordId(row.person_id) === recordId(person) && row.first_timer === true),
+    }));
   }
 
   function serviceFirstTimerCount(service) {
@@ -993,7 +996,7 @@
                                   <div
                                     class="w-6 h-6 rounded-full bg-primary/20 border-2 border-card flex items-center justify-center text-[10px] font-medium text-primary"
                                   >
-                                    {person.first_name[0]}{person.last_name[0]}
+                                    {person.first_name?.[0] || ""}{person.last_name?.[0] || ""}
                                   </div>
                                 {/if}
                               {/each}
@@ -1489,18 +1492,19 @@
             {#each getServiceIndividuals(selectedService) as person}
               <a
                 href="/people/{person.id}"
-                class="flex items-center gap-2 px-3 py-1.5 bg-secondary/30 rounded-full hover:bg-secondary/50 transition-colors group"
+                class="flex items-center gap-2 px-3 py-1.5 {person.first_timer ? 'bg-success/10 border border-success/40' : 'bg-secondary/30'} rounded-full hover:bg-secondary/50 transition-colors group"
                 onclick={(e) => e.stopPropagation()}
               >
                 <div
                   class="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary"
                 >
-                  {person.first_name[0]}{person.last_name[0]}
+                  {person.first_name?.[0] || ""}{person.last_name?.[0] || ""}
                 </div>
                 <span
                   class="text-sm text-foreground group-hover:text-primary group-hover:underline"
                   >{person.first_name} {person.last_name}</span
                 >
+                {#if person.first_timer}<span class="text-xs font-medium text-success">First-timer visit</span>{/if}
               </a>
             {/each}
           </div>
@@ -1607,13 +1611,13 @@
             {#each getServiceIndividuals(selectedService) as person}
               <a
                 href="/people/{person.id}"
-                class="flex items-center justify-between p-3 bg-secondary/20 rounded-lg hover:bg-secondary/40 transition-colors group"
+                class="flex items-center justify-between p-3 {person.first_timer ? 'bg-success/10 border border-success/40' : 'bg-secondary/20'} rounded-lg hover:bg-secondary/40 transition-colors group"
               >
                 <div class="flex items-center gap-3">
                   <div
                     class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-sm font-medium text-primary"
                   >
-                    {person.first_name[0]}{person.last_name[0]}
+                    {person.first_name?.[0] || ""}{person.last_name?.[0] || ""}
                   </div>
                   <div>
                     <div
@@ -1625,6 +1629,7 @@
                     <div class="text-xs text-muted-foreground">
                       {person.member_status}
                     </div>
+                    {#if person.first_timer}<span class="text-xs font-medium text-success">First-timer visit</span>{/if}
                   </div>
                 </div>
               </a>

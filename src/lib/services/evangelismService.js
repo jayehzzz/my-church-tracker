@@ -83,10 +83,10 @@ export async function create(contactData) {
   const client = getClient();
   if (!client) {
     if (!isDemoMode()) return unavailable();
-    const newContact = { ...contactData, id: `mock-${Date.now()}` };
-    mockEvangelismContacts.unshift(newContact);
+    const newContact = { response: "not_assessed", ...contactData, id: `mock-${Date.now()}` };
     const crmService = await import("./followUpCrmService.js");
     await crmService.captureLocalEvangelismContact(newContact);
+    mockEvangelismContacts.unshift(newContact);
     return { data: mapDoc(newContact), error: null };
   }
 
@@ -104,7 +104,10 @@ export async function update(id, contactData) {
     if (!isDemoMode()) return unavailable();
     const index = mockEvangelismContacts.findIndex(c => c.id === id);
     if (index !== -1) {
-      mockEvangelismContacts[index] = { ...mockEvangelismContacts[index], ...contactData };
+      mockEvangelismContacts[index] = {
+        ...mockEvangelismContacts[index], ...contactData,
+        ...(contactData.response !== undefined ? { contact_category: contactData.response } : {}),
+      };
       const crmService = await import("./followUpCrmService.js");
       await crmService.captureLocalEvangelismContact(mockEvangelismContacts[index]);
       return { data: mapDoc(mockEvangelismContacts[index]), error: null };
@@ -157,7 +160,14 @@ export async function getRequiringFollowUp() {
   const client = getClient();
   if (!client) {
     if (!isDemoMode()) return unavailable();
-    const filtered = mockEvangelismContacts.filter(c => c.follow_up_required || c.response === 'responsive' || c.response === 'events_only');
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
+    const filtered = mockEvangelismContacts.map(mapDoc).filter(c =>
+      ["contact", "guest"].includes(c.member_status)
+      && !["do_not_contact", "has_church", "wrong_number"].includes(c.response || c.contact_category)
+      && !c.is_paused && c.pipeline_stage !== "closed" && c.follow_up_status !== "closed"
+      && (!c.first_visit_date || c.first_visit_date < cutoff.toISOString().slice(0, 10))
+    );
     return { data: filtered.map(mapDoc), error: null };
   }
 

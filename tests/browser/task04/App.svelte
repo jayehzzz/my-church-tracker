@@ -1,5 +1,8 @@
 <script>
   import { onMount } from 'svelte';
+  import SearchableSelect from '$lib/components/ui/SearchableSelect.svelte';
+  import { personOptions } from '$lib/utils/personOptions.js';
+  let inviter = $state('');
   import ServiceForm from '$lib/components/forms/ServiceForm.svelte';
   import MeetingForm from '$lib/components/forms/MeetingForm.svelte';
   import VisitationForm from '$lib/components/forms/VisitationForm.svelte';
@@ -36,6 +39,9 @@
         <button onclick={finishCare}>Complete next care task</button>
       {/if}
       <button onclick={refresh}>Refresh saved state</button>
+    </div>
+    <div class="max-w-md">
+      <SearchableSelect label="Fixture inviter" membersFirst options={personOptions(mappedPeople)} bind:value={inviter} />
     </div>
     <div aria-label="Saved results" class="space-y-2">
       <p>Named check-ins: {state.attendance.length} · Promises kept: {guest?.promises_kept || 0} · First visit: {guest?.first_visit_date || 'none'}</p>

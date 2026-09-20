@@ -59,7 +59,7 @@ describe("evangelism view model", () => {
       follow_up_key: "scheduled",
       sunday_reliability_label: "4 expected · 2 attended · 1 missed · 1 cancelled",
     });
-    expect(rows.find((row) => row.id === "c2")).toMatchObject({ journey_key: "joined", follow_up_key: "complete" });
+    expect(rows.find((row) => row.id === "c2")).toMatchObject({ journey_key: "joined", follow_up_key: "none" });
     expect(rows.find((row) => row.id === "c3")).toMatchObject({ journey_key: "outreach", journey_label: "Outreach Contact", follow_up_key: "closed" });
     expect(rows.find((row) => row.id === "c4")).toMatchObject({
       journey_key: "outreach",
@@ -99,5 +99,31 @@ describe("evangelism view model", () => {
 
   it("uses neutral follow-up wording before a posture is assessed", () => {
     expect(formatResponse("not_assessed")).toBe("Not assessed");
+  });
+
+  it("shows shared credit, the assigned worker and real pending work for members", () => {
+    const [row] = buildEvangelismRows([{
+      id: "member", member_status: "member", collector_ids: ["p1", "p2"], invited_by_id: "p1",
+    }], people, {
+      active_assignments: [{ person_id: "member", assigned_leader_id: "p2" }],
+      member_care_tasks: [{ person_id: "member", assigned_leader_id: "p2", status: "open", due_date: "2026-09-03" }],
+    }, new Date("2026-09-01T12:00:00"));
+    expect(row).toMatchObject({
+      reached_by_name: "Samuel Owusu, Grace Mensah", assigned_worker_name: "Grace Mensah",
+      follow_up_key: "scheduled", is_unassigned: false,
+    });
+  });
+
+  it("distinguishes unassigned contacts, actual closure and no-contact restrictions", () => {
+    const rows = buildEvangelismRows([
+      { id: "new", response: "not_assessed" },
+      { id: "closed", pipeline_stage: "closed" },
+      { id: "blocked", response: "do_not_contact", member_status: "member" },
+    ], [], {
+      tasks: [{ person_id: "blocked", status: "open", due_date: "2026-09-03" }],
+    });
+    expect(rows.find(row => row.id === "new").follow_up_label).toBe("Assign someone");
+    expect(rows.find(row => row.id === "closed")).toMatchObject({ follow_up_key: "closed", is_unassigned: false });
+    expect(rows.find(row => row.id === "blocked").follow_up_label).toBe("Do not contact");
   });
 });

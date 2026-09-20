@@ -464,7 +464,7 @@
                     <div class="mt-2 flex flex-wrap gap-1.5 border-t border-border/60 pl-9 pt-2" aria-label={`Attendance outcomes for ${personName(person)}`}>
                       <button type="button" class="rounded-full border px-2.5 py-1 text-[11px] font-medium {attendanceMetadata[id]?.gave_tithe ? 'border-success/40 bg-success/10 text-success' : 'border-border text-muted-foreground hover:text-foreground'}" aria-pressed={Boolean(attendanceMetadata[id]?.gave_tithe)} onclick={() => toggleMetadata(id, "gave_tithe")}>Tither</button>
                       <button type="button" class="rounded-full border px-2.5 py-1 text-[11px] font-medium {attendanceMetadata[id]?.made_salvation_decision ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border text-muted-foreground hover:text-foreground'}" aria-pressed={Boolean(attendanceMetadata[id]?.made_salvation_decision)} onclick={() => toggleMetadata(id, "made_salvation_decision")}>Salvation decision</button>
-                      {#if attendanceMetadata[id]?.first_timer}<span class="rounded-full border border-info/40 bg-info/10 px-2.5 py-1 text-[11px] font-medium text-info">First-timer visit</span>{/if}
+                      {#if attendanceMetadata[id]?.first_timer}<span class="rounded-full border border-success/40 bg-success/10 px-2.5 py-1 text-[11px] font-medium text-success">First-timer visit</span>{/if}
                     </div>
                   {/if}
                 </article>

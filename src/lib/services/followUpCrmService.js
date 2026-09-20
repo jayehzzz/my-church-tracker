@@ -1,4 +1,4 @@
-import { canFollowUp } from "../../../convex/lib/contactPolicy.ts";
+import { canFollowUp, isOutreachTask } from "../../../convex/lib/contactPolicy.ts";
 import { api } from "../../../convex/_generated/api.js";
 import { browser } from "$app/environment";
 import { getConvexClient, getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
@@ -423,6 +423,7 @@ function syncLocalQuarterlyReengagement(state, today = dateOnly()) {
 function syncLocalLaterReviews(state, today = dateOnly()) {
   const dueContacts = state.contacts.filter((contact) =>
     contact.follow_up_status === "later"
+    && canFollowUp(contact)
     && contact.resume_date
     && contact.resume_date <= today
   );
@@ -932,20 +933,21 @@ export async function batchAssignContacts(personIds, leaderId, dueDate = dateOnl
 export async function captureLocalEvangelismContact(contact) {
   const state = readLocalState();
   const personId = contact._id || contact.id;
-  const closed = ["do_not_contact", "has_church"].includes(
-    contact.contact_category || contact.response,
-  );
-  const normalized = {
-    ...contact,
-    _id: personId,
-    member_status: outreachMemberStatus(contact),
-    contact_category: contact.contact_category || contact.response,
-    follow_up_status: closed ? "closed" : "active",
-  };
   const existingIndex = state.contacts.findIndex(
     (candidate) => String(candidate._id) === String(personId),
   );
   const previous = existingIndex >= 0 ? state.contacts[existingIndex] : null;
+  const category = contact.response ?? contact.contact_category ?? previous?.contact_category ?? "not_assessed";
+  const closed = ["do_not_contact", "has_church", "wrong_number"].includes(category);
+  const normalized = {
+    ...previous,
+    ...contact,
+    _id: personId,
+    member_status: outreachMemberStatus({ ...previous, ...contact }),
+    response: category,
+    contact_category: category,
+    follow_up_status: closed ? "closed" : previous?.follow_up_status || "active",
+  };
   const reintroduced = Boolean(
     previous?.contact_date
     && normalized.contact_date
@@ -953,9 +955,19 @@ export async function captureLocalEvangelismContact(contact) {
   );
   if (existingIndex >= 0) state.contacts[existingIndex] = normalized;
   else state.contacts.unshift(normalized);
+  if (category === "do_not_contact") {
+    for (const task of state.tasks) {
+      if (String(task.person_id) === String(personId) && task.status === "open"
+        && isOutreachTask(task)) {
+        task.status = "cancelled";
+        task.outcome = "do_not_contact";
+        task.updated_at = new Date().toISOString();
+      }
+    }
+  }
   writeLocalState(state);
 
-  if (!closed && contact.assigned_leader_id) {
+  if (!closed && !previous && contact.assigned_leader_id) {
     return await assignContact(
       personId,
       contact.assigned_leader_id,
@@ -1147,8 +1159,18 @@ export async function completeTask(taskId, details) {
       if (details.closeReason === "settled") {
         contact.activity_status = "regular";
       }
+      if (details.closeReason === "do_not_contact") {
+        contact.contact_category = "do_not_contact";
+        contact.response = "do_not_contact";
+        const outreachRecord = mockEvangelismContacts.find(item => String(item._id || item.id) === String(task.person_id));
+        if (outreachRecord) {
+          outreachRecord.contact_category = "do_not_contact";
+          outreachRecord.response = "do_not_contact";
+        }
+      }
       state.tasks.forEach((openTask) => {
-        if (String(openTask.person_id) === String(task.person_id) && openTask.status === "open") {
+        if (String(openTask.person_id) === String(task.person_id) && openTask.status === "open"
+          && (details.closeReason !== "do_not_contact" || isOutreachTask(openTask))) {
           openTask.status = "cancelled";
           openTask.outcome = "contact_closed";
           openTask.updated_at = new Date().toISOString();
@@ -1225,7 +1247,9 @@ export async function resolveCommitment(commitmentId, resolution, gathering = {}
     const existingOpenTask = state.tasks.find(
       (task) => String(task.person_id) === String(commitment.person_id) && task.status === "open",
     );
-    if (existingOpenTask) {
+    if (contact && !canFollowUp(contact)) {
+      // Attendance history can still be resolved without restarting outreach.
+    } else if (existingOpenTask) {
       existingOpenTask.reason = "Missed Sunday service — warm care check-in";
       existingOpenTask.due_date = addDays(dateOnly(), 2);
       existingOpenTask.priority = "high";

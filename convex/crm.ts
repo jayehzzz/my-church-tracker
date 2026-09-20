@@ -1,5 +1,5 @@
 import { candidates, selectGathering, setActualAttendance, reconcilePerson } from "./lib/attendanceWorkflow";
-import { canFollowUp, requireFollowUpAllowed } from "./lib/contactPolicy";
+import { canDiscoverOutreach, cancelPendingOutreach, requireFollowUpAllowed } from "./lib/contactPolicy";
 import { managesAttendance } from "./lib/security";
 import { queryFor, mutationFor } from "./lib/security";
 import { internalMutation, type MutationCtx } from "./_generated/server";
@@ -190,7 +190,7 @@ async function insertTask(
     },
 ) {
     const person = await requirePerson(ctx, args.personId);
-    if (isEvangelismContact(person)) requireFollowUpAllowed(person);
+    if (person.contact_category === "do_not_contact" || isEvangelismContact(person)) requireFollowUpAllowed(person);
     const now = isoNow();
     return await ctx.db.insert("follow_up_tasks", {
         person_id: args.personId,
@@ -746,10 +746,8 @@ export const getDashboard = queryFor("crm:getDashboard")({
         const unassignedContacts = allPeople
             .filter((person) =>
                 isEvangelismContact(person)
-                && person.is_paused !== true
-                && !ownerByPerson.has(person._id)
-                && person.contact_category !== "do_not_contact"
-                && person.contact_category !== "has_church",
+                && canDiscoverOutreach(person)
+                && !ownerByPerson.has(person._id),
             )
             .map((person) => ({
                 ...person,
@@ -1103,6 +1101,7 @@ export const assignContact = mutationFor("crm:assignContact")({
     },
     handler: async (ctx, args) => {
         const person = await requirePerson(ctx, args.personId);
+        if (person.contact_category === "do_not_contact") requireFollowUpAllowed(person);
         await requireLeader(ctx, args.assignedLeaderId);
         if (args.assignedById) await requirePerson(ctx, args.assignedById, "Assigning leader");
 
@@ -1336,7 +1335,7 @@ export const completeTask = mutationFor("crm:completeTask")({
             updated_at: now,
         });
 
-        if (args.moveToLater) {
+        if (args.moveToLater && !args.closeContact) {
             await putContactOnLaterList(
                 ctx,
                 person,
@@ -1345,7 +1344,9 @@ export const completeTask = mutationFor("crm:completeTask")({
             );
         }
 
-        if (args.closeContact) {
+        if (args.closeContact && args.closeReason === "do_not_contact") {
+            await cancelPendingOutreach(ctx, person._id);
+        } else if (args.closeContact) {
             const openTasks = await ctx.db
                 .query("follow_up_tasks")
                 .withIndex("by_person_status", (q) => q.eq("person_id", person._id).eq("status", "open"))
@@ -1395,6 +1396,11 @@ export const completeTask = mutationFor("crm:completeTask")({
                             : person.pipeline_stage,
                 }),
             updated_at: now,
+            // Closing for no contact is a durable restriction, including when
+            // the person later becomes a member or another outcome was selected.
+            ...(args.closeContact && args.closeReason === "do_not_contact"
+                ? { contact_category: "do_not_contact", pipeline_stage: "closed" }
+                : {}),
         });
 
         if (normalizedCommitment && managesAttendance(ctx)) await reconcilePerson(ctx, task.person_id);

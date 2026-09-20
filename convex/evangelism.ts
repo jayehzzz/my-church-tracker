@@ -2,6 +2,7 @@ import { queryFor, mutationFor, authenticatedUser, isAdmin } from "./lib/securit
 
 import { v } from "convex/values";
 import { canonicalContactCategory, normalizeEmail, validatePersonInput } from "./peopleValidation";
+import { canDiscoverOutreach, cancelPendingOutreach } from "./lib/contactPolicy";
 
 /**
  * REFACTORED: Now queries the Unified `people` table for guests/contacts.
@@ -138,7 +139,7 @@ export const create = mutationFor("evangelism:create")({
         phone: v.optional(v.string()),
         address: v.optional(v.string()),
         contact_date: v.string(),
-        response: v.string(), // Maps to contact_category
+        response: v.optional(v.string()), // Maps to contact_category; new contacts need no assessment
         invited_by_id: v.optional(v.id("people")),
         collected_by_id: v.optional(v.id("people")),
         collector_ids: v.optional(v.array(v.id("people"))),
@@ -160,7 +161,7 @@ export const create = mutationFor("evangelism:create")({
     },
     handler: async (ctx, args) => {
         if (args.collector_ids !== undefined && !isAdmin(authenticatedUser(ctx))) throw new Error("Shared outreach credit requires an admin");
-        const contactCategory = canonicalContactCategory(args.response);
+        const contactCategory = canonicalContactCategory(args.response) ?? "not_assessed";
         const outreachSalvationDecision = args.outreach_salvation_decision ?? args.salvation_decision;
         const outreachSalvationDate = outreachSalvationDecision
             ? (args.outreach_salvation_date ?? args.contact_date)
@@ -173,7 +174,6 @@ export const create = mutationFor("evangelism:create")({
             contact_category: contactCategory,
             ...(args.contact_method ? { contact_method: args.contact_method } : {}),
             ...(args.first_visit_date ? { first_visit_date: args.first_visit_date } : {}),
-            ...(args.conversion_date ? { membership_date: args.conversion_date } : {}),
             ...(outreachSalvationDate ? { outreach_salvation_date: outreachSalvationDate } : {}),
         });
         const primaryCollectorId = args.collector_ids?.[0] ?? args.collected_by_id;
@@ -182,9 +182,7 @@ export const create = mutationFor("evangelism:create")({
 
         // Outreach-only people are contacts until a recorded church attendance
         // promotes them to guest. Membership remains an explicit later step.
-        const status = args.converted
-            ? "member"
-            : (args.attended_church || args.first_visit_date ? "guest" : "contact");
+        const status = args.attended_church || args.first_visit_date ? "guest" : "contact";
 
         const id = await ctx.db.insert("people", {
             first_name: args.first_name.trim(),
@@ -211,7 +209,6 @@ export const create = mutationFor("evangelism:create")({
             notes: args.notes,
 
             // New unified fields for attendance/spiritual tracking
-            membership_date: args.conversion_date,
             entry_point: "evangelism",
 
             // Pipeline tracking — new contacts start as "new" and "hot"
@@ -243,7 +240,7 @@ export const create = mutationFor("evangelism:create")({
                 created_at: now,
                 updated_at: now,
             });
-            if (!["do_not_contact", "has_church"].includes(contactCategory ?? "")) await ctx.db.insert("follow_up_tasks", {
+            if (canDiscoverOutreach({ contact_category: contactCategory, member_status: status })) await ctx.db.insert("follow_up_tasks", {
                 person_id: id,
                 assigned_leader_id: args.assigned_leader_id,
                 due_date: args.follow_up_date || args.contact_date,
@@ -297,7 +294,7 @@ export const update = mutationFor("evangelism:update")({
         if (args.collected_by_id && !await ctx.db.get(args.collected_by_id)) throw new Error("Collector not found or unavailable");
         const existingPerson = await ctx.db.get(id);
         if (!existingPerson) throw new Error("Contact not found");
-        const contactCategory = response ? canonicalContactCategory(response) : undefined;
+        const contactCategory = response !== undefined ? canonicalContactCategory(response) : undefined;
         const outreachFieldsTouched = outreach_salvation_decision !== undefined
             || salvation_decision !== undefined
             || outreach_salvation_date !== undefined
@@ -312,8 +309,7 @@ export const update = mutationFor("evangelism:update")({
             : undefined;
         validatePersonInput({
             ...rest,
-            ...(contactCategory ? { contact_category: contactCategory } : {}),
-            ...(conversion_date ? { membership_date: conversion_date } : {}),
+            ...(contactCategory !== undefined ? { contact_category: contactCategory } : {}),
             ...(nextOutreachDate ? { outreach_salvation_date: nextOutreachDate } : {}),
         });
         const nextCategory = contactCategory ?? canonicalContactCategory(existingPerson.contact_category);
@@ -339,7 +335,7 @@ export const update = mutationFor("evangelism:update")({
         if (updates.phone !== undefined) updates.phone = updates.phone.trim() || undefined;
         if (updates.address !== undefined) updates.address = updates.address.trim() || undefined;
 
-        if (contactCategory) updates.contact_category = contactCategory;
+        if (contactCategory !== undefined) updates.contact_category = contactCategory;
         if (outreachFieldsTouched) {
             updates.outreach_salvation_decision = nextOutreachDecision;
             updates.salvation_decision = nextOutreachDecision;
@@ -352,14 +348,8 @@ export const update = mutationFor("evangelism:update")({
                         : "evangelism_outreach"))
                 : undefined;
         }
-        if (converted !== undefined) {
-            updates.member_status = converted
-                ? "member"
-                : (existingPerson.first_visit_date ? "guest" : "contact");
-        }
-        if (conversion_date) {
-            updates.membership_date = conversion_date;
-        }
+        // Legacy conversion fields remain accepted, but routine outreach edits
+        // never change membership. People owns that explicit decision.
         if (reintroduced) {
             updates.pipeline_stage = "new";
             updates.is_paused = false;
@@ -380,6 +370,7 @@ export const update = mutationFor("evangelism:update")({
         delete updates.follow_up_date;
 
         await ctx.db.patch(id, updates);
+        if (nextCategory === "do_not_contact") await cancelPendingOutreach(ctx, id);
         if (collector_ids !== undefined) await syncCollectorCredits(ctx, id, collector_ids);
         if (reintroduced) {
             const [assignments, openTasks] = await Promise.all([
@@ -466,9 +457,8 @@ export const getByResponse = queryFor("evangelism:getByResponse")({
 export const getRequiringFollowUp = queryFor("evangelism:getRequiringFollowUp")({
     args: {},
     handler: async (ctx) => {
-        // Get all outreach prospects with responsive status who need follow-up:
-        // 1. Responsive contacts who haven't visited yet
-        // 2. Responsive contacts whose last visit was 30+ days ago
+        // Include unassessed prospects as well as known responses, while keeping
+        // contact restrictions and paused/closed work out of discovery.
         const [contacts, guests] = await Promise.all([
             ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", "contact")).collect(),
             ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", "guest")).collect(),
@@ -480,8 +470,7 @@ export const getRequiringFollowUp = queryFor("evangelism:getRequiringFollowUp")(
         const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
 
         const needsFollowUp = prospects.filter(g => {
-            // Only consider responsive contacts
-            if (g.contact_category !== "responsive") return false;
+            if (!canDiscoverOutreach(g)) return false;
 
             // If they've never visited, they need follow-up
             if (!g.first_visit_date) return true;

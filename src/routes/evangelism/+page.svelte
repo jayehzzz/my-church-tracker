@@ -36,6 +36,10 @@
   let activeView = $state("contacts");
   let loading = $state(true);
   let error = $state(null);
+  let peopleLoading = $state(true);
+  let workspaceLoading = $state(true);
+  let peopleError = $state("");
+  let workspaceError = $state("");
   let hasLoadedClientData = $state(false);
 
   let responseFilter = $state([]);
@@ -46,14 +50,13 @@
   let isFormOpen = $state(false);
   let isDetailModalOpen = $state(false);
   let isDeleteModalOpen = $state(false);
-  let isJoinChurchModalOpen = $state(false);
   let isInviterPopupOpen = $state(false);
   let selectedContact = $state(null);
   let selectedInviter = $state(null);
   let contactProfile = $state(null);
   let profileLoading = $state(false);
   let deleting = $state(false);
-  let joiningChurch = $state(false);
+  let showExtraColumns = $state(false);
 
   const responseOptions = [
     { value: "not_assessed", label: "Not assessed" },
@@ -73,25 +76,27 @@
   ];
 
   const followUpOptions = [
-    { value: "unassigned", label: "Needs owner" },
+    { value: "unassigned", label: "Assign someone" },
     { value: "overdue", label: "Overdue" },
     { value: "scheduled", label: "Scheduled" },
     { value: "active", label: "In follow-up" },
     { value: "later", label: "Follow up later" },
-    { value: "complete", label: "Complete" },
     { value: "closed", label: "Closed" },
     { value: "none", label: "No next action" },
   ];
 
-  const columns = [
+  const columns = $derived([
     { key: "full_name", label: "Person", sortable: true, width: "190px" },
-    { key: "contact_date_label", label: "Contacted", sortable: true, width: "145px" },
-    { key: "response_label", label: "Follow-up posture", sortable: true, width: "170px" },
-    { key: "invited_by_name", label: "Invited / credited by", sortable: true, width: "190px" },
-    { key: "journey_label", label: "Journey", sortable: true, width: "150px" },
-    { key: "sunday_reliability_label", label: "Sunday follow-through", sortable: true, width: "190px" },
-    { key: "follow_up_label", label: "Follow-up", sortable: true, width: "190px" },
-  ];
+    { key: "reached_by_name", label: "Who reached them", sortable: true, width: "190px" },
+    { key: "assigned_worker_name", label: "Assigned worker", sortable: true, width: "190px" },
+    { key: "follow_up_label", label: "Next action", sortable: true, width: "190px" },
+    ...(showExtraColumns ? [
+      { key: "contact_date_label", label: "Contacted", sortable: true, width: "145px" },
+      { key: "response_label", label: "Recorded response", sortable: true, width: "170px" },
+      { key: "journey_label", label: "Church status", sortable: true, width: "150px" },
+      { key: "sunday_reliability_label", label: "Sunday attendance", sortable: true, width: "190px" },
+    ] : []),
+  ]);
 
   const outreachRows = $derived(buildEvangelismRows(contacts, people, crmWorkspace));
   const directoryRows = $derived(filterEvangelismRows(outreachRows, {
@@ -132,18 +137,34 @@
 
   async function loadPeople() {
     if (!browser) return;
+    peopleLoading = true;
+    peopleError = "";
     try {
       const peopleService = await import("$lib/services/peopleService");
       const result = await peopleService.getAll();
-      if (!result.error) people = result.data || [];
+      if (result.error) throw result.error;
+      people = result.data || [];
     } catch (loadError) {
       console.warn("Failed to load people:", loadError?.message);
+      peopleError = "People could not be loaded. Outreach names are unavailable until you retry.";
+    } finally {
+      peopleLoading = false;
     }
   }
 
   async function loadCrmWorkspace() {
-    const result = await getCrmDashboard();
-    if (!result.error && result.data) crmWorkspace = result.data;
+    workspaceLoading = true;
+    workspaceError = "";
+    try {
+      const result = await getCrmDashboard();
+      if (result.error || !result.data) throw result.error || new Error("Follow-Up data unavailable");
+      crmWorkspace = result.data;
+    } catch (loadError) {
+      console.warn("Failed to load Follow-Up:", loadError?.message);
+      workspaceError = "Follow-Up could not be loaded. Assigned workers and next actions are unavailable until you retry.";
+    } finally {
+      workspaceLoading = false;
+    }
   }
 
   function handleAddContact() {
@@ -212,32 +233,6 @@
     }
   }
 
-  async function handleConfirmJoinChurch() {
-    if (!selectedContact) return;
-    joiningChurch = true;
-    try {
-      const evangelismService = await import("$lib/services/evangelismService");
-      const id = contactId(selectedContact);
-      const result = await evangelismService.markAsJoinedChurch(id);
-      if (result.error) throw result.error;
-      contacts = contacts.map((contact) => String(contactId(contact)) === String(id)
-        ? {
-            ...contact,
-            ...(result.data || {}),
-            member_status: result.data?.member_status || "member",
-            membership_date: result.data?.membership_date || new Date().toISOString().slice(0, 10),
-          }
-        : contact);
-      isJoinChurchModalOpen = false;
-      selectedContact = null;
-    } catch (joinError) {
-      console.error("Error recording church membership:", joinError);
-      error = joinError?.message || "Could not record that this person joined church.";
-    } finally {
-      joiningChurch = false;
-    }
-  }
-
   function openInviter(inviter) {
     selectedInviter = people.find((person) => String(contactId(person)) === String(inviter.id)) || null;
     isInviterPopupOpen = Boolean(selectedInviter);
@@ -251,15 +246,15 @@
 
 <DashboardLayout>
   {#snippet filters()}
-    <FilterBar />
+    <details><summary class="cursor-pointer text-sm text-muted-foreground">Insight date filters</summary><FilterBar /></details>
   {/snippet}
 
   <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-    <PageHeader title="Evangelism" subtitle="Capture outreach, see what happened next, and focus the next conversation." />
+    <PageHeader title="Evangelism" subtitle="Record the people you reach here. Manage their next call in Follow-Up." />
     <div class="flex flex-wrap items-center gap-2">
       <Button variant="secondary" onclick={() => goto("/pipeline")}>
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m-6-6l6 6-6 6" /></svg>
-        Follow-Up
+        Go to Follow-Up
       </Button>
       <Button onclick={handleAddContact}>
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m-7-7h14" /></svg>
@@ -287,6 +282,11 @@
   </nav>
 
   {#if activeView === "contacts"}
+    {#if !peopleError && !workspaceError && !peopleLoading && !workspaceLoading}
+    <details class="mb-5 rounded-xl border border-border">
+      <summary class="cursor-pointer px-4 py-3 text-sm font-medium text-foreground">More filters, columns and statistics{#if responseFilter.length + journeyFilter.length + followUpFilter.length} · {responseFilter.length + journeyFilter.length + followUpFilter.length} filters active{/if}</summary>
+      <div class="p-4">
+      <label class="mb-4 flex items-center gap-2 text-sm text-foreground"><input type="checkbox" bind:checked={showExtraColumns} />Show extra columns</label>
     <section class="card-base mb-5 p-5" aria-labelledby="outreach-directory-title">
       <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
         <div class="flex items-start gap-4">
@@ -309,12 +309,16 @@
 
     <div class="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
       <div class="flex flex-wrap items-start gap-3">
-        <MultiSelectFilter label="Posture" options={responseOptions} bind:selected={responseFilter} placeholder="Search follow-up postures..." />
-        <MultiSelectFilter label="Journey stage" options={journeyOptions} bind:selected={journeyFilter} placeholder="Search journey stages..." />
+        <MultiSelectFilter label="Recorded response" options={responseOptions} bind:selected={responseFilter} placeholder="Search recorded responses..." />
+        <MultiSelectFilter label="Church status" options={journeyOptions} bind:selected={journeyFilter} placeholder="Search church statuses..." />
         <MultiSelectFilter label="Follow-up" options={followUpOptions} bind:selected={followUpFilter} placeholder="Search follow-up states..." />
       </div>
       <p class="pb-2 text-sm text-muted-foreground">Showing <span class="font-medium text-foreground">{directoryRows.length}</span> of {outreachRows.length} contacts</p>
     </div>
+
+      </div>
+    </details>
+    {/if}
 
     {#if error}
       <div class="mb-4 flex items-start gap-3 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
@@ -323,23 +327,31 @@
       </div>
     {/if}
 
+    {#if peopleError || workspaceError}
+      <div class="mb-4 rounded-lg border border-warning/30 bg-warning/10 p-4" role="alert">
+        {#if peopleError}<p class="text-sm text-warning">{peopleError}</p>{/if}
+        {#if workspaceError}<p class="text-sm text-warning">{workspaceError}</p>{/if}
+        <Button class="mt-3" variant="secondary" onclick={() => { if (peopleError) void loadPeople(); if (workspaceError) void loadCrmWorkspace(); }}>Retry</Button>
+      </div>
+    {:else}
     <div class="pb-10">
       <DataTable
         {columns}
         data={directoryRows}
-        {loading}
+        loading={loading || peopleLoading || workspaceLoading}
         searchable
         selectable={false}
         enableCopy={false}
         onrowclick={handleViewContact}
         rowActionLabel="View"
         pageSize={15}
-        searchKeys={["first_name", "last_name", "phone", "email", "invited_by_name"]}
-        searchPlaceholder="Search people, phone, email, or inviter/credit..."
+        searchKeys={["first_name", "last_name", "phone", "email", "reached_by_name", "assigned_worker_name", "invited_by_name"]}
+        searchPlaceholder="Search people, phone, or workers..."
         emptyMessage={outreachRows.length ? "No contacts match these filters." : "No outreach contacts yet. Add the first person you reached."}
-        storageKey="evangelism-outreach-directory-v3"
+        storageKey="evangelism-outreach-directory-v4"
       />
     </div>
+    {/if}
   {:else}
     <EvangelismInsights
       metrics={insightMetrics}
@@ -379,20 +391,6 @@
   {/snippet}
 </Modal>
 
-<Modal bind:isOpen={isJoinChurchModalOpen} title="Record joined church" size="sm" zIndex={60}>
-  <div class="text-center">
-    <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-success/10 text-success">
-      <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 6L9 17l-5-5" /></svg>
-    </div>
-    <p class="text-foreground">Record that <strong>{personName(selectedContact, "this contact")}</strong> has joined the church?</p>
-    <p class="mt-2 text-sm text-muted-foreground">This records church membership as a separate journey milestone.</p>
-  </div>
-  {#snippet footer()}
-    <Button variant="secondary" onclick={() => isJoinChurchModalOpen = false} disabled={joiningChurch}>Cancel</Button>
-    <Button onclick={handleConfirmJoinChurch} loading={joiningChurch}>Record joined church</Button>
-  {/snippet}
-</Modal>
-
 <EvangelismDetailModal
   bind:isOpen={isDetailModalOpen}
   contact={selectedContact}
@@ -403,12 +401,4 @@
   onOpenCrm={() => goto("/pipeline")}
   onEdit={handleEditContact}
   onDelete={(contact) => { selectedContact = contact; isDeleteModalOpen = true; }}
-  onJoinChurch={(contact) => { selectedContact = contact; isJoinChurchModalOpen = true; }}
-  onQuickUpdate={async (id, updates) => {
-    const evangelismService = await import("$lib/services/evangelismService");
-    const result = await evangelismService.update(id, updates);
-    if (result.error) throw result.error;
-    contacts = contacts.map((contact) => String(contactId(contact)) === String(id) ? { ...contact, ...updates } : contact);
-    if (selectedContact && String(contactId(selectedContact)) === String(id)) selectedContact = { ...selectedContact, ...updates };
-  }}
 />

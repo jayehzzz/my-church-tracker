@@ -3,6 +3,7 @@
   import { session } from "$lib/auth/session.js";
   const restrictedLeader = $derived($session.status !== "demo" && $session.user?.role === "leader");
   const confidential = $derived($session.status === "demo" || $session.user?.canViewConfidential === true);
+  import { personOption, personOptions } from "$lib/utils/personOptions.js";
   import { browser } from "$app/environment";
 
   let { isOpen = $bindable(false), contact = null, onsave, ...restProps } = $props();
@@ -16,18 +17,19 @@
   let sharedCreditIds = $state([]);
   let creditToAdd = $state("");
   let hasLoadedPeople = $state(false);
+  let responseBeforeDnc = $state("not_assessed");
+  let responseBeforeChurch = $state("not_assessed");
 
   const mode = $derived(contact?.id || contact?._id ? "edit" : "create");
+  const canScheduleContact = $derived((restrictedLeader || Boolean(formData.assigned_leader_id))
+    && !["do_not_contact", "has_church"].includes(formData.response));
   const modalTitle = $derived(mode === "edit" ? "Edit evangelism contact" : "Add evangelism contact");
   const peopleOptions = $derived(() => [
     { value: "", label: "Select inviter..." },
-    ...people.map((person) => ({
-      value: person.id || person._id,
-      label: `${person.first_name} ${person.last_name || ""}`.trim(),
-    })),
+    ...personOptions(people),
   ]);
   const leaderOptions = $derived(() => [
-    { value: "", label: "Leave unassigned for delegation..." },
+    { value: "", label: "Assign later" },
     ...people.filter((person) => person.member_status === "leader").map((person) => ({
       value: person.id || person._id,
       label: `${person.first_name} ${person.last_name || ""}`.trim(),
@@ -35,30 +37,15 @@
   ]);
   const sharedCreditOptions = $derived(() => [
     { value: "", label: "Add a person..." },
-    ...people
-      .filter((person) => {
-        const id = String(person.id || person._id || "");
-        return id && id !== String(contact?.id || contact?._id || "") && !sharedCreditIds.includes(id);
-      })
-      .map((person) => ({
-        value: String(person.id || person._id),
-        label: `${person.first_name} ${person.last_name || ""}`.trim(),
-      })),
+    ...personOptions(people.filter((person) => {
+      const id = String(person.id || person._id || "");
+      return id && id !== String(contact?.id || contact?._id || "") && !sharedCreditIds.includes(id);
+    })),
   ]);
   const sharedCreditPeople = $derived(() => sharedCreditIds
     .map((id) => people.find((person) => String(person.id || person._id) === String(id)))
     .filter(Boolean));
 
-  const responseOptions = [
-    { value: "not_assessed", label: "Not assessed" },
-    { value: "responsive", label: "Open to follow-up" },
-    { value: "non_responsive", label: "Not responding" },
-    { value: "events_only", label: "Events only" },
-    { value: "big_events_only", label: "Big events only" },
-    { value: "bacenta_mainly", label: "Bacenta mainly" },
-    { value: "has_church", label: "Has another church" },
-    { value: "do_not_contact", label: "Do not contact" },
-  ];
   const contactMethodOptions = [
     { value: "", label: "Not recorded" },
     { value: "in_person", label: "In person" },
@@ -69,14 +56,19 @@
     { value: "other", label: "Other" },
   ];
 
+  function today() {
+    const date = new Date();
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
   function emptyForm() {
     return {
       first_name: "", last_name: "", phone: "", email: "", address: "",
-      contact_date: new Date().toISOString().slice(0, 10), contact_method: "in_person",
+      contact_date: today(), contact_method: "",
       response: "not_assessed", collected_by_id: "", invited_by_id: "", assigned_leader_id: "",
       follow_up_date: "", first_visit_date: "", outreach_salvation_decision: false,
       outreach_salvation_date: "", outreach_salvation_source: "",
-      member_status: "contact", membership_date: "", notes: "",
+      notes: "",
     };
   }
 
@@ -112,7 +104,7 @@
       ...emptyForm(),
       first_name: contact.first_name || "", last_name: contact.last_name || "",
       phone: contact.phone || "", email: contact.email || "", address: contact.address || "",
-      contact_date: contact.contact_date || new Date().toISOString().slice(0, 10),
+      contact_date: contact.contact_date || today(),
       contact_method: contact.contact_method || "",
       response: contact.response || contact.contact_category || "not_assessed",
       collected_by_id: contact.collected_by_id || "",
@@ -125,11 +117,31 @@
         || ((contact.outreach_salvation_decision ?? contact.salvation_decision) ? contact.contact_date : ""),
       outreach_salvation_source: contact.outreach_salvation_source
         || (contact.outreach_salvation_decision === undefined && contact.salvation_decision ? "legacy_salvation_decision" : ""),
-      member_status: contact.member_status || (contact.first_visit_date || contact.attended_church ? "guest" : "contact"),
-      membership_date: contact.membership_date || "",
       notes: contact.notes || "",
     } : emptyForm();
+    const previousCategory = [contact?.response, contact?.contact_category]
+      .find((value) => value && value !== "do_not_contact") || "not_assessed";
+    responseBeforeDnc = previousCategory;
+    responseBeforeChurch = previousCategory === "has_church" ? "not_assessed" : previousCategory;
   });
+
+  function toggleDoNotContact(checked) {
+    if (checked) {
+      responseBeforeDnc = formData.response;
+      formData.response = "do_not_contact";
+    } else {
+      formData.response = responseBeforeDnc;
+    }
+  }
+
+  function toggleHasChurch(checked) {
+    if (checked) {
+      responseBeforeChurch = formData.response;
+      formData.response = "has_church";
+    } else {
+      formData.response = responseBeforeChurch;
+    }
+  }
 
   function addSharedCredit(event) {
     const id = String(event?.value || "");
@@ -151,9 +163,7 @@
     if (formData.outreach_salvation_decision && !formData.outreach_salvation_date) {
       formData.outreach_salvation_date = formData.contact_date;
     }
-    if (formData.member_status === "member" && !formData.membership_date) {
-      formData.membership_date = new Date().toISOString().slice(0, 10);
-    }
+    if (nextErrors.email) showMoreDetails = true;
     errors = nextErrors;
     return Object.keys(nextErrors).length === 0;
   }
@@ -165,6 +175,7 @@
     try {
       const evangelismService = await import("$lib/services/evangelismService");
       const cleanData = { ...formData };
+      if (!canScheduleContact) delete cleanData.follow_up_date;
       if (cleanData.outreach_salvation_decision) {
         cleanData.outreach_salvation_date ||= cleanData.contact_date;
         cleanData.outreach_salvation_source ||= "evangelism_outreach";
@@ -172,14 +183,6 @@
         delete cleanData.outreach_salvation_date;
         delete cleanData.outreach_salvation_source;
       }
-      if (!restrictedLeader && cleanData.member_status === "member" && !["member", "leader"].includes(contact?.member_status)) {
-        // The backend still accepts these legacy transport names; the form state
-        // and returned records use member_status/membership_date as the truth.
-        cleanData.converted = true;
-        cleanData.conversion_date = cleanData.membership_date;
-      }
-      delete cleanData.member_status;
-      delete cleanData.membership_date;
       if (!confidential) delete cleanData.notes;
       if (restrictedLeader) {
         delete cleanData.assigned_leader_id;
@@ -218,53 +221,55 @@
     {#if errors.submit}<div class="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">{errors.submit}</div>{/if}
 
     <section class="space-y-4" aria-labelledby="contact-identity-title">
-      <div><h3 id="contact-identity-title" class="text-sm font-semibold text-foreground">Contact details</h3><p class="mt-1 text-xs text-muted-foreground">Record enough information for a leader to contact this person.</p></div>
+      <div><h3 id="contact-identity-title" class="text-sm font-semibold text-foreground">Contact details</h3><p class="mt-1 text-xs text-muted-foreground">Record who you met and how to reach them.</p></div>
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input label="First Name" bind:value={formData.first_name} error={errors.first_name} required disabled={saving} />
         <Input label="Last Name" bind:value={formData.last_name} disabled={saving} />
         <Input label="Phone" type="tel" bind:value={formData.phone} disabled={saving} />
-        <Input label="Email" type="email" bind:value={formData.email} error={errors.email} disabled={saving} />
+        <Input label="Contact Date" type="date" bind:value={formData.contact_date} error={errors.contact_date} required disabled={saving} />
       </div>
     </section>
 
     <section class="space-y-4 rounded-xl border border-border bg-secondary/15 p-4" aria-labelledby="outreach-title">
-      <div><h3 id="outreach-title" class="text-sm font-semibold text-foreground">Outreach and follow-up</h3><p class="mt-1 text-xs text-muted-foreground">Capture what happened and make ownership explicit.</p></div>
+      <div><h3 id="outreach-title" class="text-sm font-semibold text-foreground">Outreach and follow-up</h3><p class="mt-1 text-xs text-muted-foreground">Record who reached this person and who will contact them next.</p></div>
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Input label="Contact Date" type="date" bind:value={formData.contact_date} error={errors.contact_date} required disabled={saving} />
-        <SearchableSelect label="Follow-up Posture" bind:value={formData.response} options={responseOptions} disabled={saving} />
-        <SearchableSelect label="Contact Method" bind:value={formData.contact_method} options={contactMethodOptions} disabled={saving} />
         {#if !restrictedLeader}
         <div class="sm:col-span-2 rounded-lg border border-border bg-card p-3">
-          <SearchableSelect label="Shared invitation / outreach credit" bind:value={creditToAdd} options={sharedCreditOptions()} onchange={addSharedCredit} disabled={saving || loadingPeople} placeholder="Add everyone who helped reach this person..." />
+          <SearchableSelect membersFirst label="Who reached them" bind:value={creditToAdd} options={sharedCreditOptions()} onchange={addSharedCredit} disabled={saving || loadingPeople} placeholder="Add a person..." />
           {#if sharedCreditPeople().length}
             <div class="mt-3 flex flex-wrap gap-2">
               {#each sharedCreditPeople() as person (person.id || person._id)}
                 <span class="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-                  {person.first_name} {person.last_name || ""}
+                  {personOption(person).label}
                   <button type="button" class="rounded-full px-1 hover:bg-primary/15" aria-label="Remove {person.first_name} {person.last_name || ''} from shared credit" onclick={() => removeSharedCredit(person.id || person._id)}>×</button>
                 </span>
               {/each}
             </div>
           {/if}
-          <p class="mt-2 text-xs text-muted-foreground">Add every person who shared the invitation or outreach. Follow-up ownership stays separate.</p>
+          <p class="mt-2 text-xs text-muted-foreground">Add every person who shared the invitation or outreach. The assigned worker is recorded separately.</p>
         </div>
-        <SearchableSelect label="Primary Inviter (optional)" bind:value={formData.invited_by_id} options={peopleOptions()} disabled={saving || loadingPeople} placeholder="Search people..." />
         {/if}
         {#if mode === "create"}
-          {#if !restrictedLeader}<SearchableSelect label="Follow-up Owner" bind:value={formData.assigned_leader_id} options={leaderOptions()} disabled={saving || loadingPeople} placeholder="Choose a leader..." />{/if}
-          <Input label="First Task Due" type="date" min={formData.contact_date} bind:value={formData.follow_up_date} disabled={saving} />
+          {#if !restrictedLeader}<SearchableSelect label="Assigned worker" bind:value={formData.assigned_leader_id} options={leaderOptions()} disabled={saving || loadingPeople} placeholder="Choose a leader..." />{/if}
+          {#if canScheduleContact}<Input label="Next contact date" type="date" min={formData.contact_date} bind:value={formData.follow_up_date} disabled={saving} />{/if}
         {/if}
       </div>
       {#if mode === "create"}
-        <p class="text-xs text-muted-foreground">{restrictedLeader ? "New contacts are assigned to you. Contacts who request no contact or already have a church receive no automatic call task." : "Choosing an owner creates the leader’s first-contact task. If left unassigned, the contact appears in the CRM delegation queue."}</p>
+        <p class="text-xs text-muted-foreground">{restrictedLeader ? "New contacts are assigned to you. Contacts who request no contact or already have a church receive no automatic call task." : "Choosing a worker creates an initial call task, unless the person requests no contact or already has a church. Leave unassigned to choose a worker later in Follow-Up."}</p>
       {:else}
-        <p class="text-xs text-muted-foreground">Ownership and future tasks are managed from the Follow-Up CRM. If you meet this person again, update the Contact Date; that makes them fresh again and returns them to their leader’s work when needed.</p>
+        <p class="text-xs text-muted-foreground">Change the assigned worker and next contact date in Follow-Up. Update the Contact Date when you meet this person again. <a href="/pipeline" class="font-medium text-primary hover:underline">Go to Follow-Up</a></p>
       {/if}
     </section>
 
+    <label class="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4"><input type="checkbox" checked={formData.response === "do_not_contact"} onchange={(event) => toggleDoNotContact(event.currentTarget.checked)} disabled={saving} class="mt-0.5 h-4 w-4 rounded" /><span><span class="block text-sm font-semibold text-foreground">Do not contact</span><span class="text-xs text-muted-foreground">They have asked not to be contacted. Pending outreach calls are cancelled and new outreach is prevented.</span></span></label>
+
     <details bind:open={showMoreDetails} class="rounded-xl border border-border bg-card">
-      <summary class="flex cursor-pointer items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:bg-secondary/20"><span>More details and milestones</span><span class="text-xs text-muted-foreground">Optional</span></summary>
+      <summary class="flex cursor-pointer items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:bg-secondary/20"><span>Optional details</span></summary>
       <div class="space-y-4 border-t border-border p-4">
+        <Input label="Email" type="email" bind:value={formData.email} error={errors.email} disabled={saving} />
+        <SearchableSelect label="Contact Method" bind:value={formData.contact_method} options={contactMethodOptions} disabled={saving} />
+        {#if !restrictedLeader}<SearchableSelect membersFirst label="Primary Inviter (optional)" bind:value={formData.invited_by_id} options={peopleOptions()} disabled={saving || loadingPeople} placeholder="Search people..." />{/if}
+        <label class="flex items-start gap-3 rounded-lg border border-border p-3"><input type="checkbox" checked={formData.response === "has_church" || (formData.response === "do_not_contact" && responseBeforeDnc === "has_church")} onchange={(event) => toggleHasChurch(event.currentTarget.checked)} disabled={saving || formData.response === "do_not_contact"} class="mt-0.5 h-4 w-4 rounded" /><span><span class="block text-sm font-medium text-foreground">Has another church</span><span class="text-xs text-muted-foreground">Optional context. No automatic initial call is created for someone who already has a church.</span></span></label>
         <Input label="Address" bind:value={formData.address} disabled={saving} />
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div class="rounded-lg border border-border bg-secondary/20 p-3">
@@ -273,14 +278,10 @@
           </div>
           <div class="rounded-lg border border-border bg-secondary/20 p-3"><Input label="First Visit Date" type="date" bind:value={formData.first_visit_date} disabled={saving} /><p class="mt-2 text-xs text-muted-foreground">Usually filled automatically from Sunday or meeting attendance. Use this only for an earlier visit already known.</p></div>
         </div>
-        {#if !restrictedLeader}
-          {#if ["member", "leader"].includes(contact?.member_status)}
-            <div class="rounded-lg border border-success/25 bg-success/5 p-3"><span class="block text-sm font-medium text-foreground">Joined church</span><span class="text-xs text-muted-foreground">Membership is already recorded{contact.membership_date ? ` from ${contact.membership_date}` : ""}.</span></div>
-          {:else}
-            <label class="flex items-start gap-3 rounded-lg border border-border bg-secondary/20 p-3"><input type="checkbox" checked={formData.member_status === "member"} onchange={(event) => formData.member_status = event.currentTarget.checked ? "member" : ((formData.first_visit_date || contact?.first_visit_date) ? "guest" : "contact")} disabled={saving} class="mt-0.5 h-4 w-4 rounded" /><span class="flex-1"><span class="block text-sm font-medium text-foreground">Joined church</span><span class="text-xs text-muted-foreground">Use only when membership has been explicitly confirmed. Before attending they are an Outreach Contact; after their first attendance they are a Guest.</span></span></label>
-            {#if formData.member_status === "member"}<Input label="Membership Date" type="date" bind:value={formData.membership_date} disabled={saving} />{/if}
-          {/if}
+        {#if ["member", "leader"].includes(contact?.member_status)}
+          <p class="text-sm text-muted-foreground">Membership is recorded{contact.membership_date ? ` from ${contact.membership_date}` : ""}.</p>
         {/if}
+        {#if mode === "edit"}<a class="inline-block text-sm font-medium text-primary hover:underline" href={`/people/${contact.id || contact._id}`}>View People profile — membership is managed in People</a>{/if}
         {#if confidential}<div><label for="evangelism-notes" class="mb-1.5 block text-sm font-medium text-foreground">Notes</label><textarea id="evangelism-notes" bind:value={formData.notes} rows="3" disabled={saving} placeholder="Useful context for the follow-up leader..." class="w-full resize-none rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"></textarea></div>{/if}
       </div>
     </details>

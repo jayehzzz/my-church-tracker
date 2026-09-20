@@ -225,7 +225,7 @@
     });
     savingTask = false;
     if (result.error) { errorMessage = result.error.message || 'The call could not be saved.'; return; }
-    const closeMessage = taskForm.closeReason === 'settled' ? 'is now a regular member and has left follow-up.' : 'was closed and removed from follow-up.';
+    const closeMessage = taskForm.closeReason === 'settled' ? 'is now marked as attending regularly and has left weekly follow-up. Membership is unchanged.' : 'was closed and removed from follow-up.';
     const messages = { schedule: `has a call planned for ${formatDate(taskForm.nextActionDate)}.`, expected: `is expected on ${formatDate(workspace.service_date)}.`, later: `was moved to Later and returns on ${formatDate(resumeDate)}.`, close: closeMessage };
     isCompleteModalOpen = false;
     successMessage = `${personName(selectedTask.person)} ${messages[taskForm.decision]}`;
@@ -286,7 +286,7 @@
   }
   function sundayActionHelp() {
     if (!sundayNoteAction) return '';
-    if (sundayNoteAction.kind === 'commitment' && sundayNoteAction.resolution === 'cancelled') return 'Record why the person cancelled or changed their Sunday plan.';
+    if (sundayNoteAction.kind === 'commitment' && sundayNoteAction.resolution === 'cancelled') return 'Cancel this confirmation if it was selected by mistake or their plans changed. For a misclick, enter “Confirmed by mistake”.';
     if (sundayNoteAction.kind === 'commitment' && sundayNoteAction.resolution === 'no_show') return 'Record any known context for why they did not attend after saying yes.';
     if (sundayNoteAction.status === 'confirmed') return 'A note is optional. Add one only when there is useful context to remember.';
     if (sundayNoteAction.status === 'absent') return 'Record any known context for the missed Sunday after their confirmation.';
@@ -569,7 +569,7 @@
           </div>
         {:else if taskForm.decision === 'close'}
           <label class="block text-sm font-medium text-foreground">Why is follow-up ending?<select bind:value={taskForm.closeReason} class="mt-1.5 w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm">{#each CLOSE_REASONS as reason (reason.value)}<option value={reason.value}>{reason.label}</option>{/each}</select></label>
-          {#if taskForm.closeReason === 'settled'}<p class="rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-foreground">They become a regular member, leave the weekly list, and show up in Pastoral Care and the Sunday members roster.</p>{:else}<p class="rounded-xl bg-secondary/50 px-4 py-3 text-sm text-foreground">They leave follow-up and any open calls are cancelled. Their history stays on their profile.</p>{/if}
+          {#if taskForm.closeReason === 'settled'}<p class="rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-foreground">They are marked as attending regularly and leave weekly follow-up. Membership stays unchanged; record confirmed membership on their People profile.</p>{:else}<p class="rounded-xl bg-secondary/50 px-4 py-3 text-sm text-foreground">They leave follow-up and any open calls are cancelled. Their history stays on their profile.</p>{/if}
         {/if}
       </fieldset>
     </form>

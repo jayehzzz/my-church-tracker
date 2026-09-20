@@ -1303,7 +1303,8 @@ export function getPersonById(id) {
             email: contact.email || "",
             phone: contact.phone || "",
             address: contact.address || "",
-            member_status: contact.member_status || contact.status || "guest",
+            member_status: contact.member_status || contact.status
+                || (contact.converted ? "member" : contact.first_visit_date || contact.attended_church ? "guest" : "contact"),
             membership_date: contact.membership_date || null,
             role: contact.role || "no_role",
             activity_status: contact.activity_status || (contact.response === "responsive" ? "regular" : "irregular"),

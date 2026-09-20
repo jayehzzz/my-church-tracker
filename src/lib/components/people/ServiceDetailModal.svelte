@@ -22,7 +22,7 @@
 
     // Load attendees when service changes
     $effect(() => {
-        if (service?._id && isOpen) {
+        if ((service?._id || service?.id) && isOpen) {
             loadAttendees();
         } else {
             attendees = [];
@@ -32,7 +32,7 @@
     async function loadAttendees() {
         loadingAttendees = true;
         try {
-            const result = await attendanceService.getByService(service._id);
+            const result = await attendanceService.getByService(service._id || service.id);
             if (result.data) {
                 // Each attendance record has a .people property with the person details
                 attendees = result.data
@@ -207,7 +207,7 @@
                             {#each attendees as attendee}
                                 <button
                                     type="button"
-                                    class="flex items-center gap-2 p-2 rounded-lg text-left hover:bg-secondary/50 transition-colors group"
+                                    class="flex items-center gap-2 p-2 rounded-lg text-left {attendee.first_timer ? 'bg-success/10 border border-success/40' : ''} hover:bg-secondary/50 transition-colors group"
                                     onclick={() =>
                                         navigateToProfile(attendee.id)}
                                 >
@@ -223,7 +223,7 @@
                                             {attendee.name}
                                         </span>
                                         {#if attendee.first_timer}
-                                            <span class="text-xs text-info"
+                                            <span class="text-xs text-success"
                                                 >First-timer visit</span
                                             >
                                         {/if}
@@ -252,7 +252,7 @@
                                 : "No Tithe"}
                         </Badge>
                         {#if attendanceRecord.first_timer}
-                            <Badge variant="info">First-timer visit</Badge>
+                            <Badge variant="success">First-timer visit</Badge>
                         {/if}
                         {#if attendanceRecord.made_salvation_decision}
                             <Badge variant="success">Salvation Decision</Badge>

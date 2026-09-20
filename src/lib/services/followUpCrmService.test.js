@@ -154,4 +154,59 @@ describe("follow-up CRM service", () => {
       expect(recoveryTask).toBeDefined();
     }
   });
+  it("preserves restrictions and cancels only outreach when an existing contact opts out", async () => {
+    const { assignContact, getContactProfile, reactivateContact } = await import("./followUpCrmService.js");
+    const dashboard = await getDashboard();
+    const leaderId = dashboard.data.leaders[0]._id;
+    const id = "local-simplified-no-contact";
+    await captureLocalEvangelismContact({ id, first_name: "Restricted", contact_date: "2026-09-01", assigned_leader_id: leaderId });
+    await createTask({ personId: id, assignedLeaderId: leaderId, dueDate: "2026-09-03", taskType: "member_care" });
+    await captureLocalEvangelismContact({ id, response: "do_not_contact" });
+    await captureLocalEvangelismContact({ id, first_name: "Updated", member_status: "member" });
+    const profile = await getContactProfile(id);
+    expect(profile.data.person.contact_category).toBe("do_not_contact");
+    expect(profile.data.tasks.some(task => task.status === "open" && task.task_type === "first_contact")).toBe(false);
+    expect(profile.data.tasks.some(task => task.status === "open" && task.task_type === "member_care")).toBe(true);
+    expect((await assignContact(id, leaderId)).error).toBeTruthy();
+    expect((await reactivateContact(id, leaderId)).error).toBeTruthy();
+  });
+
+  it("creates one initial task without a category and does not duplicate it on edit", async () => {
+    const { getContactProfile } = await import("./followUpCrmService.js");
+    const dashboard = await getDashboard();
+    const leaderId = dashboard.data.leaders[0]._id;
+    const contact = { id: "local-simplified-intake", first_name: "New", contact_date: "2026-09-01", assigned_leader_id: leaderId };
+    await captureLocalEvangelismContact(contact);
+    await captureLocalEvangelismContact({ ...contact, first_name: "Edited" });
+    const profile = await getContactProfile(contact.id);
+    expect(profile.data.person.contact_category).toBe("not_assessed");
+    expect(profile.data.tasks.filter(task => task.status === "open" && task.task_type === "first_contact")).toHaveLength(1);
+  });
+
+  it("creates the initial task through the Evangelism service used by the form", async () => {
+    const evangelism = await import("./evangelismService.js");
+    const { getContactProfile } = await import("./followUpCrmService.js");
+    const dashboard = await getDashboard();
+    const created = await evangelism.create({ first_name: "Service intake", contact_date: "2026-09-01", assigned_leader_id: dashboard.data.leaders[0]._id });
+    expect(created.error).toBeNull();
+    expect(created.data.response).toBe("not_assessed");
+    const peopleService = await import("./peopleService.js");
+    expect((await peopleService.getById(created.data.id)).data.member_status).toBe("contact");
+    const profile = await getContactProfile(created.data.id);
+    expect(profile.data.tasks.filter(task => task.status === "open" && task.task_type === "first_contact")).toHaveLength(1);
+  });
+
+  it("retains an explicit no-contact closure as an opt-out", async () => {
+    const { assignContact, completeTask, getContactProfile } = await import("./followUpCrmService.js");
+    const dashboard = await getDashboard();
+    const leaderId = dashboard.data.leaders[0]._id;
+    const id = "local-simplified-closure";
+    await captureLocalEvangelismContact({ id, first_name: "Closure", contact_date: "2026-09-01" });
+    const assigned = await assignContact(id, leaderId);
+    await completeTask(assigned.data.task._id, { outcome: "positive_conversation", closeContact: true, closeReason: "do_not_contact", skipAutomaticNextTask: true });
+    expect((await getContactProfile(id)).data.person.contact_category).toBe("do_not_contact");
+    expect((await assignContact(id, leaderId)).error).toBeTruthy();
+  });
+
+
 });

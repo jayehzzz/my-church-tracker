@@ -21,11 +21,18 @@ export function gatheringType(g: any, service: boolean): string {
     if (service) return g.service_type === "sunday_service" ? "sunday_service" : "special_event";
     return g.meeting_type === "bacenta" ? "bacenta" : ["special_event", "evangelistic_event"].includes(g.meeting_type) ? "special_event" : g.meeting_type;
 }
+// A special/Easter/Christmas service held on Sunday also fulfils a Sunday
+// invitation. Retain its special-event identity for existing event commitments.
+export function matchesGatheringType(g: any, service: boolean, type: string): boolean {
+    return gatheringType(g, service) === type || (service && type === "sunday_service"
+        && ["special_service", "easter_service", "christmas_service"].includes(g.service_type)
+        && new Date(`${g.service_date}T12:00:00Z`).getUTCDay() === 0);
+}
 export async function candidates(ctx: Ctx, type: string, day: string) {
     const services = await ctx.db.query("services").withIndex("by_service_date", q => q.eq("service_date", day)).collect();
     const meetings = await ctx.db.query("meetings").withIndex("by_meeting_date", q => q.eq("meeting_date", day)).collect();
     return [
-        ...services.filter(g => gatheringType(g, true) === type).map(g => ({ serviceId: g._id, date: g.service_date, label: `${g.service_type.replaceAll("_", " ")} · ${g.service_time || "time not set"} · ${g.location || "location not set"}` })),
+        ...services.filter(g => matchesGatheringType(g, true, type)).map(g => ({ serviceId: g._id, date: g.service_date, label: `${g.service_type.replaceAll("_", " ")} · ${g.service_time || "time not set"} · ${g.location || "location not set"}` })),
         ...meetings.filter(g => g.status !== "cancelled" && gatheringType(g, false) === type).map(g => ({ meetingId: g._id, date: g.meeting_date, label: `${g.title || g.meeting_type} · ${g.start_time || "time not set"} · ${g.location || "location not set"}` })),
     ];
 }
@@ -102,14 +109,14 @@ export async function reconcileMeetingCounts(ctx: MutationCtx, id: Id<"meetings"
 async function personGatherings(ctx: Ctx, personId: Id<"people">) {
     const a = await ctx.db.query("attendance").withIndex("by_person", q => q.eq("person_id", personId)).collect();
     const m = await ctx.db.query("meeting_attendance").withIndex("by_person", q => q.eq("person_id", personId)).collect();
-    const result: Array<{serviceId?: Id<"services">; meetingId?: Id<"meetings">; date: string; type: string; entry: string}> = [];
+    const result: Array<{serviceId?: Id<"services">; meetingId?: Id<"meetings">; date: string; type: string; sunday: boolean; entry: string}> = [];
     for (const r of a) {
         const g = await ctx.db.get(r.service_id);
-        if (g) result.push({ serviceId: g._id, date: g.service_date, type: gatheringType(g, true), entry: "sunday_service" });
+        if (g) result.push({ serviceId: g._id, date: g.service_date, type: gatheringType(g, true), sunday: matchesGatheringType(g, true, "sunday_service"), entry: "sunday_service" });
     }
     for (const r of m.filter(present)) {
         const g = await ctx.db.get(r.meeting_id);
-        if (g && g.status !== "cancelled") result.push({ meetingId: g._id, date: g.meeting_date, type: gatheringType(g, false), entry: g.meeting_type === "bacenta" ? "bacenta_meeting" : "other" });
+        if (g && g.status !== "cancelled") result.push({ meetingId: g._id, date: g.meeting_date, type: gatheringType(g, false), sunday: false, entry: g.meeting_type === "bacenta" ? "bacenta_meeting" : "other" });
     }
     return result.sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -124,9 +131,9 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
         let event = c.service_id || c.meeting_id ? events.find(e => c.service_id ? e.serviceId === c.service_id : e.meetingId === c.meeting_id) : undefined;
         if (!c.service_id && !c.meeting_id && c.resolution !== "cancelled") {
             const choices = await candidates(ctx, c.gathering_type, c.gathering_date);
-            if (choices.length === 1) event = events.find(e => e.date === c.gathering_date && e.type === c.gathering_type);
+            if (choices.length === 1) event = events.find(e => e.date === c.gathering_date && (e.type === c.gathering_type || (c.gathering_type === "sunday_service" && e.sunday)));
         }
-        if (event && event.type === c.gathering_type) {
+        if (event && (event.type === c.gathering_type || (c.gathering_type === "sunday_service" && event.sunday))) {
             if (event.date !== c.gathering_date && commitments.some(other => other._id !== c._id && other.gathering_type === c.gathering_type && other.gathering_date === event.date)) throw new Error("The corrected date conflicts with another commitment for this person. Resolve the conflicting commitment first.");
             for (const f of interactions.filter(f => f.commitment_id === c._id || (!f.commitment_id && f.promised_date === c.gathering_date && (f.gathering_type ?? "sunday_service") === c.gathering_type))) {
                 await ctx.db.patch(f._id, { commitment_id: c._id, gathering_date: event.date, ...(f.promised_date ? { promised_date: event.date } : {}) });
@@ -138,8 +145,8 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
     }
     const plans = await ctx.db.query("attendance_plans").collect();
     for (const p of plans.filter(p => p.person_id === personId)) {
-        let event = p.service_id ? events.find(e => e.serviceId === p.service_id && e.type === "sunday_service") : undefined;
-        if (!event) event = events.find(e => e.date === p.service_date && e.type === "sunday_service");
+        let event = p.service_id ? events.find(e => e.serviceId === p.service_id && e.sunday) : undefined;
+        if (!event) event = events.find(e => e.date === p.service_date && e.sunday);
         if (event && event.date !== p.service_date && plans.some(other => other._id !== p._id && other.person_id === personId && other.service_date === event.date)) throw new Error("The corrected date conflicts with another attendance plan for this person.");
         if (event) await ctx.db.patch(p._id, { service_id: event.serviceId, service_date: event.date, status: "attended", attendance_previous_status: p.attendance_previous_status ?? (p.status === "attended" ? "expected" : p.status), updated_at: now() });
         else if (p.service_id && p.generated_from_attendance) await ctx.db.delete(p._id);
@@ -148,7 +155,7 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
     if (["member", "leader"].includes(person.member_status)) {
         const currentPlans = await ctx.db.query("attendance_plans").collect();
         const coveredDays = new Set(currentPlans.filter(p => p.person_id === personId).map(p => p.service_date));
-        for (const event of events.filter(e => e.type === "sunday_service")) {
+        for (const event of events.filter(e => e.sunday)) {
             if (coveredDays.has(event.date)) continue;
             await ctx.db.insert("attendance_plans", { person_id: personId, service_date: event.date, service_id: event.serviceId, status: "attended", generated_from_attendance: true, attendance_previous_status: "expected", created_at: now(), updated_at: now() });
             coveredDays.add(event.date);
@@ -157,7 +164,7 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
     const refreshed = await ctx.db.query("gathering_commitments").withIndex("by_person", q => q.eq("person_id", personId)).collect();
     const followUps = await ctx.db.query("follow_ups").withIndex("by_contact", q => q.eq("contact_id", personId)).collect();
     for (const f of followUps.filter(f => f.promised_date)) {
-        const matches = events.filter(e => e.date === f.promised_date && e.type === (f.gathering_type ?? "sunday_service"));
+        const matches = events.filter(e => e.date === f.promised_date && (e.type === (f.gathering_type ?? "sunday_service") || ((!f.gathering_type || f.gathering_type === "sunday_service") && e.sunday)));
         const choices = await candidates(ctx, f.gathering_type ?? "sunday_service", f.promised_date!);
         await ctx.db.patch(f._id, { promise_fulfilled: matches.length > 0 && choices.length === 1 ? true : f.promise_fulfilled === true ? undefined : f.promise_fulfilled });
     }
@@ -207,7 +214,7 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
     };
     for (const field of Object.keys(derived)) baseline[`applied_${field}`] = derived[field];
     const kept = new Set(refreshed.filter(c => c.response === "yes" && c.resolution === "attended").map(c => `${c.gathering_type}:${c.gathering_date}`));
-    for (const f of followUps.filter(f => f.promised_date)) if (events.some(e => e.date === f.promised_date && e.type === (f.gathering_type ?? "sunday_service")) && (await candidates(ctx, f.gathering_type ?? "sunday_service", f.promised_date!)).length === 1) kept.add(`${f.gathering_type ?? "sunday_service"}:${f.promised_date}`);
+    for (const f of followUps.filter(f => f.promised_date)) if (events.some(e => e.date === f.promised_date && (e.type === (f.gathering_type ?? "sunday_service") || ((!f.gathering_type || f.gathering_type === "sunday_service") && e.sunday))) && (await candidates(ctx, f.gathering_type ?? "sunday_service", f.promised_date!)).length === 1) kept.add(`${f.gathering_type ?? "sunday_service"}:${f.promised_date}`);
     // A person collected through outreach becomes a guest as soon as their
     // first actual church gathering is recorded. Return visits remain guest
     // visits until membership is explicitly recorded.
@@ -236,7 +243,7 @@ export async function reconcilePeople(ctx: MutationCtx, ids: Id<"people">[]) {
 async function finalizeRecordedSundayExpectations(ctx: MutationCtx, serviceId: Id<"services">, hasRecordedAttendance: boolean) {
     if (!hasRecordedAttendance) return;
     const service = await ctx.db.get(serviceId);
-    if (!service || gatheringType(service, true) !== "sunday_service" || service.service_date > now().slice(0, 10)) return;
+    if (!service || !matchesGatheringType(service, true, "sunday_service") || service.service_date > now().slice(0, 10)) return;
 
     const choices = await candidates(ctx, "sunday_service", service.service_date);
     if (choices.length !== 1 || !("serviceId" in choices[0]) || choices[0].serviceId !== serviceId) return;
@@ -332,11 +339,13 @@ export async function deleteGathering(ctx: MutationCtx, g: Gathering) {
     const rows = g.serviceId ? await serviceRows(ctx, g.serviceId) : await meetingRows(ctx, g.meetingId!);
     const day = "service_date" in record ? record.service_date : record.meeting_date;
     const type = gatheringType(record, !!g.serviceId);
-    const uniqueDate = (await candidates(ctx, type, day)).length === 1;
+    const types = [type, ...(g.serviceId && type !== "sunday_service" && matchesGatheringType(record, true, "sunday_service") ? ["sunday_service"] : [])];
+    const uniqueTypes = new Set<string>();
+    for (const candidateType of types) if ((await candidates(ctx, candidateType, day)).length === 1) uniqueTypes.add(candidateType);
     const commitments = (await ctx.db.query("gathering_commitments").collect()).filter(c =>
-        (g.serviceId ? c.service_id === id : c.meeting_id === id) || (uniqueDate && !c.service_id && !c.meeting_id && c.gathering_date === day && c.gathering_type === type));
-    const plans = (await ctx.db.query("attendance_plans").collect()).filter(p => p.service_id === id || p.meeting_id === id || (uniqueDate && type === "sunday_service" && !p.service_id && p.service_date === day));
-    const tasks = (await ctx.db.query("follow_up_tasks").collect()).filter(t => uniqueDate && t.gathering_type === type && t.gathering_date === day && t.status === "open");
+        (g.serviceId ? c.service_id === id : c.meeting_id === id) || (uniqueTypes.has(c.gathering_type) && !c.service_id && !c.meeting_id && c.gathering_date === day));
+    const plans = (await ctx.db.query("attendance_plans").collect()).filter(p => p.service_id === id || p.meeting_id === id || (uniqueTypes.has("sunday_service") && !p.service_id && p.service_date === day));
+    const tasks = (await ctx.db.query("follow_up_tasks").collect()).filter(t => uniqueTypes.has(t.gathering_type ?? "sunday_service") && t.gathering_date === day && t.status === "open");
     const photos = g.serviceId ? await ctx.db.query("service_photos").withIndex("by_service", q => q.eq("service_id", g.serviceId!)).collect() : [];
     const people = await Promise.all([...new Set(rows.map(r => r.person_id))].map(id => ctx.db.get(id)));
     await ctx.db.insert("record_recovery", { record_type: g.serviceId ? "service" : "meeting", record_id: id, snapshot: { record, attendance: rows, commitments, plans, tasks, photos, people }, deleted_at: now() });

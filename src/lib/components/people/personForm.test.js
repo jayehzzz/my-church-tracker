@@ -29,7 +29,7 @@ it('saves profile notes through the person service while retaining existing cont
 it('keeps first timer out of persistent journey status and separates leadership from Basonta membership', () => {
   const person = { id: 'journey', first_name: 'Anne', last_name: 'Jones', member_status: 'contact' };
   const { getByLabelText, getByText, queryByText } = render(PersonForm, { isOpen: true, person });
-  expect(getByLabelText('Church Journey Status')).toBeTruthy();
+  expect(getByLabelText('Church status')).toBeTruthy();
   expect(getByLabelText('Basonta Membership')).toBeTruthy();
   expect(getByText(/First timer is recorded on the person's first attendance/i)).toBeTruthy();
   expect(getByText(/Bacenta Leader and Basonta Leader are leadership roles/i)).toBeTruthy();

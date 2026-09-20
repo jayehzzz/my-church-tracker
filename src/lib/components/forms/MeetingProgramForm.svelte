@@ -11,6 +11,7 @@
 
   const typeOptions = [
     { value: "bacenta", label: "Bacenta" },
+    { value: "basonta", label: "Basonta" },
     { value: "flow_service", label: "Flow Service" },
     { value: "acts_prayer", label: "Acts Prayer" },
     { value: "shemen_prayer", label: "Shemen Prayer" },
@@ -69,9 +70,7 @@
       `${person.first_name} ${person.last_name}`.toLowerCase().includes(query),
     );
   });
-  const showRoster = $derived(
-    formData.category === "bacenta" || formData.category === "workers",
-  );
+  const showExpectationList = $derived(Boolean(formData.meeting_type));
 
   $effect(() => {
     if (!isOpen) return;
@@ -131,7 +130,7 @@
         ...formData,
         name: formData.name.trim(),
         leader_ids: Array.from(leaderIds),
-        member_ids: showRoster ? Array.from(memberIds) : [],
+        member_ids: showExpectationList ? Array.from(memberIds) : [],
       };
       const result = program?.id
         ? await meetingProgramsService.update(program.id, payload)
@@ -261,13 +260,13 @@
       {/if}
     </div>
 
-    {#if showRoster}
+    {#if showExpectationList}
       <div class="rounded-xl border border-border p-4">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 class="font-semibold text-foreground">Usual roster</h3>
+            <h3 class="font-semibold text-foreground">Regular expectation list</h3>
             <p class="mt-1 text-sm text-muted-foreground">
-              A roster is the expected group for this programme. Members appear first when taking attendance, but are only counted when marked present.
+              Add the people who normally come to this programme each week. They will be preloaded as the expected group when you take attendance, but they are only counted after you mark them present.
             </p>
           </div>
           <div class="w-full sm:w-56">
@@ -290,7 +289,7 @@
             </label>
           {/each}
         </div>
-        <p class="mt-3 text-xs text-muted-foreground">{memberIds.size} people on this roster</p>
+        <p class="mt-3 text-xs text-muted-foreground">{memberIds.size} regular people expected</p>
       </div>
     {/if}
 

@@ -26,6 +26,16 @@ describe('actual attendance selection',()=>{
     expect(await screen.findByRole('alert')).toHaveTextContent('Attendance request failed');
     expect(screen.getByRole('button',{name:'Save attendance'})).toBeEnabled();
   });
+  it('refreshes a missing gathering after the service has been recorded', async () => {
+    getGatheringChoices.mockResolvedValueOnce({data:[]}).mockResolvedValueOnce({data:[{serviceId:'special', label:'special service · 10:00'}]});
+    const save = vi.fn().mockResolvedValue({});
+    render(GatheringAttendanceDialog, {isOpen:true,gatheringDate:'2026-09-13',onconfirm:save});
+    expect(await screen.findByRole('alert')).toHaveTextContent('2026-09-13 · sunday service');
+    await fireEvent.click(screen.getByRole('button',{name:'Refresh gatherings'}));
+    await screen.findByRole('option',{name:'special service · 10:00'});
+    await fireEvent.click(screen.getByRole('button',{name:'Save attendance'}));
+    await waitFor(()=>expect(save).toHaveBeenCalledWith({serviceId:'special'}));
+  });
   it('does not invent a gathering when none exists',async()=>{
     getGatheringChoices.mockResolvedValue({data:[]});
     const save=vi.fn();

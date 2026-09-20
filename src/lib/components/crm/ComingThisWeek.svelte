@@ -102,7 +102,7 @@
             <div class="flex flex-wrap gap-2" aria-label={`Resolve attendance for ${personName(commitment.person)}`}>
               <Button size="sm" onclick={() => onResolve(commitment, 'attended')}>Attended</Button>
               <Button variant="secondary" size="sm" onclick={() => onResolve(commitment, 'no_show')}>Didn’t attend</Button>
-              <Button variant="ghost" size="sm" onclick={() => onResolve(commitment, 'cancelled')}>Cancelled</Button>
+              <Button variant="ghost" size="sm" onclick={() => onResolve(commitment, 'cancelled')}>Cancel confirmation</Button>
             </div>
           {:else}
             <Badge size="sm" variant={resolution.variant}>{resolution.label}</Badge>
