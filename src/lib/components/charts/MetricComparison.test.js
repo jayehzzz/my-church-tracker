@@ -14,6 +14,14 @@ describe('shared dashboard comparisons', () => {
     expect(getByRole('dialog',{name:'Attendance'})).toHaveTextContent('Average per service10.3');
     expect(getByRole('dialog',{name:'Attendance'})).toHaveTextContent('Denominator3');
   });
+  it('can round people averages to whole numbers for headcount dashboards', async () => {
+    const {getByLabelText,getByRole}=render(MetricComparison,{metrics:[{key:'attendance',label:'Attendance',total:31,denominator:3,averageLabel:'Average per service'}],wholeNumberAverages:true});
+    await fireEvent.change(getByLabelText('Primary calculation'),{target:{value:'average'}});
+    expect(getByRole('button',{name:/Series A · Attendance/})).toHaveTextContent('10');
+    expect(getByRole('button',{name:/Series A · Attendance/})).not.toHaveTextContent('10.3');
+    await fireEvent.click(getByRole('button',{name:/Series A · Attendance/}));
+    expect(getByRole('dialog',{name:'Attendance'})).toHaveTextContent('Average per service10');
+  });
   it('resets unsupported averages and invalid metric selections when switching dashboard scope', async () => {
     const {getByLabelText,getByRole,rerender}=render(MetricComparison,{metrics:[{key:'a',label:'Attendance',total:20,denominator:2,averageLabel:'Average per service'},{key:'people',label:'Unique people',total:12}]});
     await fireEvent.change(getByLabelText('Primary calculation'),{target:{value:'average'}});

@@ -293,6 +293,8 @@
     summarizeAverageAttendanceMix(analyticsServices(), attendanceRecords, people),
   );
 
+  const wholePerson = (value) => Math.round(Number(value) || 0);
+
   // Attendance trend data for chart - includes id and topic for drill-down
   const trendData = $derived(() => {
     const filtered = analyticsServices();
@@ -1104,7 +1106,7 @@
                     <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2a5 5 0 00-10 0v2m10 0H7m8-13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                   </span>
                 </div>
-                  <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{attendanceMix().averageTithers}</p>
+                  <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{wholePerson(attendanceMix().averageTithers)}</p>
                   <p class="mt-1 text-xs text-muted-foreground">{kpis().totalTithers} recorded across the period · {kpis().titherRate}% of member attendance</p>
               </div>
 
@@ -1115,7 +1117,7 @@
                     <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v6m3-3h-6m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 21v-1a6 6 0 0112 0v1" /></svg>
                   </span>
                 </div>
-                <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{attendanceMix().averageReturningGuests}</p>
+                <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{wholePerson(attendanceMix().averageReturningGuests)}</p>
                 <p class="mt-1 text-xs text-muted-foreground">Average per service · {kpis().totalReturningGuests} returning guest visits · {returningGuestRate()}% share</p>
               </div>
 
@@ -1161,6 +1163,7 @@
                   data={trendData()}
                   title="Attendance trend"
                   periodLabel={$dateRange.label}
+                  wholeNumberValues={true}
                   onPointClick={handleChartPointClick}
                   comparisonOptions={[
                     { key: "returningGuests", label: "Returning guests", color: "warning" },
@@ -1254,7 +1257,7 @@
               </div>
 
 
-              <div class="mt-4"><MetricComparison metrics={[
+              <div class="mt-4"><MetricComparison wholeNumberAverages={true} metrics={[
                 {key:'attendance',label:'Attendance',total:kpis().totalAttendance},
                 {key:'returning',label:'Returning guest visits',total:kpis().totalReturningGuests},
                 {key:'first',label:'First timers',total:kpis().totalFirstTimers},
@@ -1262,7 +1265,7 @@
                 {key:'tithers',label:'Tither attendances',total:kpis().totalTithers},
               ].map(metric=>({...metric,denominator:kpis().serviceCount,averageLabel:'Average per service'}))} periodLabel={$dateRange.label} /></div>
               <div class="mt-5 flex flex-col items-center gap-6 sm:flex-row">
-                <button type="button" onclick={() => chartDetail = {title: 'Attendance mix', subtitle: $dateRange.label, metrics: [{label:'Average members per gathering',value:donutData().members},{label:'Average returning guests per gathering',value:donutData().returningGuests},{label:'Average first timers per gathering',value:donutData().firstTimers},{label:'Average tithers per gathering (subset of members)',value:donutData().tithers}]}} class="relative h-36 w-36 shrink-0 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="View average attendance mix details: {donutData().memberPct}% members, {donutData().returningGuestPct}% returning guests, {donutData().firstTimerPct}% first timers, and {donutData().titherRate}% tither attendances among members">
+                <button type="button" onclick={() => chartDetail = {title: 'Attendance mix', subtitle: $dateRange.label, metrics: [{label:'Average members per gathering',value:wholePerson(donutData().members)},{label:'Average returning guests per gathering',value:wholePerson(donutData().returningGuests)},{label:'Average first timers per gathering',value:wholePerson(donutData().firstTimers)},{label:'Average tithers per gathering (subset of members)',value:wholePerson(donutData().tithers)}]}} class="relative h-36 w-36 shrink-0 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="View average attendance mix details: {donutData().memberPct}% members, {donutData().returningGuestPct}% returning guests, {donutData().firstTimerPct}% first timers, and {donutData().titherRate}% tither attendances among members">
                   <svg viewBox="0 0 36 36" class="h-full w-full -rotate-90">
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-secondary" />
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-primary" style="opacity: {attendanceRingVisibility.members ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.members ? `${donutData().memberPct} ${100 - donutData().memberPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-linecap="round" />
@@ -1272,28 +1275,28 @@
                     <circle cx="18" cy="18" r="11.5" fill="none" stroke="currentColor" stroke-width="2.5" class="text-warning" pathLength="100" style="opacity: {attendanceRingVisibility.tithers ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.tithers ? `${donutData().titherRate} ${100 - donutData().titherRate}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-linecap="round" />
                   </svg>
                   <div class="absolute inset-0 flex flex-col items-center justify-center">
-                    <span class="text-xl font-semibold text-foreground">{donutData().total}</span>
+                    <span class="text-xl font-semibold text-foreground">{wholePerson(donutData().total)}</span>
                     <span class="text-center text-[9px] uppercase leading-tight tracking-wide text-muted-foreground">avg / gathering</span>
                   </div>
                 </button>
                 <div class="w-full space-y-2">
                   <button type="button" aria-pressed={attendanceRingVisibility.members} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.members ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('members')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-primary"></span>Avg members / gathering</span>
-                    <span class="text-sm font-semibold text-foreground">{donutData().members} <span class="font-normal text-muted-foreground">({donutData().memberPct}%)</span></span>
+                    <span class="text-sm font-semibold text-foreground">{wholePerson(donutData().members)} <span class="font-normal text-muted-foreground">({donutData().memberPct}%)</span></span>
                   </button>
                   <button type="button" aria-pressed={attendanceRingVisibility.guests} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.guests ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('guests')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-info"></span>Avg returning guests / gathering</span>
-                    <span class="text-sm font-semibold text-foreground">{donutData().returningGuests} <span class="font-normal text-muted-foreground">({donutData().returningGuestPct}%)</span></span>
+                    <span class="text-sm font-semibold text-foreground">{wholePerson(donutData().returningGuests)} <span class="font-normal text-muted-foreground">({donutData().returningGuestPct}%)</span></span>
                   </button>
                   <button type="button" aria-pressed={attendanceRingVisibility.firstTimers} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.firstTimers ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('firstTimers')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-success"></span>Avg first timers / gathering</span>
-                    <span class="text-sm font-semibold text-foreground">{donutData().firstTimers} <span class="font-normal text-muted-foreground">({donutData().firstTimerPct}%)</span></span>
+                    <span class="text-sm font-semibold text-foreground">{wholePerson(donutData().firstTimers)} <span class="font-normal text-muted-foreground">({donutData().firstTimerPct}%)</span></span>
                   </button>
                   <button type="button" aria-pressed={attendanceRingVisibility.tithers} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.tithers ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('tithers')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-warning"></span>Avg tithers / gathering <span class="text-[10px] text-muted-foreground">inner ring</span></span>
-                    <span class="text-sm font-semibold text-foreground">{donutData().tithers} <span class="font-normal text-muted-foreground">({donutData().titherRate}% of member attendance)</span></span>
+                    <span class="text-sm font-semibold text-foreground">{wholePerson(donutData().tithers)} <span class="font-normal text-muted-foreground">({donutData().titherRate}% of member attendance)</span></span>
                   </button>
-                  <p class="px-2 text-[11px] text-muted-foreground">Attendance values are averages per gathering, so they can contain decimals even though every recorded headcount is a whole person. Tithers remain a subset of member attendance.</p>
+                  <p class="px-2 text-[11px] text-muted-foreground">Attendance averages are rounded to the nearest whole person for display; recorded totals remain exact. Tithers remain a subset of member attendance.</p>
                 </div>
               </div>
 

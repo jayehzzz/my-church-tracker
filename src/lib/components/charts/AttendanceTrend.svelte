@@ -31,6 +31,7 @@
     onFilterClick = null,
     activeFilterCount = 0,
     comparisonOptions = [],
+    wholeNumberValues = false,
   } = $props();
 
   let hoveredIndex = $state(null);
@@ -182,6 +183,11 @@
       : `Overall average ${comparisonMetricLower}`,
   );
 
+  function displayValue(value) {
+    const numeric = Number(value) || 0;
+    return wholeNumberValues ? Math.round(numeric) : numeric;
+  }
+
   function handlePointClick(point, event) {
     event.preventDefault();
     event.stopPropagation();
@@ -190,8 +196,8 @@
       title: point.label || point.date,
       subtitle: `${title} · ${periodLabel}`,
       metrics: [
-        { label: pointMeasureLabel, value: point.primary },
-        ...(selectedComparison ? [{ label: `${selectedComparison.label}${granularity === 'day' ? '' : ` (${comparisonAggregationMode})`}`, value: point.comparison }] : []),
+        { label: pointMeasureLabel, value: displayValue(point.primary) },
+        ...(selectedComparison ? [{ label: `${selectedComparison.label}${granularity === 'day' ? '' : ` (${comparisonAggregationMode})`}`, value: displayValue(point.comparison) }] : []),
       ],
     };
   }
@@ -412,7 +418,7 @@
               text-anchor="middle"
               class="fill-foreground text-xs font-semibold pointer-events-none select-none transition-colors duration-150 {isHovered ? 'fill-primary font-bold text-[13px]' : ''}"
             >
-              {point.total}
+              {displayValue(point.total)}
             </text>
 
             <!-- Comparison Value Label -->
@@ -424,7 +430,7 @@
                 fill={comparisonColorValue}
                 class="text-[11px] font-semibold pointer-events-none select-none transition-all duration-150"
               >
-                {point.comparison}
+                {displayValue(point.comparison)}
               </text>
             {/if}
 
@@ -480,7 +486,7 @@
                 text-anchor="middle"
                 class="fill-foreground text-xs font-semibold select-none pointer-events-none transition-all {isHovered ? 'fill-primary font-bold' : ''}"
               >
-                {point.total}
+                {displayValue(point.total)}
               </text>
             {:else}
               <!-- Clustered Two-Bar Mode -->
@@ -517,7 +523,7 @@
                 text-anchor="middle"
                 class="fill-primary text-[11px] font-semibold select-none pointer-events-none"
               >
-                {point.total}
+                {displayValue(point.total)}
               </text>
 
               <text
@@ -527,7 +533,7 @@
                 fill={comparisonColorValue}
                 class="text-[11px] font-semibold select-none pointer-events-none"
               >
-                {point.comparison}
+                {displayValue(point.comparison)}
               </text>
             {/if}
 
@@ -596,7 +602,7 @@
                 <span class="h-2 w-2 rounded-full bg-primary"></span>
                 {pointMeasureLabel}:
               </span>
-              <span class="font-bold text-foreground">{point.total}</span>
+              <span class="font-bold text-foreground">{displayValue(point.total)}</span>
             </div>
             {#if selectedComparison}
               <div class="flex items-center justify-between gap-3 text-xs">
@@ -604,7 +610,7 @@
                   <span class="h-2 w-2 rounded-full" style="background-color: {comparisonColorValue};"></span>
                   {selectedComparison.label}:
                 </span>
-                <span class="font-bold" style="color: {comparisonColorValue};">{point.comparison}</span>
+                <span class="font-bold" style="color: {comparisonColorValue};">{displayValue(point.comparison)}</span>
               </div>
             {/if}
           </div>
@@ -619,24 +625,24 @@
 
     <div class="mt-4 grid {selectedComparison ? 'grid-cols-2 gap-y-4 sm:grid-cols-4' : 'grid-cols-3'} border-t border-border pt-4">
       <div class="text-center">
-        <div class="text-lg font-bold text-foreground">{chartData().points[chartData().points.length - 1].total}</div>
+        <div class="text-lg font-bold text-foreground">{displayValue(chartData().points[chartData().points.length - 1].total)}</div>
         <div class="text-xs text-muted-foreground">{latestMeasureLabel}</div>
       </div>
       <div class="text-center">
-        <div class="text-lg font-bold text-primary">{periodAttendance}</div>
+        <div class="text-lg font-bold text-primary">{displayValue(periodAttendance)}</div>
         <div class="text-xs text-muted-foreground">{periodMeasureLabel}</div>
         <div class="mt-0.5 text-[10px] text-muted-foreground">{periodLabel}</div>
       </div>
       {#if selectedComparison}
         <div class="text-center">
-          <div class="text-lg font-bold" style="color: {comparisonColorValue};">{periodComparison}</div>
+          <div class="text-lg font-bold" style="color: {comparisonColorValue};">{displayValue(periodComparison)}</div>
           <div class="text-xs text-muted-foreground">{comparisonMeasureLabel}</div>
           <div class="mt-0.5 text-[10px] text-muted-foreground">{periodLabel}</div>
         </div>
       {/if}
       <div class="text-center">
         <div class="text-lg font-bold text-foreground">
-          {Math.max(...chartData().points.map((item) => Number(item.total) || 0), 0)}
+          {displayValue(Math.max(...chartData().points.map((item) => Number(item.total) || 0), 0))}
         </div>
         <div class="text-xs text-muted-foreground">{peakMeasureLabel}</div>
       </div>

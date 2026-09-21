@@ -2,7 +2,7 @@
   import ComparisonControls from './ComparisonControls.svelte';
   import ChartPointDetails from './ChartPointDetails.svelte';
   import { roundedAverage } from '$lib/utils/comparisonMetrics.js';
-  let {metrics=[],periodLabel='Selected period',onSelect=null}=$props();
+  let {metrics=[],periodLabel='Selected period',onSelect=null,wholeNumberAverages=false}=$props();
   let primaryKey=$state(''),comparisonKey=$state('');
   let primaryMode=$state('total'),comparisonMode=$state('average');
   let detail=$state(null);
@@ -11,13 +11,17 @@
     if(!options.some(option=>option.key===primaryKey))primaryKey=options[0]?.key || '';
     if(comparisonKey&&!options.some(option=>option.key===comparisonKey))comparisonKey='';
   });
+  const averageValue=(metric)=>{
+    const value=roundedAverage(metric?.total,metric?.denominator);
+    return wholeNumberAverages && value!=null ? Math.round(value) : value;
+  };
   const selections=$derived([{key:primaryKey,mode:primaryMode,role:'A'},...(comparisonKey?[{key:comparisonKey,mode:comparisonMode,role:'B'}]:[])].map(selection=>{
     const metric=metrics.find(metric=>metric.key===selection.key);
-    return {...selection,metric,value:selection.mode==='total'?metric?.total:roundedAverage(metric?.total,metric?.denominator)};
+    return {...selection,metric,value:selection.mode==='total'?metric?.total:averageValue(metric)};
   }));
   function inspect(selection){
     if(onSelect)onSelect(selection.metric);
-    else detail={title:selection.metric.label,subtitle:selection.metric.periodLabel || periodLabel,metrics:[{label:'Actual total count',value:selection.metric.total ?? 'Unavailable'},...(selection.metric.denominator!=null?[{label:selection.metric.averageLabel,value:roundedAverage(selection.metric.total,selection.metric.denominator)},{label:'Denominator',value:selection.metric.denominator}]:[])]};
+    else detail={title:selection.metric.label,subtitle:selection.metric.periodLabel || periodLabel,metrics:[{label:'Actual total count',value:selection.metric.total ?? 'Unavailable'},...(selection.metric.denominator!=null?[{label:selection.metric.averageLabel,value:averageValue(selection.metric)},{label:'Denominator',value:selection.metric.denominator}]:[])]};
   }
 </script>
 <div class="space-y-3" aria-label="Metric comparison">
