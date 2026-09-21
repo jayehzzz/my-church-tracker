@@ -20,6 +20,7 @@
     let {
         label = "",
         options = [],
+        membersFirst = false,
         value = $bindable(""),
         placeholder = "Select...",
         disabled = false,
@@ -34,6 +35,7 @@
     // Local state
     let isOpen = $state(false);
     let searchQuery = $state("");
+    let includeOthers = $state(false);
     let dropdownRef = $state(null);
     let isFocused = $state(false);
 
@@ -45,10 +47,15 @@
 
     // Filter options based on search query
     const filteredOptions = $derived(() => {
-        if (!searchQuery.trim()) return options;
+        const visible = membersFirst && !includeOthers
+            ? options.filter((opt) => !opt.value || opt.primary || opt.value === value)
+            : options;
+        if (!searchQuery.trim()) return visible;
         const query = searchQuery.toLowerCase();
-        return options.filter((opt) => opt.label.toLowerCase().includes(query));
+        return visible.filter((opt) => opt.label.toLowerCase().includes(query));
     });
+
+    $effect(() => { if (!isOpen) includeOthers = false; });
 
     // Handle selection
     function selectOption(optValue) {
@@ -247,6 +254,13 @@
                     onclick={(e) => e.stopPropagation()}
                 />
             </div>
+
+            {#if membersFirst}
+                <div class="border-b border-border p-2 text-xs text-muted-foreground">
+                    <p>Leaders and members first</p>
+                    <button type="button" class="mt-1 text-primary hover:underline" onclick={(event) => { event.stopPropagation(); includeOthers = !includeOthers; }}>{includeOthers ? "Show leaders and members only" : "Include outreach contacts and guests"}</button>
+                </div>
+            {/if}
 
             <!-- Options -->
             <div class="max-h-60 overflow-y-auto p-1">

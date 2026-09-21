@@ -885,7 +885,11 @@ const generateEvangelismData = () => {
             const inviter = randomItem(inviters);
             const outcomes = ["responsive", "non_responsive", "events_only", "do_not_contact", "has_church"];
             const response = randomItem(outcomes);
-            const isConverted = response === "responsive" && randomInt(1, 10) > 6;
+            const savedOnOutreach = response === "responsive" && randomInt(1, 10) > 5;
+            const attendedChurch = response === "responsive" && randomInt(1, 10) > 3;
+            const joinedChurch = attendedChurch && randomInt(1, 10) > 7;
+            const firstVisitDate = attendedChurch ? dateStr : null;
+            const membershipDate = joinedChurch ? dateStr : null;
             const followUpDate = response === "responsive" ? toDateStr(addDays(currentDate, 7)) : null;
 
             // Dynamic freshness calculation
@@ -902,7 +906,7 @@ const generateEvangelismData = () => {
             let pMade = 0;
             let pKept = 0;
 
-            if (isConverted) {
+            if (joinedChurch) {
                 stage = "showed_up";
                 warmth = "hot";
                 followUpsCount = randomInt(3, 6);
@@ -936,11 +940,18 @@ const generateEvangelismData = () => {
                 contact_date: dateStr,
                 response: response,
                 follow_up_date: followUpDate,
-                converted: isConverted,
-                conversion_date: isConverted ? dateStr : null,
-                status: isConverted ? "member" : "guest",
-                attended_church: isConverted || (response === "responsive" && randomInt(1, 10) > 3),
-                salvation_decision: isConverted,
+                member_status: joinedChurch ? "member" : attendedChurch ? "guest" : "contact",
+                membership_date: membershipDate,
+                first_visit_date: firstVisitDate,
+                attended_church: attendedChurch,
+                outreach_salvation_decision: savedOnOutreach,
+                outreach_salvation_date: savedOnOutreach ? dateStr : null,
+                outreach_salvation_source: savedOnOutreach ? "evangelism_outreach" : null,
+                // Legacy compatibility mirrors. Canonical journey fields above drive meaning.
+                converted: joinedChurch,
+                conversion_date: membershipDate,
+                status: joinedChurch ? "member" : attendedChurch ? "guest" : "contact",
+                salvation_decision: savedOnOutreach,
                 invited_by_id: inviter.id,
                 comments: [`Contacted via ${randomItem(["street outreach", "friend invitation", "community event", "door-to-door"])}`],
                 freshness,
@@ -1292,16 +1303,21 @@ export function getPersonById(id) {
             email: contact.email || "",
             phone: contact.phone || "",
             address: contact.address || "",
-            member_status: contact.member_status || contact.status || (contact.converted ? "member" : "guest"),
+            member_status: contact.member_status || contact.status
+                || (contact.converted ? "member" : contact.first_visit_date || contact.attended_church ? "guest" : "contact"),
+            membership_date: contact.membership_date || null,
             role: contact.role || "no_role",
             activity_status: contact.activity_status || (contact.response === "responsive" ? "regular" : "irregular"),
             contact_category: contact.contact_category || contact.response,
             contact_date: contact.contact_date,
-            first_visit_date: contact.contact_date,
+            first_visit_date: contact.first_visit_date || null,
             invited_by_id: contact.invited_by_id,
             invited_by: inviter ? `${inviter.first_name} ${inviter.last_name}` : null,
-            salvation_decision: contact.salvation_decision || false,
-            is_baptised: contact.converted || false,
+            outreach_salvation_decision: contact.outreach_salvation_decision ?? contact.salvation_decision ?? false,
+            outreach_salvation_date: contact.outreach_salvation_date || null,
+            outreach_salvation_source: contact.outreach_salvation_source || null,
+            salvation_decision: contact.outreach_salvation_decision ?? contact.salvation_decision ?? false,
+            is_baptised: false,
             is_tither: false,
             notes: Array.isArray(contact.comments) ? contact.comments.join("\n") : (contact.notes || ""),
             birthday: contact.birthday || null,

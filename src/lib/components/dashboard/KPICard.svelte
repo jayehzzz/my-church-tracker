@@ -26,7 +26,9 @@
 
   function formatValue(val, fmt) {
     const numericValue = Number(val) || 0;
-    if (fmt === "percentage") return `${numericValue}%`;
+    if (fmt === "percentage") {
+      return `${new Intl.NumberFormat("en-GB", { maximumFractionDigits: 1 }).format(numericValue)}%`;
+    }
     if (fmt === "currency") {
       return new Intl.NumberFormat("en-GB", {
         style: "currency",
@@ -35,7 +37,10 @@
         maximumFractionDigits: 0,
       }).format(numericValue);
     }
-    return new Intl.NumberFormat("en-GB").format(numericValue);
+    if (fmt === "decimal") {
+      return new Intl.NumberFormat("en-GB", { maximumFractionDigits: 1 }).format(numericValue);
+    }
+    return new Intl.NumberFormat("en-GB", { maximumFractionDigits: 0 }).format(numericValue);
   }
 
   const displayedValue = $derived(`${formatValue(value, format)}${suffix ? ` ${suffix}` : ""}`);

@@ -1,4 +1,8 @@
 <script>
+  import ComparisonControls from "./ComparisonControls.svelte";
+  import { completeMonthlySeries, roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import ChartPointDetails from "./ChartPointDetails.svelte";
+  let detail = $state(null);
   import ChartViewToggle from "$lib/components/charts/ChartViewToggle.svelte";
   import {
     DEFAULT_CHART_DIMENSIONS,
@@ -17,8 +21,19 @@
     periodLabel = "Selected period",
     comparisonOptions = [],
     onPointClick = null,
+    periodRange = {},
   } = $props();
 
+  let primaryKey = $state('count');
+  let primaryMode = $state('total');
+  let comparisonMode = $state('average');
+  const metricOptions = $derived([{key:'count',label:'Contacts reached'}, ...comparisonOptions]);
+  const monthlyRows = $derived(completeMonthlySeries(data, periodRange));
+  const primaryMetric = $derived(metricOptions.find(option => option.key === primaryKey) || metricOptions[0]);
+  const totalFor = key => monthlyRows.reduce((sum,row) => sum + (Number(row[key]) || 0),0);
+  const averageFor = key => roundedAverage(totalFor(key), monthlyRows.length) ?? 0;
+  const primaryCaption = $derived(`${primaryMetric.label} · ${primaryMode === 'total' ? 'actual monthly count' : 'period average per month'}`);
+  const comparisonCaption = $derived(`${metricOptions.find(option => option.key === comparisonKey)?.label || ''} · ${comparisonMode === 'total' ? 'actual monthly count' : 'period average per month'}`);
   let chartType = $state("bar");
   let comparisonKey = $state("");
   let hoveredIndex = $state(null);
@@ -29,18 +44,19 @@
   const innerHeight = chartBottom - padding.top;
 
   const chartData = $derived(() => {
-    const rawPoints = (data || []).map((item, index) => ({
+    const rawPoints = monthlyRows.map((item, index) => ({
       ...item,
+      raw: item,
       index,
-      count: Number(item.count) || 0,
+      count: primaryMode === "total" ? Number(item[primaryKey]) || 0 : averageFor(primaryKey),
       label: item.label || formatMonthLabel(item.month),
       monthLabel: formatMonthLabel(item.month),
     }));
 
-    const selected = comparisonOptions.find((option) => option.key === comparisonKey);
+    const selected = metricOptions.find((option) => option.key === comparisonKey);
     const maxRawCount = Math.max(...rawPoints.map((item) => item.count), 0);
     const maxComparisonRaw = selected
-      ? Math.max(...rawPoints.map((item) => Number(item[selected.key]) || 0), 0)
+      ? Math.max(...rawPoints.map((item) => comparisonMode === "total" ? Number(item.raw[selected.key]) || 0 : averageFor(selected.key)), 0)
       : 0;
 
     const overallMax = Math.max(maxRawCount, maxComparisonRaw, 1);
@@ -51,7 +67,7 @@
     const points = rawPoints.map((item, i) => {
       const x = getCenterX(i);
       const y = padding.top + innerHeight - (item.count / yScale.max) * innerHeight;
-      const comparisonVal = selected ? Number(item[selected.key]) || 0 : 0;
+      const comparisonVal = selected ? comparisonMode === "total" ? Number(item.raw[selected.key]) || 0 : averageFor(selected.key) : 0;
       const comparisonY = selected
         ? padding.top + innerHeight - (comparisonVal / yScale.max) * innerHeight
         : chartBottom;
@@ -76,67 +92,50 @@
   });
 
   $effect(() => {
-    if (comparisonKey && !comparisonOptions.some((option) => option.key === comparisonKey)) {
+    if (comparisonKey && !metricOptions.some((option) => option.key === comparisonKey)) {
       comparisonKey = "";
     }
   });
 
   const comparisonColor = $derived(() => {
-    return getChartColor(chartData().selected?.color || "warning");
+    return getChartColor("warning");
   });
-  const averageCount = $derived(
-    chartData().points.length
-      ? Math.round(chartData().points.reduce((sum, item) => sum + item.count, 0) / chartData().points.length)
-      : 0,
-  );
-  const averageComparison = $derived(
-    chartData().selected && chartData().points.length
-      ? Math.round(chartData().points.reduce((sum, item) => sum + (Number(item[chartData().selected.key]) || 0), 0) / chartData().points.length)
-      : 0,
-  );
+  const averageCount = $derived(averageFor(primaryKey));
+  const averageComparison = $derived(averageFor(comparisonKey));
 
   function selectPoint(point, event) {
     event?.stopPropagation();
-    onPointClick?.(point);
+    event?.preventDefault();
+    if (onPointClick) onPointClick({...point.raw, label: point.label});
+    else detail = { title: point.label, subtitle: periodLabel, metrics: [{ label: primaryCaption, value: point.count }, ...(chartData().selected ? [{ label: comparisonCaption, value: point.comparison }] : [])] };
   }
 </script>
 
 <section class="card-base fullscreen-chart overflow-visible p-5" aria-labelledby="outreach-trend-title">
-  <header class="mb-4 flex flex-col gap-3 pr-12 sm:flex-row sm:items-start sm:justify-between">
+  <header class="mb-4 flex flex-col gap-3 pr-12">
     <div>
       <h3 id="outreach-trend-title" class="text-base font-semibold text-foreground">{title}</h3>
       <p class="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
       <p class="mt-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{periodLabel}</p>
     </div>
-    <div class="flex flex-wrap items-center justify-end gap-2">
-      <label class="sr-only" for="outreach-comparison">Compare outreach with</label>
-      <div class="flex items-center gap-2 rounded-xl border border-border bg-input px-2.5 py-1.5 shadow-sm">
-        <span class="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Compare with</span>
-        <select
-          id="outreach-comparison"
-          bind:value={comparisonKey}
-          class="min-w-36 rounded-md border border-border bg-card px-2 py-1.5 text-xs font-semibold text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-          aria-label="Compare outreach with"
-        >
-          <option value="">None</option>
-          {#each comparisonOptions as option}
-            <option value={option.key}>{option.label}</option>
-          {/each}
-        </select>
-      </div>
+    <div class="flex flex-wrap items-center justify-start gap-2">
+      <ComparisonControls options={metricOptions} bind:primaryKey bind:comparisonKey bind:primaryMode bind:comparisonMode averageLabel="Average per calendar month" comparisonLabel="Compare outreach with" />
       <ChartViewToggle value={chartType} onChange={(next) => (chartType = next)} label="Outreach chart view" />
     </div>
   </header>
 
+  {#if monthlyRows.length}
+    <p class="mb-3 text-xs text-muted-foreground">Actual count shows each month’s total. Average shows the period total ÷ {monthlyRows.length} calendar month{monthlyRows.length === 1 ? "" : "s"}, including months with no contacts and any partial months in the selected period.</p>
+  {/if}
   {#if chartData().selected}
-    <div class="mb-3 flex items-center justify-center gap-5 text-xs">
+    <div class="mb-3 flex flex-wrap items-center justify-center gap-3 text-xs">
       <div class="flex items-center gap-1.5">
         <span class="h-2.5 w-2.5 rounded-full bg-primary shadow-sm shadow-primary/40"></span>
-        <span class="font-medium text-foreground">Monthly contacts reached</span>
+        <span class="font-medium text-foreground">{primaryCaption}</span>
       </div>
       <div class="flex items-center gap-1.5">
         <span class="h-2.5 w-2.5 rounded-full shadow-sm" style="background-color: {comparisonColor()};"></span>
-        <span class="font-medium text-foreground">{chartData().selected.label}</span>
+        <span class="font-medium text-foreground">{comparisonCaption}</span>
       </div>
     </div>
   {/if}
@@ -190,7 +189,7 @@
         {/each}
 
         <!-- Hover background band -->
-        {#if hoveredIndex !== null}
+        {#if hoveredIndex !== null && chartData().points[hoveredIndex]}
           {@const activePoint = chartData().points[hoveredIndex]}
           <rect
             x={activePoint.x - activePoint.bandWidth * 0.44}
@@ -337,7 +336,7 @@
               fill="transparent"
               tabindex="0"
               role="button"
-              aria-label={`${point.label}: ${point.count} contacts${chartData().selected ? `, ${point.comparison} ${chartData().selected.label.toLowerCase()}` : ""}`}
+              aria-label={`${point.label}: ${point.count} ${primaryCaption}${chartData().selected ? `, ${point.comparison} ${comparisonCaption}` : ""}`}
               onmouseenter={() => (hoveredIndex = index)}
               onmouseleave={() => (hoveredIndex = null)}
               onfocus={() => (hoveredIndex = index)}
@@ -446,7 +445,7 @@
               fill="transparent"
               tabindex="0"
               role="button"
-              aria-label={`${point.label}: ${point.count} contacts${chartData().selected ? `, ${point.comparison} ${chartData().selected.label.toLowerCase()}` : ""}`}
+              aria-label={`${point.label}: ${point.count} ${primaryCaption}${chartData().selected ? `, ${point.comparison} ${comparisonCaption}` : ""}`}
               onmouseenter={() => (hoveredIndex = index)}
               onmouseleave={() => (hoveredIndex = null)}
               onfocus={() => (hoveredIndex = index)}
@@ -493,7 +492,7 @@
       </svg>
 
       <!-- Floating Hover Tooltip -->
-      {#if hoveredIndex !== null}
+      {#if hoveredIndex !== null && chartData().points[hoveredIndex]}
         {@const point = chartData().points[hoveredIndex]}
         {@const percentX = ((point.x / chartWidth) * 100).toFixed(1)}
         <div
@@ -505,7 +504,7 @@
             <div class="flex items-center justify-between gap-3 text-xs">
               <span class="flex items-center gap-1.5 text-muted-foreground">
                 <span class="h-2 w-2 rounded-full bg-primary"></span>
-                Contacts in month:
+                {primaryCaption}:
               </span>
               <span class="font-bold text-foreground">{point.count}</span>
             </div>
@@ -513,15 +512,11 @@
               <div class="flex items-center justify-between gap-3 text-xs">
                 <span class="flex items-center gap-1.5 text-muted-foreground">
                   <span class="h-2 w-2 rounded-full" style="background-color: {comparisonColor()};"></span>
-                  {chartData().selected.label}:
+                  {comparisonCaption}:
                 </span>
                 <span class="font-bold" style="color: {comparisonColor()};">
                   {point.comparison}
-                  {#if point.count > 0}
-                    <span class="text-[10px] font-normal text-muted-foreground">
-                      ({Math.round((point.comparison / point.count) * 100)}%)
-                    </span>
-                  {/if}
+
                 </span>
               </div>
             {/if}
@@ -531,19 +526,19 @@
     </div>
 
     <!-- Stats Footer -->
-    <footer class="mt-4 grid {chartData().selected ? 'grid-cols-4' : 'grid-cols-3'} divide-x divide-border border-t border-border pt-4 text-center">
+    <footer class="mt-4 grid {chartData().selected && comparisonKey !== primaryKey ? 'grid-cols-2 gap-y-4 sm:grid-cols-4' : 'grid-cols-3'} divide-x divide-border border-t border-border pt-4 text-center">
       <div>
         <p class="text-lg font-semibold text-foreground">
-          {chartData().points.reduce((sum, item) => sum + item.count, 0)}
+          {totalFor(primaryKey)}
         </p>
-        <p class="text-[11px] text-muted-foreground">Total contacts in period</p>
+        <p class="text-[11px] text-muted-foreground">Period total {primaryMetric.label.toLowerCase()}</p>
       </div>
       <div>
         <p class="text-lg font-semibold text-primary">{averageCount}</p>
-        <p class="text-[11px] text-muted-foreground">Average monthly contacts</p>
+        <p class="text-[11px] text-muted-foreground">Average monthly {primaryMetric.label.toLowerCase()}</p>
         <p class="text-[10px] text-muted-foreground">{periodLabel}</p>
       </div>
-      {#if chartData().selected}
+      {#if chartData().selected && comparisonKey !== primaryKey}
         <div>
           <p class="text-lg font-semibold" style="color: {comparisonColor()};">{averageComparison}</p>
           <p class="text-[11px] text-muted-foreground">Average monthly {chartData().selected.label.toLowerCase()}</p>
@@ -552,7 +547,7 @@
       {/if}
       <div>
         <p class="text-lg font-semibold text-foreground">{chartData().maxCount}</p>
-        <p class="text-[11px] text-muted-foreground">Highest monthly contacts</p>
+        <p class="text-[11px] text-muted-foreground">Highest shown {primaryMetric.label.toLowerCase()}</p>
       </div>
     </footer>
   {:else}
@@ -561,3 +556,5 @@
     </div>
   {/if}
 </section>
+
+<ChartPointDetails bind:detail />

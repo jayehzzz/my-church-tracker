@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/svelte';
 import ProfileHeader from './ProfileHeader.svelte';
 import ProfileDetails from './ProfileDetails.svelte';
+import ProfileQuickViewCard from './ProfileQuickViewCard.svelte';
 import AttendanceHistory from './AttendanceHistory.svelte';
 import ProfileHistoryTabs from './ProfileHistoryTabs.svelte';
 
@@ -12,7 +13,7 @@ describe('people profile actions', () => {
   it('connects activity and status choices to save handlers', async () => {
     const onUpdateStatus = vi.fn(), onUpdateActivity = vi.fn();
     const { getByLabelText } = render(ProfileHeader, { person, onUpdateStatus, onUpdateActivity });
-    await fireEvent.change(getByLabelText('Member status'), { target: { value: 'guest' } });
+    await fireEvent.change(getByLabelText('Church status'), { target: { value: 'guest' } });
     await fireEvent.change(getByLabelText('Activity status'), { target: { value: 'irregular' } });
     expect(onUpdateStatus).toHaveBeenCalledWith('guest');
     expect(onUpdateActivity).toHaveBeenCalledWith('irregular');
@@ -24,6 +25,28 @@ describe('people profile actions', () => {
     expect(onEdit).toHaveBeenCalledOnce();
     expect(queryByRole('textbox')).toBeNull();
     expect(getAllByText('Not recorded').length).toBeGreaterThan(3);
+  });
+  it('shows outreach, leadership, and Basonta involvement as separate profile concepts', () => {
+    const outreach = {
+      ...person,
+      member_status: 'contact',
+      role: 'bacenta_leader',
+      church_role: 'basonta',
+      basontas: ['media'],
+      first_visit_date: null,
+    };
+    const details = render(ProfileDetails, { person: outreach, currentAge: null, onEdit: vi.fn() });
+    expect(details.getByText('Outreach Contact')).toBeTruthy();
+    expect(details.getByText('Bacenta Leader')).toBeTruthy();
+    expect(details.getByText('Basonta member')).toBeTruthy();
+    expect(details.getByText('Not yet attended')).toBeTruthy();
+    expect(details.getByText(/First Timer is an attendance marker/)).toBeTruthy();
+    details.unmount();
+
+    const quickView = render(ProfileQuickViewCard, { person: outreach });
+    expect(quickView.getByText('Outreach Contact')).toBeTruthy();
+    expect(quickView.getByText('Leadership: Bacenta Leader')).toBeTruthy();
+    expect(quickView.getByText(/Basonta \/ group involvement: media/)).toBeTruthy();
   });
   it('keeps long attendance histories manageable and service details reachable', async () => {
     const onRecordClick = vi.fn();
@@ -39,5 +62,28 @@ describe('people profile actions', () => {
     const { getByText, queryByText } = render(ProfileHistoryTabs, { errors: { attendance: true }, storageKey: null });
     expect(getByText(/This history is unavailable/)).toBeDefined();
     expect(queryByText(/No attendance records found/)).toBeNull();
+  });
+
+  it('opens whole-row details from outreach and pastoral care history tabs', async () => {
+    const onOutreachClick = vi.fn();
+    const onVisitationClick = vi.fn();
+    const outreach = [{ id: 'outreach-1', first_name: 'Sam', last_name: 'Guest', contact_date: '2026-08-20', response: 'responsive' }];
+    const visitations = [{ id: 'visit-1', visit_date: '2026-08-21', interaction_type: 'phone_call', outcome: 'welcomed_encouraged', visited_by_name: 'Leader' }];
+    const view = render(ProfileHistoryTabs, {
+      attendanceHistory: [],
+      outreachContacts: outreach,
+      visitations,
+      onOutreachClick,
+      onVisitationClick,
+      storageKey: null,
+    });
+
+    await fireEvent.click(view.getByRole('button', { name: /Outreach/ }));
+    await fireEvent.click(view.getByText('Sam Guest').closest('tr'));
+    expect(onOutreachClick).toHaveBeenCalledWith(outreach[0]);
+
+    await fireEvent.click(view.getByRole('button', { name: /Pastoral Care/ }));
+    await fireEvent.click(view.getByRole('button', { name: /View pastoral care details/ }));
+    expect(onVisitationClick).toHaveBeenCalledWith(visitations[0]);
   });
 });

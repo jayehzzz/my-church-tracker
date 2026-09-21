@@ -22,10 +22,10 @@ export const people = queryFor("search:people")({
       .slice(0, MAX_RESULTS)
       .map((person) => ({
         id: person._id,
-        type: ["guest", "visitor", "new_believer"].includes(person.member_status) ? "contact" : "person",
+        type: ["contact", "guest", "visitor", "new_believer"].includes(person.member_status) ? "contact" : "person",
         title: [person.preferred_name || person.first_name, person.last_name].filter(Boolean).join(" "),
-        subtitle: person.member_status === "guest" ? "Guest" : person.member_status,
-        icon: ["guest", "visitor", "new_believer"].includes(person.member_status) ? "users" : "user",
+        subtitle: person.member_status === "contact" ? "Outreach Contact" : person.member_status === "guest" ? "Guest" : person.member_status,
+        icon: ["contact", "guest", "visitor", "new_believer"].includes(person.member_status) ? "users" : "user",
         href: `/people/${person._id}`,
       }));
   },

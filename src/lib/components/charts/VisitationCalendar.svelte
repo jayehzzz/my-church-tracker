@@ -8,6 +8,11 @@
 -->
 
 <script>
+    import MetricComparison from './MetricComparison.svelte';
+    import { todayDate } from '$lib/utils/reportingMetrics.js';
+    import { reportingDays } from '$lib/utils/comparisonMetrics.js';
+    import Modal from "$lib/components/ui/Modal.svelte";
+    let dayOpen = $state(false);
     import {
         formatInteraction,
         formatOutcome as formatCareOutcome,
@@ -17,6 +22,7 @@
     /** @type {{ visit_date: string, person_visited_name: string, outcome: string }[]} */
     let {
         data = [],
+        periodRange = {},
         title = "Visitation Calendar",
         onVisitSelect = () => {},
     } = $props();
@@ -115,6 +121,19 @@
         };
     });
 
+    const comparisonMetrics = $derived.by(() => {
+        const prefix = `${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}`;
+        const last = new Date(currentDate.getFullYear(),currentDate.getMonth()+1,0).getDate();
+        const startDate = [prefix+'-01',periodRange.startDate].filter(Boolean).sort().at(-1);
+        const endDate = [prefix+'-'+last,periodRange.endDate,todayDate()].filter(Boolean).sort()[0];
+        const denominator = reportingDays({startDate,endDate});
+        const visits = data.filter(row=>row.visit_date>=startDate&&row.visit_date<=endDate);
+        return [
+            {key:'interactions',label:'Care interactions',total:visits.length},
+            {key:'followUp',label:'Interactions requiring follow-up',total:visits.filter(row=>row.follow_up_required).length},
+        ].map(metric=>({...metric,denominator,averageLabel:'Average per elapsed calendar day'}));
+    });
+
     const selectedVisits = $derived(
         selectedDate ? data.filter((visit) => visit.visit_date === selectedDate) : [],
     );
@@ -135,10 +154,10 @@
     }
 </script>
 
-<div class="card-base p-4">
-    <div class="flex items-center justify-between mb-4">
+<div class="card-base p-5">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4 pr-12">
         <h3
-            class="text-sm font-medium text-muted-foreground flex items-center gap-2"
+            class="text-base font-semibold text-foreground flex items-center gap-2"
         >
             <svg
                 class="w-4 h-4"
@@ -226,7 +245,7 @@
                         {selectedDate === dateStr ? 'ring-2 ring-primary border-primary bg-primary/10' : ''}"
                     aria-label={dayLabel(dateStr, visits)}
                     aria-pressed={selectedDate === dateStr}
-                    onclick={() => (selectedDate = dateStr)}
+                    onclick={() => { selectedDate = dateStr; dayOpen = true; }}
                 >
                     <div class="text-xs font-medium text-foreground mb-1">
                         {day}
@@ -257,15 +276,10 @@
         {/each}
     </div>
 
+    <Modal bind:isOpen={dayOpen} title={selectedDate ? fullDate(selectedDate) : "Care activity"} size="2xl">
     {#if selectedDate}
         <section class="mt-4 rounded-xl border border-border bg-background/70 p-3 sm:p-4" aria-live="polite" aria-label={`Care on ${fullDate(selectedDate)}`}>
-            <div class="flex items-center justify-between gap-3">
-                <div>
-                    <h4 class="text-sm font-semibold text-foreground">{fullDate(selectedDate)}</h4>
-                    <p class="mt-0.5 text-xs text-muted-foreground">{selectedVisits.length} care interaction{selectedVisits.length === 1 ? "" : "s"}</p>
-                </div>
-                <button type="button" class="rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground" onclick={() => (selectedDate = null)}>Close</button>
-            </div>
+            <p class="text-xs text-muted-foreground">{selectedVisits.length} care interaction{selectedVisits.length === 1 ? "" : "s"}</p>
 
             {#if selectedVisits.length === 0}
                 <p class="mt-3 rounded-lg border border-dashed border-border px-4 py-5 text-center text-xs text-muted-foreground">No pastoral care was recorded on this day.</p>
@@ -288,6 +302,12 @@
         </section>
     {/if}
 
+    </Modal>
+
+    <div class="mt-4 border-t border-border pt-4">
+        <MetricComparison metrics={comparisonMetrics} periodLabel={`${monthLabel()} · selected reporting dates`} />
+        <p class="mt-2 text-xs text-muted-foreground">Daily averages include days without care interactions, up to today, within the selected period and displayed month.</p>
+    </div>
     <!-- Month stats -->
     <div
         class="flex items-center justify-center gap-6 mt-4 pt-4 border-t border-border"

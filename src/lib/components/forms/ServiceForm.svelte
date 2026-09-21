@@ -2,6 +2,8 @@
   import { Modal, Button, Input, Select } from "$lib/components/ui";
   import {
     buildAttendanceData,
+    isGuest,
+    isOutreachContact,
     resolveServiceCounts,
     summarizeNamedAttendance,
     validateServiceCounts,
@@ -61,7 +63,9 @@
     if (attendeeFilter === "members") {
       result = result.filter((person) => ["member", "leader"].includes(person.member_status));
     } else if (attendeeFilter === "guests") {
-      result = result.filter((person) => ["guest", "visitor"].includes(person.member_status) || (!person.member_status && person.contact_date));
+      result = result.filter(isGuest);
+    } else if (attendeeFilter === "contacts") {
+      result = result.filter(isOutreachContact);
     }
     if (searchQuery.trim()) {
       const query = searchQuery.trim().toLowerCase();
@@ -72,16 +76,7 @@
 
   $effect(() => {
     if (!isOpen) return;
-    requestId = crypto.randomUUID();
-    activeStep = 1;
-    errors = {};
-    attendeeFilter = "members";
-    searchQuery = "";
-    showQuickAdd = false;
-    quickAddData = { first_name: "", last_name: "", phone: "" };
-    quickAddError = null;
-    uploadError = null;
-    formData = service ? {
+    const nextFormData = service ? {
       ...emptyForm(),
       service_date: service.service_date || "",
       service_type: service.service_type || "sunday_service",
@@ -95,12 +90,23 @@
       tithers_count: valueString(service.tithers_count),
       notes: service.notes || "",
     } : emptyForm();
+
+    requestId = crypto.randomUUID();
+    activeStep = 1;
+    errors = {};
+    attendeeFilter = "members";
+    searchQuery = "";
+    showQuickAdd = false;
+    quickAddData = { first_name: "", last_name: "", phone: "" };
+    quickAddError = null;
+    uploadError = null;
+    formData = nextFormData;
     photos = (service?.photos || []).map((url, index) => ({
       id: service?.photo_ids?.[index] || null,
       url,
       isNew: false,
     }));
-    initialFormSnapshot = JSON.stringify(formData);
+    initialFormSnapshot = JSON.stringify(nextFormData);
     attendanceDataLoaded = false;
   });
 
@@ -132,9 +138,11 @@
     return [person?.first_name, person?.last_name].filter(Boolean).join(" ") || "Unknown person";
   }
 
-  function readable(value) {
-    if (!value) return "Guest";
-    return String(value).replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  function journeyLabel(person) {
+    if (isOutreachContact(person)) return "Outreach Contact";
+    if (isGuest(person)) return "Guest";
+    if (!person?.member_status) return "Unknown status";
+    return String(person.member_status).replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
   }
 
   async function loadData() {
@@ -183,6 +191,15 @@
       next.delete(id);
     } else {
       next.add(id);
+      const person = people.find((candidate) => personId(candidate) === id);
+      const isFirstGuestVisit = !priorAttendance[id] && (isGuest(person) || isOutreachContact(person));
+      attendanceMetadata = {
+        ...attendanceMetadata,
+        [id]: {
+          ...(attendanceMetadata[id] || {}),
+          first_timer: isFirstGuestVisit,
+        },
+      };
     }
     selectedPersonIds = next;
   }
@@ -398,15 +415,15 @@
           <div><h3 id="service-attendance-title" class="text-base font-semibold text-foreground">Record named attendance</h3><p class="mt-1 text-sm text-muted-foreground">Check in the people you know. The final headcount can include unnamed attendees.</p></div>
           <div class="flex gap-4 rounded-lg bg-secondary/25 px-4 py-2 text-center">
             <div><p class="text-lg font-semibold text-foreground">{namedSummary.named}</p><p class="text-[11px] text-muted-foreground">Checked in</p></div>
-            <div><p class="text-lg font-semibold text-info">{namedSummary.guests}</p><p class="text-[11px] text-muted-foreground">Guests</p></div>
+            <div><p class="text-lg font-semibold text-info">{namedSummary.returningGuests}</p><p class="text-[11px] text-muted-foreground">Returning guests</p></div>
             <div><p class="text-lg font-semibold text-success">{namedSummary.firstTimers}</p><p class="text-[11px] text-muted-foreground">First timers</p></div>
           </div>
         </div>
 
         {#if errors.attendance}<div class="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">{errors.attendance}</div>{/if}
 
-        <div class="grid grid-cols-3 gap-1 rounded-lg bg-secondary/30 p-1" aria-label="Attendance directory filters">
-          {#each [["members", "Members"], ["guests", "Guests & contacts"], ["all", "Everyone"]] as option}
+        <div class="grid grid-cols-2 gap-1 rounded-lg bg-secondary/30 p-1 sm:grid-cols-4" aria-label="Attendance directory filters">
+          {#each [["members", "Members"], ["guests", "Guests"], ["contacts", "Outreach contacts"], ["all", "Everyone"]] as option}
             <button type="button" class="rounded-md px-3 py-2 text-xs font-medium transition-colors {attendeeFilter === option[0] ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}" onclick={() => attendeeFilter = option[0]}>{option[1]}</button>
           {/each}
         </div>
@@ -441,13 +458,13 @@
                 <article class="rounded-lg border p-2 transition-colors {selectedPersonIds.has(id) ? 'border-primary/30 bg-primary/5' : 'border-transparent hover:bg-secondary/25'}">
                   <button type="button" class="flex w-full items-center gap-3 rounded-md p-1 text-left" onclick={() => togglePerson(id)} aria-pressed={selectedPersonIds.has(id)}>
                     <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded border {selectedPersonIds.has(id) ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/60'}">{#if selectedPersonIds.has(id)}<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>{/if}</span>
-                    <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-foreground">{personName(person)}</span><span class="block truncate text-xs text-muted-foreground">{readable(person.member_status)}{#if person.contact_date} · Outreach contact{/if}</span></span>
+                    <span class="min-w-0 flex-1"><span class="block truncate text-sm font-medium text-foreground">{personName(person)}</span><span class="block truncate text-xs text-muted-foreground">{journeyLabel(person)}</span></span>
                   </button>
                   {#if selectedPersonIds.has(id)}
                     <div class="mt-2 flex flex-wrap gap-1.5 border-t border-border/60 pl-9 pt-2" aria-label={`Attendance outcomes for ${personName(person)}`}>
                       <button type="button" class="rounded-full border px-2.5 py-1 text-[11px] font-medium {attendanceMetadata[id]?.gave_tithe ? 'border-success/40 bg-success/10 text-success' : 'border-border text-muted-foreground hover:text-foreground'}" aria-pressed={Boolean(attendanceMetadata[id]?.gave_tithe)} onclick={() => toggleMetadata(id, "gave_tithe")}>Tither</button>
                       <button type="button" class="rounded-full border px-2.5 py-1 text-[11px] font-medium {attendanceMetadata[id]?.made_salvation_decision ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border text-muted-foreground hover:text-foreground'}" aria-pressed={Boolean(attendanceMetadata[id]?.made_salvation_decision)} onclick={() => toggleMetadata(id, "made_salvation_decision")}>Salvation decision</button>
-                      {#if !priorAttendance[id]}<button type="button" class="rounded-full border px-2.5 py-1 text-[11px] font-medium {attendanceMetadata[id]?.first_timer ? 'border-info/40 bg-info/10 text-info' : 'border-border text-muted-foreground hover:text-foreground'}" aria-pressed={Boolean(attendanceMetadata[id]?.first_timer)} onclick={() => toggleMetadata(id, "first_timer")}>First timer</button>{/if}
+                      {#if attendanceMetadata[id]?.first_timer}<span class="rounded-full border border-success/40 bg-success/10 px-2.5 py-1 text-[11px] font-medium text-success">First-timer visit</span>{/if}
                     </div>
                   {/if}
                 </article>
@@ -468,18 +485,19 @@
         </div>
 
         <div class="rounded-xl border border-border bg-card p-4">
-          <div class="mb-4"><h4 class="text-sm font-semibold text-foreground">Service totals</h4><p class="mt-1 text-xs text-muted-foreground">Blank fields use the named records as their starting value.</p></div>
+          <div class="mb-4"><h4 class="text-sm font-semibold text-foreground">Service totals</h4><p class="mt-1 text-xs text-muted-foreground">Blank fields use the named records as their starting value. The saved non-member total includes both returning guests and first timers; the dashboard separates them so they are not shown twice.</p></div>
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Input label="Total Attendance" type="number" min="0" bind:value={formData.total_attendance} error={errors.total_attendance} placeholder={String(namedSummary.named)} disabled={saving} />
-            <Input label="Guest Headcount" type="number" min="0" bind:value={formData.guests_count} error={errors.guests_count} placeholder={String(namedSummary.guests)} disabled={saving} />
-            <Input label="Salvation Decisions" type="number" min="0" bind:value={formData.salvation_decisions} error={errors.salvation_decisions} placeholder={String(namedSummary.salvationDecisions)} disabled={saving} />
-            <Input label="Tithers" type="number" min="0" bind:value={formData.tithers_count} error={errors.tithers_count} placeholder={String(namedSummary.tithers)} disabled={saving} />
+            <Input label="Total Attendance" type="number" min="0" step="1" bind:value={formData.total_attendance} error={errors.total_attendance} placeholder={String(namedSummary.named)} disabled={saving} />
+            <Input label="Total non-member attendance" type="number" min="0" step="1" bind:value={formData.guests_count} error={errors.guests_count} placeholder={String(namedSummary.guests)} disabled={saving} />
+            <Input label="Salvation Decisions" type="number" min="0" step="1" bind:value={formData.salvation_decisions} error={errors.salvation_decisions} placeholder={String(namedSummary.salvationDecisions)} disabled={saving} />
+            <Input label="Tithers" type="number" min="0" step="1" bind:value={formData.tithers_count} error={errors.tithers_count} placeholder={String(namedSummary.tithers)} disabled={saving} />
           </div>
-          <div class="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-secondary/25 p-3 text-center sm:grid-cols-4">
+          <div class="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-secondary/25 p-3 text-center sm:grid-cols-5">
             <div><p class="text-lg font-semibold text-foreground">{namedSummary.named}</p><p class="text-[11px] text-muted-foreground">Named</p></div>
             <div><p class="text-lg font-semibold text-foreground">{unlistedAttendance}</p><p class="text-[11px] text-muted-foreground">Unlisted</p></div>
-            <div><p class="text-lg font-semibold text-info">{resolvedCounts.guests_count}</p><p class="text-[11px] text-muted-foreground">Guests</p></div>
+            <div><p class="text-lg font-semibold text-info">{namedSummary.returningGuests}</p><p class="text-[11px] text-muted-foreground">Named returning guests</p></div>
             <div><p class="text-lg font-semibold text-success">{namedSummary.firstTimers}</p><p class="text-[11px] text-muted-foreground">Named first timers</p></div>
+            <div><p class="text-lg font-semibold text-foreground">{resolvedCounts.guests_count}</p><p class="text-[11px] text-muted-foreground">All non-members</p></div>
           </div>
         </div>
 

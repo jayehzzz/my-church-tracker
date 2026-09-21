@@ -1,7 +1,8 @@
 import { queryFor, mutationFor, authenticatedUser, isAdmin } from "./lib/security";
 
 import { v } from "convex/values";
-import { normalizeEmail, validatePersonInput } from "./peopleValidation";
+import { canonicalContactCategory, normalizeEmail, validatePersonInput } from "./peopleValidation";
+import { canDiscoverOutreach, cancelPendingOutreach } from "./lib/contactPolicy";
 
 /**
  * REFACTORED: Now queries the Unified `people` table for guests/contacts.
@@ -9,7 +10,7 @@ import { normalizeEmail, validatePersonInput } from "./peopleValidation";
  */
 
 // Helper to map Person -> EvangelismContact format
-const mapToContact = (person: any, inviter: any = null) => {
+const mapToContact = (person: any, primaryInviter: any = null, collectors: any[] = []) => {
     // Compute freshness based on contact_date
     const now = new Date();
     const contactDate = person.contact_date ? new Date(person.contact_date) : new Date(person.created_at);
@@ -21,18 +22,46 @@ const mapToContact = (person: any, inviter: any = null) => {
     else if (daysSinceContact <= 28) freshness = "two_plus_weeks";
     else freshness = "month_plus";
 
+    const outreachSalvationDecision = person.outreach_salvation_decision ?? person.salvation_decision;
+    const legacyOnlySalvation = person.outreach_salvation_decision === undefined && person.salvation_decision !== undefined;
+    const outreachSalvationDate = person.outreach_salvation_date
+        ?? (outreachSalvationDecision ? person.contact_date : undefined);
+    const outreachSalvationSource = person.outreach_salvation_source
+        ?? (outreachSalvationDecision
+            ? (legacyOnlySalvation ? "legacy_salvation_decision" : "evangelism_outreach")
+            : undefined);
+    const response = canonicalContactCategory(person.contact_category);
+
     return {
         ...person,
         id: person._id, // Ensure ID is accessible as 'id' if needed
 
         // Mapped fields
-        response: person.contact_category,
+        response,
         status: person.member_status,
         converted: ["member", "leader"].includes(person.member_status),
+        outreach_salvation_decision: outreachSalvationDecision,
+        outreach_salvation_date: outreachSalvationDate,
+        outreach_salvation_source: outreachSalvationSource,
+        // Deprecated compatibility alias. This represents outreach salvation,
+        // never a decision made at a service or meeting.
+        salvation_decision: outreachSalvationDecision,
 
-        // Inviter info
-        invited_by_name: inviter ? `${inviter.first_name || ''} ${inviter.last_name || ''}`.trim() : null,
-        contacted_by_person: inviter,
+        // A contact can have shared outreach/invitation credit. Keep the
+        // legacy primary inviter for compatibility while exposing every
+        // credited person to the frontend and analytics.
+        primary_inviter_name: primaryInviter ? `${primaryInviter.first_name || ''} ${primaryInviter.last_name || ''}`.trim() : null,
+        collector_ids: collectors.map((collector) => collector._id),
+        collector_names: collectors.map((collector) => `${collector.first_name || ''} ${collector.last_name || ''}`.trim()).filter(Boolean),
+        inviter_ids: [...new Set([
+            ...(primaryInviter ? [String(primaryInviter._id)] : []),
+            ...collectors.map((collector) => String(collector._id)),
+        ])],
+        invited_by_name: [...new Set([
+            ...(primaryInviter ? [`${primaryInviter.first_name || ''} ${primaryInviter.last_name || ''}`.trim()] : []),
+            ...collectors.map((collector) => `${collector.first_name || ''} ${collector.last_name || ''}`.trim()),
+        ].filter(Boolean))].join(', ') || null,
+        contacted_by_person: primaryInviter,
 
         // Pipeline tracking fields
         freshness,
@@ -49,6 +78,30 @@ const mapToContact = (person: any, inviter: any = null) => {
     };
 };
 
+async function enrichContact(ctx: any, person: any) {
+    const primaryInviter = person.invited_by_id ? await ctx.db.get(person.invited_by_id) : null;
+    const creditRows = await ctx.db.query("contact_collectors")
+        .withIndex("by_person", (q: any) => q.eq("person_id", person._id)).collect();
+    const collectors = (await Promise.all(creditRows.map((row: any) => ctx.db.get(row.collector_id)))).filter(Boolean);
+    return mapToContact(person, primaryInviter, collectors);
+}
+
+async function syncCollectorCredits(ctx: any, personId: any, collectorIds: any[]) {
+    const ids = [...new Set(collectorIds.map(String))];
+    if (ids.length !== collectorIds.length) throw new Error("Choose each credited person once");
+    if (ids.includes(String(personId))) throw new Error("A contact cannot credit themselves");
+    for (const collectorId of collectorIds) if (!await ctx.db.get(collectorId)) throw new Error("Credited person not found");
+    const existing = await ctx.db.query("contact_collectors")
+        .withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect();
+    const wanted = new Set(ids);
+    for (const row of existing) if (!wanted.has(String(row.collector_id))) await ctx.db.delete(row._id);
+    for (const collectorId of collectorIds) {
+        if (!existing.some((row: any) => row.collector_id === collectorId)) {
+            await ctx.db.insert("contact_collectors", { person_id: personId, collector_id: collectorId, created_at: new Date().toISOString() });
+        }
+    }
+}
+
 
 export const getAll = queryFor("evangelism:getAll")({
     args: {},
@@ -56,15 +109,7 @@ export const getAll = queryFor("evangelism:getAll")({
         const people = await ctx.db.query("people").collect();
         const contacts = people.filter((person) => person.contact_date || person.entry_point === "evangelism");
 
-        const results = await Promise.all(
-            contacts.map(async (contact) => {
-                let inviter = null;
-                if (contact.invited_by_id) {
-                    inviter = await ctx.db.get(contact.invited_by_id);
-                }
-                return mapToContact(contact, inviter);
-            })
-        );
+        const results = await Promise.all(contacts.map((contact) => enrichContact(ctx, contact)));
 
         return results.sort(
             (a, b) => {
@@ -82,11 +127,7 @@ export const getById = queryFor("evangelism:getById")({
         const contact = await ctx.db.get(args.id);
         if (!contact) return null;
 
-        let inviter = null;
-        if (contact.invited_by_id) {
-            inviter = await ctx.db.get(contact.invited_by_id);
-        }
-        return mapToContact(contact, inviter);
+        return enrichContact(ctx, contact);
     },
 });
 
@@ -98,9 +139,10 @@ export const create = mutationFor("evangelism:create")({
         phone: v.optional(v.string()),
         address: v.optional(v.string()),
         contact_date: v.string(),
-        response: v.string(), // Maps to contact_category
+        response: v.optional(v.string()), // Maps to contact_category; new contacts need no assessment
         invited_by_id: v.optional(v.id("people")),
         collected_by_id: v.optional(v.id("people")),
+        collector_ids: v.optional(v.array(v.id("people"))),
         assigned_leader_id: v.optional(v.id("people")),
         comments: v.optional(v.array(v.string())),
 
@@ -109,27 +151,38 @@ export const create = mutationFor("evangelism:create")({
         follow_up_date: v.optional(v.string()),
         attended_church: v.optional(v.boolean()),
         first_visit_date: v.optional(v.string()),
+        outreach_salvation_decision: v.optional(v.boolean()),
+        outreach_salvation_date: v.optional(v.string()),
+        outreach_salvation_source: v.optional(v.string()),
         salvation_decision: v.optional(v.boolean()),
         converted: v.optional(v.boolean()),
         conversion_date: v.optional(v.string()),
         notes: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
+        if (args.collector_ids !== undefined && !isAdmin(authenticatedUser(ctx))) throw new Error("Shared outreach credit requires an admin");
+        const contactCategory = canonicalContactCategory(args.response) ?? "not_assessed";
+        const outreachSalvationDecision = args.outreach_salvation_decision ?? args.salvation_decision;
+        const outreachSalvationDate = outreachSalvationDecision
+            ? (args.outreach_salvation_date ?? args.contact_date)
+            : undefined;
         validatePersonInput({
             first_name: args.first_name,
             ...(args.last_name ? { last_name: args.last_name } : {}),
             ...(args.email ? { email: args.email } : {}),
             contact_date: args.contact_date,
-            contact_category: args.response,
+            contact_category: contactCategory,
             ...(args.contact_method ? { contact_method: args.contact_method } : {}),
             ...(args.first_visit_date ? { first_visit_date: args.first_visit_date } : {}),
-            ...(args.conversion_date ? { membership_date: args.conversion_date } : {}),
+            ...(outreachSalvationDate ? { outreach_salvation_date: outreachSalvationDate } : {}),
         });
-        if (args.collected_by_id && !await ctx.db.get(args.collected_by_id)) throw new Error("Collector not found or unavailable");
+        const primaryCollectorId = args.collector_ids?.[0] ?? args.collected_by_id;
+        if (primaryCollectorId && !await ctx.db.get(primaryCollectorId)) throw new Error("Collector not found or unavailable");
         const now = new Date().toISOString();
 
-        // If 'converted' is true, set status to member
-        const status = args.converted ? "member" : "guest";
+        // Outreach-only people are contacts until a recorded church attendance
+        // promotes them to guest. Membership remains an explicit later step.
+        const status = args.attended_church || args.first_visit_date ? "guest" : "contact";
 
         const id = await ctx.db.insert("people", {
             first_name: args.first_name.trim(),
@@ -140,17 +193,22 @@ export const create = mutationFor("evangelism:create")({
             address: args.address?.trim() || undefined,
 
             member_status: status,
-            contact_category: args.response,
+            contact_category: contactCategory,
             contact_date: args.contact_date,
             contact_method: args.contact_method,
             invited_by_id: args.invited_by_id,
-            collected_by_id: args.collected_by_id,
-            salvation_decision: args.salvation_decision,
+            collected_by_id: primaryCollectorId,
+            outreach_salvation_decision: outreachSalvationDecision,
+            outreach_salvation_date: outreachSalvationDate,
+            outreach_salvation_source: outreachSalvationDecision
+                ? (args.outreach_salvation_source ?? "evangelism_outreach")
+                : undefined,
+            // Keep the legacy field as a write-through compatibility mirror.
+            salvation_decision: outreachSalvationDecision,
             first_visit_date: args.first_visit_date || (args.attended_church ? args.contact_date : undefined),
             notes: args.notes,
 
             // New unified fields for attendance/spiritual tracking
-            membership_date: args.conversion_date,
             entry_point: "evangelism",
 
             // Pipeline tracking — new contacts start as "new" and "hot"
@@ -164,10 +222,12 @@ export const create = mutationFor("evangelism:create")({
             updated_at: now,
         });
 
+        if (args.collector_ids !== undefined) await syncCollectorCredits(ctx, id, args.collector_ids);
+
         // A new evangelism contact can enter the CRM immediately. Ownership is
         // separate from invited_by_id because the inviter is not always the
         // leader responsible for follow-up.
-        if (args.assigned_leader_id && status === "guest") {
+        if (args.assigned_leader_id && ["contact", "guest"].includes(status)) {
             const leader = await ctx.db.get(args.assigned_leader_id);
             if (!leader || (isAdmin(authenticatedUser(ctx)) && leader.member_status !== "leader")) {
                 throw new Error("The follow-up owner must be a leader");
@@ -180,7 +240,7 @@ export const create = mutationFor("evangelism:create")({
                 created_at: now,
                 updated_at: now,
             });
-            if (!["do_not_contact", "has_church"].includes(args.response)) await ctx.db.insert("follow_up_tasks", {
+            if (canDiscoverOutreach({ contact_category: contactCategory, member_status: status })) await ctx.db.insert("follow_up_tasks", {
                 person_id: id,
                 assigned_leader_id: args.assigned_leader_id,
                 due_date: args.follow_up_date || args.contact_date,
@@ -193,7 +253,7 @@ export const create = mutationFor("evangelism:create")({
             });
         }
 
-        return await ctx.db.get(id);
+        return enrichContact(ctx, await ctx.db.get(id));
     },
 });
 
@@ -209,33 +269,55 @@ export const update = mutationFor("evangelism:update")({
         response: v.optional(v.string()),
         invited_by_id: v.optional(v.id("people")),
         collected_by_id: v.optional(v.union(v.id("people"), v.null())),
+        collector_ids: v.optional(v.array(v.id("people"))),
         contact_date: v.optional(v.string()),
 
         contact_method: v.optional(v.string()),
         follow_up_date: v.optional(v.string()),
         attended_church: v.optional(v.boolean()),
         first_visit_date: v.optional(v.string()),
+        outreach_salvation_decision: v.optional(v.boolean()),
+        outreach_salvation_date: v.optional(v.string()),
+        outreach_salvation_source: v.optional(v.string()),
         salvation_decision: v.optional(v.boolean()),
         converted: v.optional(v.boolean()),
         conversion_date: v.optional(v.string()),
         notes: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
-        const { id, response, converted, conversion_date, attended_church, ...rest } = args;
+        const {
+            id, response, converted, conversion_date, attended_church, collector_ids,
+            outreach_salvation_decision, outreach_salvation_date, outreach_salvation_source,
+            salvation_decision, ...rest
+        } = args;
+        if (collector_ids !== undefined && !isAdmin(authenticatedUser(ctx))) throw new Error("Shared outreach credit requires an admin");
         if (args.collected_by_id && !await ctx.db.get(args.collected_by_id)) throw new Error("Collector not found or unavailable");
-        validatePersonInput({
-            ...rest,
-            ...(response ? { contact_category: response } : {}),
-            ...(conversion_date ? { membership_date: conversion_date } : {}),
-        });
         const existingPerson = await ctx.db.get(id);
         if (!existingPerson) throw new Error("Contact not found");
-        const nextCategory = response ?? existingPerson.contact_category;
+        const contactCategory = response !== undefined ? canonicalContactCategory(response) : undefined;
+        const outreachFieldsTouched = outreach_salvation_decision !== undefined
+            || salvation_decision !== undefined
+            || outreach_salvation_date !== undefined
+            || outreach_salvation_source !== undefined;
+        const currentOutreachDecision = existingPerson.outreach_salvation_decision ?? existingPerson.salvation_decision;
+        const nextOutreachDecision = outreach_salvation_decision ?? salvation_decision ?? currentOutreachDecision;
+        const nextOutreachDate = nextOutreachDecision
+            ? (outreach_salvation_date
+                ?? existingPerson.outreach_salvation_date
+                ?? existingPerson.contact_date
+                ?? rest.contact_date)
+            : undefined;
+        validatePersonInput({
+            ...rest,
+            ...(contactCategory !== undefined ? { contact_category: contactCategory } : {}),
+            ...(nextOutreachDate ? { outreach_salvation_date: nextOutreachDate } : {}),
+        });
+        const nextCategory = contactCategory ?? canonicalContactCategory(existingPerson.contact_category);
         const reintroduced = Boolean(
             rest.contact_date
             && existingPerson.contact_date
             && rest.contact_date > existingPerson.contact_date
-            && existingPerson.member_status === "guest"
+            && ["contact", "guest"].includes(existingPerson.member_status)
             && !["do_not_contact", "has_church", "wrong_number"].includes(nextCategory ?? ""),
         );
 
@@ -244,6 +326,8 @@ export const update = mutationFor("evangelism:update")({
             updated_at: new Date().toISOString(),
         };
 
+        if (collector_ids !== undefined) updates.collected_by_id = collector_ids[0] ?? undefined;
+
         if (updates.collected_by_id === null) updates.collected_by_id = undefined;
         if (updates.first_name !== undefined) updates.first_name = updates.first_name.trim();
         if (updates.last_name !== undefined) updates.last_name = updates.last_name.trim();
@@ -251,13 +335,21 @@ export const update = mutationFor("evangelism:update")({
         if (updates.phone !== undefined) updates.phone = updates.phone.trim() || undefined;
         if (updates.address !== undefined) updates.address = updates.address.trim() || undefined;
 
-        if (response) updates.contact_category = response;
-        if (converted !== undefined) {
-            updates.member_status = converted ? "member" : "guest";
+        if (contactCategory !== undefined) updates.contact_category = contactCategory;
+        if (outreachFieldsTouched) {
+            updates.outreach_salvation_decision = nextOutreachDecision;
+            updates.salvation_decision = nextOutreachDecision;
+            updates.outreach_salvation_date = nextOutreachDate;
+            updates.outreach_salvation_source = nextOutreachDecision
+                ? (outreach_salvation_source
+                    ?? existingPerson.outreach_salvation_source
+                    ?? (existingPerson.outreach_salvation_decision === undefined && existingPerson.salvation_decision
+                        ? "legacy_salvation_decision"
+                        : "evangelism_outreach"))
+                : undefined;
         }
-        if (conversion_date) {
-            updates.membership_date = conversion_date;
-        }
+        // Legacy conversion fields remain accepted, but routine outreach edits
+        // never change membership. People owns that explicit decision.
         if (reintroduced) {
             updates.pipeline_stage = "new";
             updates.is_paused = false;
@@ -278,6 +370,8 @@ export const update = mutationFor("evangelism:update")({
         delete updates.follow_up_date;
 
         await ctx.db.patch(id, updates);
+        if (nextCategory === "do_not_contact") await cancelPendingOutreach(ctx, id);
+        if (collector_ids !== undefined) await syncCollectorCredits(ctx, id, collector_ids);
         if (reintroduced) {
             const [assignments, openTasks] = await Promise.all([
                 ctx.db
@@ -305,7 +399,7 @@ export const update = mutationFor("evangelism:update")({
                 });
             }
         }
-        return await ctx.db.get(id);
+        return enrichContact(ctx, await ctx.db.get(id));
     },
 });
 
@@ -317,23 +411,34 @@ export const remove = mutationFor("evangelism:remove")({
     },
 });
 
+async function markAsJoinedChurchHandler(ctx: any, id: any) {
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+
+    await ctx.db.patch(id, {
+        member_status: "member",
+        membership_date: today,
+        updated_at: now,
+    });
+
+    return await ctx.db.get(id);
+}
+
+export const markAsJoinedChurch = mutationFor("evangelism:markAsJoinedChurch")({
+    args: {
+        id: v.id("people"),
+    },
+    handler: async (ctx, args) => markAsJoinedChurchHandler(ctx, args.id),
+});
+
+// Deprecated compatibility mutation. "Converted" historically meant that an
+// evangelism contact joined the church; it does not represent salvation.
 export const markAsConverted = mutationFor("evangelism:markAsConverted")({
     args: {
         id: v.id("people"),
         addToPeople: v.optional(v.boolean()), // Legacy, ignored
     },
-    handler: async (ctx, args) => {
-        const now = new Date().toISOString();
-        const today = now.split('T')[0];
-
-        await ctx.db.patch(args.id, {
-            member_status: "member",
-            membership_date: today,
-            updated_at: now,
-        });
-
-        return await ctx.db.get(args.id);
-    },
+    handler: async (ctx, args) => markAsJoinedChurchHandler(ctx, args.id),
 });
 
 export const getByResponse = queryFor("evangelism:getByResponse")({
@@ -342,34 +447,30 @@ export const getByResponse = queryFor("evangelism:getByResponse")({
         const people = await ctx.db.query("people").collect();
         const contacts = people.filter((person) => person.contact_date || person.entry_point === "evangelism");
 
-        const filtered = contacts.filter(c => c.contact_category === args.response);
+        const requested = canonicalContactCategory(args.response);
+        const filtered = contacts.filter(c => canonicalContactCategory(c.contact_category) === requested);
 
-        return await Promise.all(filtered.map(async (c) => {
-            let inviter = null;
-            if (c.invited_by_id) inviter = await ctx.db.get(c.invited_by_id);
-            return mapToContact(c, inviter);
-        }));
+        return await Promise.all(filtered.map((c) => enrichContact(ctx, c)));
     },
 });
 
 export const getRequiringFollowUp = queryFor("evangelism:getRequiringFollowUp")({
     args: {},
     handler: async (ctx) => {
-        // Get all guests with responsive status who need follow-up:
-        // 1. Responsive contacts who haven't visited yet
-        // 2. Responsive contacts whose last visit was 30+ days ago
-        const guests = await ctx.db
-            .query("people")
-            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
-            .collect();
+        // Include unassessed prospects as well as known responses, while keeping
+        // contact restrictions and paused/closed work out of discovery.
+        const [contacts, guests] = await Promise.all([
+            ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", "contact")).collect(),
+            ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", "guest")).collect(),
+        ]);
+        const prospects = [...contacts, ...guests];
 
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
 
-        const needsFollowUp = guests.filter(g => {
-            // Only consider responsive contacts
-            if (g.contact_category !== "responsive") return false;
+        const needsFollowUp = prospects.filter(g => {
+            if (!canDiscoverOutreach(g)) return false;
 
             // If they've never visited, they need follow-up
             if (!g.first_visit_date) return true;
@@ -381,11 +482,7 @@ export const getRequiringFollowUp = queryFor("evangelism:getRequiringFollowUp")(
             return false;
         });
 
-        return await Promise.all(needsFollowUp.map(async (c) => {
-            let inviter = null;
-            if (c.invited_by_id) inviter = await ctx.db.get(c.invited_by_id);
-            return mapToContact(c, inviter);
-        }));
+        return await Promise.all(needsFollowUp.map((c) => enrichContact(ctx, c)));
     },
 });
 
@@ -399,11 +496,7 @@ export const getConverted = queryFor("evangelism:getConverted")({
         // Filter those who came from evangelism (have contact_date)
         const convertedContacts = members.filter(m => m.contact_date != null);
 
-        return await Promise.all(convertedContacts.map(async (c) => {
-            let inviter = null;
-            if (c.invited_by_id) inviter = await ctx.db.get(c.invited_by_id);
-            return mapToContact(c, inviter);
-        }));
+        return await Promise.all(convertedContacts.map((c) => enrichContact(ctx, c)));
     },
 });
 
@@ -418,25 +511,21 @@ export const getByDateRange = queryFor("evangelism:getByDateRange")({
             return c.contact_date >= args.startDate && c.contact_date <= args.endDate;
         });
 
-        return await Promise.all(filtered.map(async (c) => {
-            let inviter = null;
-            if (c.invited_by_id) inviter = await ctx.db.get(c.invited_by_id);
-            return mapToContact(c, inviter);
-        }));
+        return await Promise.all(filtered.map((c) => enrichContact(ctx, c)));
     },
 });
 
 export const getByInviter = queryFor("evangelism:getByInviter")({
     args: { personId: v.id("people") },
     handler: async (ctx, args) => {
-        const contacts = await ctx.db
+        const primaryContacts = await ctx.db
             .query("people")
             .withIndex("by_invited_by", (q) => q.eq("invited_by_id", args.personId))
             .collect();
-
-        return await Promise.all(contacts.map(async (c) => {
-            const inviter = await ctx.db.get(args.personId);
-            return mapToContact(c, inviter);
-        }));
+        const sharedRows = await ctx.db.query("contact_collectors")
+            .withIndex("by_collector", (q) => q.eq("collector_id", args.personId)).collect();
+        const sharedContacts = (await Promise.all(sharedRows.map((row) => ctx.db.get(row.person_id)))).filter(Boolean);
+        const contacts = [...new Map([...primaryContacts, ...sharedContacts].map((contact: any) => [String(contact._id), contact])).values()];
+        return await Promise.all(contacts.map((contact) => enrichContact(ctx, contact)));
     },
 });

@@ -25,18 +25,29 @@ retention obligations in the Convex dashboard before relying on these defaults.
 
 ## Routine backup
 
-As of 9 September 2026, the confirmed shared deployment is `elated-bee-284`
-(`jayden-ayeh:church-tracker:production`). A file-inclusive provider backup and
-private local export are complete; **regular backups are not yet enabled**.
-The user is choosing between Mac-dependent automation and a paid provider
-schedule. Current evidence and expiration: [shared launch handoff](implementation/shared-launch-handoff.md).
+The confirmed shared deployment is `elated-bee-284`
+(`jayden-ayeh:church-tracker:production`). On 14 September 2026 a fresh private
+file-inclusive export completed successfully and passed ZIP and SHA-256 checks.
+The backup command is pinned to that deployment and rejects an unexpected team,
+project or deployment reference before exporting.
 
-For an operator-requested private local backup from this saved project, run
-`python3 scripts/backup-live.py`. It verifies the named live destination,
-includes file storage, checks archive integrity and saves a manifest under
-`~/.codex/private/church-backups/elated-bee-284/`. It does not restore, delete,
-or schedule anything. Keep snapshots out of this public repository. The Mac
-copy alone does not provide off-device disaster recovery or a recurring policy.
+For a private local backup from this saved project, run
+`python3 scripts/backup-live.py`. It includes file storage, checks archive
+integrity and saves a manifest under
+`~/.codex/private/church-backups/elated-bee-284/`. Run
+`python3 scripts/check-backup-health.py` to verify the newest snapshot still
+exists, includes file storage, matches its manifest hash and is no more than 36
+hours old. Both commands avoid printing church records or credentials.
+
+A recurring Codex heartbeat named `Church Tracker daily backup` is active as of
+14 September 2026. It runs daily at 18:30 local time from this saved project,
+executes `scripts/backup-live.py` and then `scripts/check-backup-health.py`, stays
+quiet on successful healthy runs, and notifies only when a run fails or operator
+action is required. It remains dependent on this Mac/Codex environment and the
+operator's Convex login. Convex provider-run periodic backups still require the
+paid plan recorded in the shared-launch handoff; no paid upgrade was made. Keep
+snapshots out of this public repository; the Mac copy alone is not off-device
+disaster recovery.
 
 1. Confirm the deployment name and environment; never back up, restore, or
    import into a deployment merely because its URL resembles a test name.
@@ -86,6 +97,21 @@ deployment with its own URL and explicitly record its name before beginning.
 Do not add `--replace` or `--replace-all` to a restore command unless the named
 target has been independently verified as disposable: those options destroy
 existing data.
+
+### Current production-copy rehearsal
+
+As of 10 September 2026, the project also has a persistent rehearsal deployment:
+`standing-mongoose-699` (`jayden-ayeh:church-tracker-staging:rehearsal`). It is
+marked `CHURCH_ENV=staging` and `CHURCH_DATA_DISPOSABLE=true`. Unlike the
+synthetic recovery drill above, this environment intentionally contains a full
+copy of live church data for realistic application testing.
+
+Run `npm run rehearsal:refresh` to refresh it. The script is pinned to live
+`elated-bee-284` and rehearsal `standing-mongoose-699`, verifies both provider
+identities before replacement, creates a new file-inclusive live backup first,
+and verifies the restored table counts afterward. The rehearsal copy must not
+be used as an additional live database or exposed through an unrestricted
+public preview.
 
 ## File lifecycle and failure recovery
 

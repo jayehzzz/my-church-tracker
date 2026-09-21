@@ -9,19 +9,20 @@ import ExpectedSunday from './ExpectedSunday.svelte';
 describe('ExpectedSunday', () => {
   const member = { id: 'member', first_name: 'Ama', last_name: 'Member', expected: true, attendance_plan: { status: 'expected' } };
   const awayMember = { id: 'away', first_name: 'Kofi', last_name: 'Away', attendance_plan: { status: 'away' } };
-  const commitment = { id: 'promise', person_id: 'guest', response: 'yes', resolution: 'pending', person: { id: 'guest', first_name: 'Kojo', last_name: 'Guest' } };
+  const commitment = { id: 'promise', person_id: 'contact', response: 'yes', resolution: 'pending', person: { id: 'contact', first_name: 'Kojo', last_name: 'Contact', member_status: 'contact' } };
 
-  it('shows newcomers, regular members and away people as three separate groups with a summary', () => {
+  it('shows outreach contacts/guests, regular members and away people as separate groups', () => {
     const { getByRole, getByText } = render(ExpectedSunday, {
       props: { today: '2026-09-02', forecast: { service_date: '2026-09-06' }, roster: [member, awayMember], commitments: [commitment] },
     });
 
     expect(getByText('2 people expected in total')).toBeDefined();
     const summary = getByRole('group', { name: 'Sunday summary' });
-    expect(summary).toContainElement(getByRole('button', { name: /Newcomers who said yes 1/ }));
+    expect(summary).toContainElement(getByRole('button', { name: /Contacts & guests who said yes 1/ }));
     expect(summary).toContainElement(getByRole('button', { name: /Regular members expected 1/ }));
     expect(summary).toContainElement(getByRole('button', { name: /Away this Sunday 1/ }));
-    expect(getByRole('list', { name: 'Newcomers expected this Sunday' })).toContainElement(getByRole('button', { name: 'Kojo Guest' }));
+    expect(getByRole('list', { name: 'Outreach contacts and guests expected this Sunday' })).toContainElement(getByRole('button', { name: 'Kojo Contact' }));
+    expect(getByText(/Outreach contact ·/)).toBeDefined();
     expect(getByRole('list', { name: 'Regular members this Sunday' })).toContainElement(getByRole('button', { name: 'Ama Member' }));
     expect(getByRole('list', { name: 'Members away this Sunday' })).toContainElement(getByRole('button', { name: 'Kofi Away' }));
   });
@@ -34,7 +35,7 @@ describe('ExpectedSunday', () => {
     await fireEvent.click(getByRole('button', { name: /Away this Sunday/ }));
     expect(getByRole('list', { name: 'Members away this Sunday' })).toBeDefined();
     expect(queryByRole('list', { name: 'Regular members this Sunday' })).toBeNull();
-    expect(queryByRole('list', { name: 'Newcomers expected this Sunday' })).toBeNull();
+    expect(queryByRole('list', { name: 'Outreach contacts and guests expected this Sunday' })).toBeNull();
     await fireEvent.click(getByRole('button', { name: 'Show all three' }));
     expect(getByRole('list', { name: 'Regular members this Sunday' })).toBeDefined();
   });
@@ -47,7 +48,7 @@ describe('ExpectedSunday', () => {
     });
 
     expect(getByText('Record attendance')).toBeDefined();
-    expect(getByText('0 of 2 recorded · 0 attended so far')).toBeDefined();
+    expect(getByText(/0 of 2 recorded · 0 attended so far/)).toBeDefined();
     const attendedButtons = getAllByRole('button', { name: 'Attended' });
     expect(attendedButtons).toHaveLength(2);
     await fireEvent.click(attendedButtons[0]);
@@ -56,6 +57,15 @@ describe('ExpectedSunday', () => {
     expect(onStatusChange).toHaveBeenCalledWith(member, 'attended');
   });
 
+  it('can undo accidental confirmations even on a past Sunday', async () => {
+    const onResolve = vi.fn(), onStatusChange = vi.fn();
+    const confirmed = {...member, attendance_plan: {status:'confirmed'}};
+    const {getByRole} = render(ExpectedSunday, {today:'2026-09-19',forecast:{service_date:'2026-09-13'},roster:[confirmed],commitments:[commitment],onResolve,onStatusChange});
+    await fireEvent.click(getByRole('button',{name:'Cancel confirmation'}));
+    expect(onResolve).toHaveBeenCalledWith(commitment,'cancelled');
+    await fireEvent.click(getByRole('button',{name:'Unconfirm'}));
+    expect(onStatusChange).toHaveBeenCalledWith(confirmed,'expected');
+  });
   it('summarises the previous Sunday from recorded results', () => {
     const { getByText } = render(ExpectedSunday, {
       props: {

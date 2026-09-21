@@ -1,5 +1,6 @@
 import { requireFollowUpAllowed } from "./lib/contactPolicy";
 import { queryFor, mutationFor } from "./lib/security";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 import { v } from "convex/values";
 
@@ -13,6 +14,16 @@ import { v } from "convex/values";
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const PAUSE_OUTCOMES = ["on_holiday", "asked_to_pause", "busy_period"];
+const prospectStatuses = ["contact", "guest", "visitor"] as const;
+
+async function getProspects(ctx: MutationCtx | QueryCtx) {
+    const groups = await Promise.all(
+        prospectStatuses.map((status) =>
+            ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", status)).collect(),
+        ),
+    );
+    return groups.flat();
+}
 
 // ─── Warmth Computation Helper ───────────────────────────────────────────────
 
@@ -198,10 +209,7 @@ export const resumePausedContacts = mutationFor("follow_ups:resumePausedContacts
     handler: async (ctx) => {
         const today = new Date().toISOString().split('T')[0];
 
-        const allGuests = await ctx.db
-            .query("people")
-            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
-            .collect();
+        const allGuests = await getProspects(ctx);
 
         const pausedContacts = allGuests.filter(
             (p) => p.contact_category !== "do_not_contact" && p.is_paused && p.resume_date && p.resume_date <= today
@@ -342,10 +350,7 @@ export const getPipelineByStage = queryFor("follow_ups:getPipelineByStage")({
     args: {},
     handler: async (ctx) => {
         // Get all guests/evangelism contacts
-        const guests = await ctx.db
-            .query("people")
-            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
-            .collect();
+        const guests = await getProspects(ctx);
 
         // Also get contacts who came from evangelism but are now members (showed_up)
         const members = await ctx.db
@@ -423,10 +428,7 @@ export const getNewThisWeek = queryFor("follow_ups:getNewThisWeek")({
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
 
-        const guests = await ctx.db
-            .query("people")
-            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
-            .collect();
+        const guests = await getProspects(ctx);
 
         return guests.filter(g => {
             const contactDate = g.contact_date || g.created_at.split('T')[0];
@@ -445,10 +447,7 @@ export const getNewThisWeek = queryFor("follow_ups:getNewThisWeek")({
 export const getStaleContacts = queryFor("follow_ups:getStaleContacts")({
     args: {},
     handler: async (ctx) => {
-        const guests = await ctx.db
-            .query("people")
-            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
-            .collect();
+        const guests = await getProspects(ctx);
 
         const twoWeeksAgo = new Date();
         twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
@@ -479,10 +478,7 @@ export const getStaleContacts = queryFor("follow_ups:getStaleContacts")({
 export const getPausedContacts = queryFor("follow_ups:getPausedContacts")({
     args: {},
     handler: async (ctx) => {
-        const guests = await ctx.db
-            .query("people")
-            .withIndex("by_member_status", (q) => q.eq("member_status", "guest"))
-            .collect();
+        const guests = await getProspects(ctx);
 
         return guests.filter(g => g.is_paused);
     },
@@ -523,7 +519,7 @@ export const getLeaderStats = queryFor("follow_ups:getLeaderStats")({
 
             // Contacts assigned to this leader (invited_by_id)
             const assignedContacts = allPeople.filter(
-                p => p.invited_by_id === leader._id && p.member_status === "guest"
+                p => p.invited_by_id === leader._id && ["contact", "guest", "visitor"].includes(p.member_status)
             );
 
             // Stale contacts (2+ weeks without follow-up)
@@ -535,8 +531,8 @@ export const getLeaderStats = queryFor("follow_ups:getLeaderStats")({
 
             // Contacts that showed up
             const showedUp = assignedContacts.filter(c => c.pipeline_stage === "showed_up").length;
-            const converted = allPeople.filter(
-                p => p.invited_by_id === leader._id && p.member_status === "member" && p.entry_point === "evangelism"
+            const joinedChurch = allPeople.filter(
+                p => p.invited_by_id === leader._id && ["member", "leader"].includes(p.member_status) && p.entry_point === "evangelism"
             ).length;
 
             // Last activity
@@ -555,7 +551,9 @@ export const getLeaderStats = queryFor("follow_ups:getLeaderStats")({
                 assigned_contacts: assignedContacts.length,
                 stale_contacts: staleContacts.length,
                 showed_up: showedUp,
-                converted: converted,
+                joined_church: joinedChurch,
+                // Deprecated compatibility alias: this is membership, not salvation.
+                converted: joinedChurch,
                 last_activity: lastActivity,
             };
         }));
@@ -565,15 +563,15 @@ export const getLeaderStats = queryFor("follow_ups:getLeaderStats")({
 });
 
 /**
- * Get conversion funnel stats.
- * New Contact → Contacted → Promised → Visited → Member
+ * Get outreach follow-up funnel stats.
+ * New Contact → Contacted → Promised → Visited → Joined church
  */
 export const getConversionFunnel = queryFor("follow_ups:getConversionFunnel")({
     args: {},
     handler: async (ctx) => {
         const allPeople = await ctx.db.query("people").collect();
 
-        // All evangelism contacts (current guests + converted members from evangelism)
+        // All evangelism contacts, including people who later joined the church.
         const evangelismContacts = allPeople.filter(
             p => p.entry_point === "evangelism" || p.contact_date
         );
@@ -595,9 +593,9 @@ export const getConversionFunnel = queryFor("follow_ups:getConversionFunnel")({
             p => p.first_visit_date
         ).length;
 
-        // Converted to member
-        const converted = evangelismContacts.filter(
-            p => p.member_status === "member"
+        // Explicit church membership is separate from salvation decisions.
+        const joinedChurch = evangelismContacts.filter(
+            p => ["member", "leader"].includes(p.member_status)
         ).length;
 
         return {
@@ -605,12 +603,16 @@ export const getConversionFunnel = queryFor("follow_ups:getConversionFunnel")({
             contacted,
             promised,
             visited,
-            converted,
+            joined_church: joinedChurch,
+            // Deprecated compatibility alias: this count means joined church.
+            converted: joinedChurch,
             rates: {
                 contact_rate: totalContacts > 0 ? Math.round((contacted / totalContacts) * 100) : 0,
                 promise_rate: contacted > 0 ? Math.round((promised / contacted) * 100) : 0,
                 visit_rate: promised > 0 ? Math.round((visited / promised) * 100) : 0,
-                conversion_rate: visited > 0 ? Math.round((converted / visited) * 100) : 0,
+                membership_rate: visited > 0 ? Math.round((joinedChurch / visited) * 100) : 0,
+                // Deprecated compatibility alias for membership_rate.
+                conversion_rate: visited > 0 ? Math.round((joinedChurch / visited) * 100) : 0,
             },
         };
     },

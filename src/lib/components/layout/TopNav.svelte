@@ -22,12 +22,14 @@
   import { openSearch } from "$lib/stores/searchStore";
   import { unreadCount } from "$lib/stores/notificationStore";
   import { session } from "$lib/auth/session.js";
+  import { isRehearsalMode } from "$lib/convex.js";
   import { page } from "$app/stores";
   import GlobalSearch from "./GlobalSearch.svelte";
   import ChurchHubDropdown from "./ChurchHubDropdown.svelte";
   import NotificationDropdown from "./NotificationDropdown.svelte";
   import ProfileDropdown from "./ProfileDropdown.svelte";
   import KeyboardShortcutsModal from "./KeyboardShortcutsModal.svelte";
+  import { pageNameForPath } from "$lib/config/navigation.js";
 
   // Dropdown states
   let isChurchHubOpen = $state(false);
@@ -41,23 +43,7 @@
     navigationStore.saveToStorage();
   }
 
-  // Page title mapping based on routes
-  const pageTitles = {
-    "/": "Dashboard",
-    "/evangelism": "Evangelism",
-    "/services": "Sunday Services",
-    "/meetings": "Meetings & Attendance",
-    "/memories": "Memories",
-    "/people": "People Directory",
-    "/development": "Development",
-    "/visitation": "Pastoral Care",
-    "/reports": "Reports",
-  };
-
-  // Svelte 5: Get current page title using $derived
-  const currentTitle = $derived(
-    pageTitles[$page.url.pathname] || "Church Tracker",
-  );
+  const currentTitle = $derived(pageNameForPath($page.url.pathname));
 
   function goBack() {
     window.history.back();
@@ -275,6 +261,14 @@
         <p class="min-w-0 truncate text-lg font-semibold text-foreground">
           {currentTitle}
         </p>
+        {#if isRehearsalMode()}
+          <span
+            class="shrink-0 rounded-full border border-amber-300/60 bg-amber-300/15 px-2 py-1 text-[10px] font-black tracking-[0.12em] text-amber-200"
+            title="Rehearsal sandbox"
+          >
+            REHEARSAL
+          </span>
+        {/if}
       </div>
     </div>
 

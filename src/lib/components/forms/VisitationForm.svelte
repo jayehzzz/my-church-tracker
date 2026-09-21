@@ -110,6 +110,12 @@
     if (!formData.outcome) nextErrors.outcome = "Choose an outcome";
     if (formData.follow_up_required && !formData.follow_up_date) {
       nextErrors.follow_up_date = "Choose when the next action is due";
+    } else if (
+      formData.follow_up_required
+      && formData.visit_date
+      && formData.follow_up_date < formData.visit_date
+    ) {
+      nextErrors.follow_up_date = "The next action must be on or after the care date";
     }
     errors = nextErrors;
     return Object.keys(nextErrors).length === 0;
@@ -265,6 +271,7 @@
             label="Next action due"
             type="date"
             bind:value={formData.follow_up_date}
+            min={formData.visit_date || undefined}
             error={errors.follow_up_date}
             disabled={saving || (mode === "edit" && visitation?.next_task?.status && visitation.next_task.status !== "open")}
           />

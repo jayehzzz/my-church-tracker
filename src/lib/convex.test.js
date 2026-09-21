@@ -5,6 +5,7 @@ async function loadConfiguration(environment) {
   vi.stubEnv("VITE_CONVEX_URL", environment.url || "");
   vi.stubEnv("VITE_APP_ENV", environment.name);
   vi.stubEnv("VITE_APP_MODE", environment.mode);
+  vi.stubEnv("VITE_APP_VARIANT", environment.variant || "");
   return await import("./convex.js");
 }
 
@@ -32,5 +33,26 @@ describe("shared Convex environment configuration", () => {
 
     expect(config.getDataSource()).toBe("unavailable");
     expect(config.getConfigurationError()).toMatch(/only in the development environment/);
+  });
+
+  it("identifies the explicit rehearsal variant", async () => {
+    const config = await loadConfiguration({
+      name: "staging",
+      mode: "live",
+      variant: "rehearsal",
+      url: "https://example.convex.cloud",
+    });
+
+    expect(config.isRehearsalMode()).toBe(true);
+  });
+
+  it("identifies the pinned rehearsal deployment even without the variant flag", async () => {
+    const config = await loadConfiguration({
+      name: "staging",
+      mode: "live",
+      url: "https://standing-mongoose-699.convex.cloud",
+    });
+
+    expect(config.isRehearsalMode()).toBe(true);
   });
 });

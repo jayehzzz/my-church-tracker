@@ -38,13 +38,14 @@ export const getFeed = query({
     }
 
     if (isAdmin(user)) {
-      const [guests, newBelievers, activeAssignments] = await Promise.all([
+      const [contacts, guests, newBelievers, activeAssignments] = await Promise.all([
+        ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", "contact")).collect(),
         ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", "guest")).collect(),
         ctx.db.query("people").withIndex("by_member_status", (q) => q.eq("member_status", "new_believer")).collect(),
         ctx.db.query("follow_up_assignments").withIndex("by_status", (q) => q.eq("status", "active")).collect(),
       ]);
       const assigned = new Set(activeAssignments.map((assignment) => assignment.person_id));
-      const unassigned = [...guests, ...newBelievers].filter((person) =>
+      const unassigned = [...contacts, ...guests, ...newBelievers].filter((person) =>
         !assigned.has(person._id)
         && person.is_paused !== true
         && !["do_not_contact", "has_church"].includes(person.contact_category ?? ""),

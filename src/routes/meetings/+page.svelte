@@ -145,6 +145,7 @@
   ];
   const personStatusOptions = [
     { value: "all", label: "All person statuses" },
+    { value: "contact", label: "Outreach Contacts" },
     { value: "guest", label: "Guests" },
     { value: "member", label: "Members" },
     { value: "leader", label: "Leaders" },
@@ -573,7 +574,7 @@
   <div class="pb-12">
     <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <PageHeader
-        title="Meetings & Attendance"
+        title="Meetings"
         subtitle="Track attendance for recurring programmes and one-off church events"
       />
       <div class="flex flex-wrap gap-2">
@@ -911,7 +912,7 @@
         <div>
           <h2 class="text-lg font-semibold text-foreground">Meeting programmes</h2>
           <p class="mt-1 text-sm text-muted-foreground">
-            Set the usual schedule and leaders once. A roster is the expected group for that programme; only people marked present count as attendees.
+            Set the usual schedule, leaders and regular expectation list once. Expected people are preloaded whenever you take attendance; only people marked present count as attendees.
           </p>
         </div>
         <div class="flex gap-2">
@@ -952,12 +953,10 @@
                 <dt class="text-muted-foreground">Leader</dt>
                 <dd class="max-w-[65%] text-right font-medium text-foreground">{leaderNames(program)}</dd>
               </div>
-              {#if program.category === "bacenta" || program.category === "workers"}
-                <div class="flex justify-between gap-4">
-                  <dt class="text-muted-foreground">Roster</dt>
-                  <dd class="font-medium text-foreground">{program.member_ids?.length || 0} people</dd>
-                </div>
-              {/if}
+              <div class="flex justify-between gap-4">
+                <dt class="text-muted-foreground">Regularly expected</dt>
+                <dd class="font-medium text-foreground">{program.member_ids?.length || 0} people</dd>
+              </div>
             </dl>
             <div class="mt-auto pt-5">
               <Button fullWidth variant="secondary" onclick={() => openNewMeeting(program.id)}>
@@ -1080,7 +1079,7 @@
                 {person.first_name} {person.last_name}
               </span>
               <span class="block text-xs capitalize text-muted-foreground">
-                {person.member_status === "visitor" ? "Guest" : person.member_status || "Guest"}
+                {person.member_status === "contact" ? "Outreach Contact" : person.member_status === "visitor" ? "Guest" : person.member_status || "Guest"}
                 {person.last_attended ? ` · Last attended ${formatDate(person.last_attended)}` : ""}
               </span>
             </span>

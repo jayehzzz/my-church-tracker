@@ -1,4 +1,5 @@
 <script>
+  import FullscreenWrapper from "$lib/components/ui/FullscreenWrapper.svelte";
   import { isDemoMode } from "$lib/convex.js";
   import { onMount } from "svelte";
   import { replaceState } from "$app/navigation";
@@ -421,7 +422,9 @@
       {:else}
         <div id="care-history" class="space-y-6">
           <FilterBar />
+          <FullscreenWrapper title="Pastoral care activity">
           <VisitationCalendar
+            periodRange={$dateRange}
             data={filteredVisitations()}
             title="Pastoral care activity"
             onVisitSelect={(visit) => {
@@ -429,6 +432,8 @@
               isDetailModalOpen = true;
             }}
           />
+
+          </FullscreenWrapper>
 
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>

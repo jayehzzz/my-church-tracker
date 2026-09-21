@@ -6,7 +6,12 @@ vi.mock('$app/stores', async () => {
 });
 vi.mock('$app/navigation', () => ({ goto: vi.fn(), replaceState: vi.fn(), beforeNavigate: vi.fn(), afterNavigate: vi.fn() }));
 vi.mock('svelte/transition', () => ({ fade: () => ({}), fly: () => ({}), scale: () => ({}) }));
-vi.mock('$lib/convex.js', () => ({ isDemoMode: () => false, getConvexHttpClient: () => null, getConvexClient: async () => null }));
+vi.mock('$lib/convex.js', () => ({
+  isDemoMode: () => false,
+  isRehearsalMode: () => false,
+  getConvexHttpClient: () => null,
+  getConvexClient: async () => null,
+}));
 vi.mock('$lib/services/peopleService.js', () => ({ getAll: async () => ({ data: [], error: null }) }));
 vi.mock('$lib/services/visitationsService.js', () => ({ getAll: async () => ({ data: null, error: new Error('Live backend unavailable') }) }));
 vi.mock('$lib/services/attendanceService.js', () => ({ getAll: async () => ({ data: [], error: null }) }));

@@ -131,4 +131,19 @@ describe('development evidence and agreement safety', () => {
     const [corrected] = await as('admin').query(api.people.getDevelopmentSummary,{ids:[ids.person]});
     expect(corrected.collectedContacts).toHaveLength(0);
   });
+  it('preserves shared invitation and outreach credit for more than one person', async () => {
+    const { ids, as } = await fixture();
+    const contact = await as('admin').mutation(api.evangelism.create, {
+      first_name: 'Shared contact', response: 'not_assessed', contact_date: '2026-01-01',
+      invited_by_id: ids.other, collector_ids: [ids.person, ids.other],
+    });
+    expect(contact?.collector_ids).toEqual([ids.person, ids.other]);
+    expect(contact?.inviter_ids).toEqual(expect.arrayContaining([String(ids.person), String(ids.other)]));
+    const [forPerson, forOther] = await Promise.all([
+      as('admin').query(api.evangelism.getByInviter, { personId: ids.person }),
+      as('admin').query(api.evangelism.getByInviter, { personId: ids.other }),
+    ]);
+    expect(forPerson.map((row) => row.id)).toContain(contact?.id);
+    expect(forOther.map((row) => row.id)).toContain(contact?.id);
+  });
 });

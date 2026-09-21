@@ -10,10 +10,15 @@
   const regularBaseline = $derived(Number(forecast?.regular_baseline) || 0);
   const knownAway = $derived(Number(forecast?.known_away) || 0);
   const confirmedIrregular = $derived(Number(forecast?.confirmed_irregular) || 0);
-  const confirmedGuests = $derived(Number(forecast?.confirmed_guests) || 0);
+  const confirmedNonMembers = $derived(Number(forecast?.confirmed_non_members ?? forecast?.confirmed_guests) || 0);
+  const confirmedOutreachContacts = $derived(Number(forecast?.confirmed_outreach_contacts) || 0);
+  const confirmedReturningGuests = $derived(Number(forecast?.confirmed_returning_guests) || 0);
+  const hasJourneySplit = $derived(
+    forecast?.confirmed_outreach_contacts !== undefined || forecast?.confirmed_returning_guests !== undefined,
+  );
   const confirmedRegular = $derived(Number(forecast?.confirmed_regular) || 0);
   const calculatedTotal = $derived(
-    Math.max(0, regularBaseline - knownAway + confirmedIrregular + confirmedGuests),
+    Math.max(0, regularBaseline - knownAway + confirmedIrregular + confirmedNonMembers),
   );
   const expectedTotal = $derived(
     forecast?.expected_total === undefined || forecast?.expected_total === null
@@ -22,7 +27,7 @@
   );
   const confirmedTotal = $derived(
     forecast?.confirmed_total === undefined || forecast?.confirmed_total === null
-      ? confirmedRegular + confirmedIrregular + confirmedGuests
+      ? confirmedRegular + confirmedIrregular + confirmedNonMembers
       : Number(forecast.confirmed_total) || 0,
   );
 
@@ -53,12 +58,19 @@
       <div class="bg-primary/5 p-5 sm:p-6">
         <p class="text-sm text-muted-foreground">Expected total</p>
         <p class="mt-2 text-4xl font-semibold tracking-tight text-foreground" aria-label={`${expectedTotal} people expected`}>{expectedTotal}</p>
-        <p class="mt-2 text-xs text-muted-foreground">Regular members minus away, plus confirmed irregular members and guests.</p>
+        <p class="mt-2 text-xs text-muted-foreground">Regular members minus away, plus confirmed irregular members and non-members who said yes.</p>
       </div>
       <div class="p-5 sm:p-6">
         <p class="text-sm text-muted-foreground">Confirmed so far</p>
         <p class="mt-2 text-4xl font-semibold tracking-tight text-foreground" aria-label={`${confirmedTotal} people confirmed`}>{confirmedTotal}</p>
-        <p class="mt-2 text-xs text-muted-foreground">{confirmedRegular} regular · {confirmedIrregular} irregular · {confirmedGuests} guests</p>
+        <p class="mt-2 text-xs text-muted-foreground">
+          {confirmedRegular} regular · {confirmedIrregular} irregular ·
+          {#if hasJourneySplit}
+            {confirmedOutreachContacts} outreach contacts · {confirmedReturningGuests} guests
+          {:else}
+            {confirmedNonMembers} contacts/guests
+          {/if}
+        </p>
       </div>
       <div class="p-5 sm:p-6">
         <p class="text-sm text-muted-foreground">Known away</p>

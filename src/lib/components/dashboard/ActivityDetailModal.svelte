@@ -50,7 +50,7 @@
             contact: { label: "Evangelism Outreach", variant: "info", icon: "phone" },
             visitation: { label: "Pastoral Visit", variant: "warning", icon: "home" },
             salvation: { label: "Salvation Decision", variant: "success", icon: "heart" },
-            conversion: { label: "Salvation Decision", variant: "success", icon: "heart" },
+            conversion: { label: "New Believers Class", variant: "success", icon: "star" },
             attendance: { label: "Service Attendance", variant: "success", icon: "check" },
             event: { label: "Church Event", variant: "secondary", icon: "calendar" },
             note: { label: "Pastoral Note", variant: "secondary", icon: "note" },

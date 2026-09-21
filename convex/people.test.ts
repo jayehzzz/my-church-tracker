@@ -82,6 +82,21 @@ describe("person records", () => {
             service_date: "2026-09-05", service_type: "sunday_service", created_at: now,
         }));
         await t.run((ctx) => ctx.db.insert("attendance", { service_id: serviceId, person_id: source!._id, created_at: now }));
+        const importBatchId = await t.run((ctx) => ctx.db.insert("church_import_batches", {
+            source_id: "people-test",
+            source_fingerprint: "people-test-batch",
+            status: "applied",
+            created_at: now,
+        }));
+        const importRowId = await t.run((ctx) => ctx.db.insert("church_import_rows", {
+            batch_id: importBatchId,
+            source_key: "person:source",
+            source_fingerprint: "source-person-row",
+            record_type: "person",
+            disposition: "linked",
+            target_person_id: source!._id,
+            created_at: now,
+        }));
 
         const contact = await owner.mutation(api.people.create, { first_name:"Collected",last_name:"Contact",member_status:"guest",collected_by_id:source!._id });
         const supported = await owner.mutation(api.people.createGrowthAgreement, { personId:contact!._id,action:"Meet together",supportingPersonId:source!._id,agreedDate:"2026-01-01" });
@@ -103,10 +118,38 @@ describe("person records", () => {
         expect(mergedSource).toMatchObject({ member_status: "archived", merged_into_id: target!._id });
         expect(attendance).toHaveLength(1);
         expect(attendance[0].person_id).toBe(target!._id);
+        expect((await t.run(ctx => ctx.db.get(importRowId)))?.target_person_id).toBe(target!._id);
         expect((await t.run(ctx=>ctx.db.get(contact!._id)))?.collected_by_id).toBe(target!._id);
         expect((await t.run(ctx=>ctx.db.get(supported!._id)))?.supporting_person_id).toBe(target!._id);
         const [summary] = await owner.query(api.people.getDevelopmentSummary,{ids:[target!._id]});
         expect(summary.agreements.map(a=>a._id)).toContain(ownAgreement!._id);
         expect(summary.agreementReviews[0].person_id).toBe(target!._id);
+    });
+
+    it("protects a person referenced only by an import ledger row", async () => {
+        const { t, owner } = await ownerFixture();
+        const person = await owner.mutation(api.people.create, {
+            first_name: "Imported",
+            last_name: "Person",
+            member_status: "guest",
+        });
+        const batchId = await t.run((ctx) => ctx.db.insert("church_import_batches", {
+            source_id: "people-test",
+            source_fingerprint: "delete-protection-batch",
+            status: "applied",
+            created_at: now,
+        }));
+        await t.run((ctx) => ctx.db.insert("church_import_rows", {
+            batch_id: batchId,
+            source_key: "person:imported",
+            source_fingerprint: "delete-protection-row",
+            record_type: "person",
+            disposition: "linked",
+            target_person_id: person!._id,
+            created_at: now,
+        }));
+
+        await expect(owner.mutation(api.people.remove, { id: person!._id }))
+            .rejects.toThrow(/cannot be permanently deleted/i);
     });
 });

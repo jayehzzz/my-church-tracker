@@ -12,41 +12,45 @@
     ...restProps
   } = $props();
 
+  import { tick } from "svelte";
+  import { registerDialog } from "$lib/utils/dialogStack.js";
   let isFullscreen = $state(false);
-  let previousOverflow = $state("");
+  let opener;
 
-  function toggleFullscreen() {
-    isFullscreen = !isFullscreen;
-    if (isFullscreen) {
-      previousOverflow = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = previousOverflow;
-    }
-  }
-
-  function exitFullscreen() {
-    if (!isFullscreen) return;
-    isFullscreen = false;
-    document.body.style.overflow = previousOverflow;
-  }
-
-  function handleKeydown(event) {
-    if (event.key === "Escape" && isFullscreen) exitFullscreen();
-  }
-
-  $effect(() => {
-    return () => {
-      if (typeof window !== "undefined" && isFullscreen) {
-        document.body.style.overflow = previousOverflow;
+  function expandedPortal(node) {
+    const marker = document.createComment("expanded chart");
+    node.before(marker);
+    let release;
+    let version = 0;
+    return {
+      async update(expanded) {
+        const current = ++version;
+        release?.();
+        release = null;
+        if (expanded) {
+          document.body.appendChild(node);
+          await tick();
+          if (current === version) release = registerDialog(node, () => isFullscreen = false, opener);
+        } else {
+          marker.after(node);
+          await tick();
+          if (current === version && opener?.isConnected) opener.focus();
+        }
+        window.dispatchEvent(new Event("resize"));
+      },
+      destroy() {
+        version++;
+        release?.();
+        marker.remove();
+        node.remove();
       }
     };
-  });
+  }
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 <div
+  use:expandedPortal={isFullscreen}
+  tabindex="-1"
   class="relative {className} {isFullscreen ? 'fullscreen-active' : ''}"
   role={isFullscreen ? "dialog" : undefined}
   aria-modal={isFullscreen ? "true" : undefined}
@@ -56,7 +60,7 @@
   {#if isFullscreen}
     <div class="fullscreen-header">
       {#if title}<h2 class="text-lg font-semibold text-foreground">{title}</h2>{/if}
-      <button type="button" class="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" onclick={exitFullscreen} aria-label="Exit fullscreen">
+      <button type="button" class="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground" onclick={() => isFullscreen = false} aria-label="Exit fullscreen">
         <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
       </button>
     </div>
@@ -72,33 +76,33 @@
     {@render children?.()}
   </div>
 
-  {#if !isFullscreen}
     <button
+      hidden={isFullscreen}
       type="button"
       class="absolute right-3 top-3 z-10 rounded-lg bg-secondary/50 p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-      onclick={toggleFullscreen}
-      aria-label="Enter fullscreen"
-      title="Enter fullscreen"
+      onclick={(event) => { opener = event.currentTarget; isFullscreen = true; }}
+      aria-label={`Expand ${title || "chart"}`}
+      title="Expand chart"
     >
       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
       </svg>
     </button>
-  {/if}
 </div>
 
 <style>
   .fullscreen-active {
     position: fixed;
-    inset: 0;
+    inset: 3vh 3vw;
     z-index: 50;
     display: flex;
     flex-direction: column;
-    width: 100%;
-    height: 100%;
+    width: 94vw;
+    height: 94vh;
     overflow: hidden;
-    border: 0;
-    border-radius: 0;
+    border: 1px solid hsl(var(--border));
+    border-radius: 1rem;
+    box-shadow: 0 0 0 100vmax hsl(var(--background) / .8), 0 24px 80px #0005;
     background: hsl(var(--background));
   }
 
@@ -120,7 +124,7 @@
   }
 
   .fullscreen-content {
-    display: flex;
+    display: block;
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -130,12 +134,12 @@
   .fullscreen-content > :global(*) {
     flex: 1;
     width: 100%;
-    min-height: calc(100vh - 8rem);
+    min-height: 0;
   }
 
   .fullscreen-content :global(.card-base) {
     height: 100%;
-    min-height: calc(100vh - 8rem);
+    min-height: 0;
     display: flex;
     flex-direction: column;
   }
@@ -152,5 +156,11 @@
   .fullscreen-content :global(.fullscreen-chart-svg) {
     height: max(360px, calc(100vh - 25rem)) !important;
     max-height: none;
+  }
+  @media (max-width: 640px) {
+    .fullscreen-active { inset: 0; width: 100%; height: 100dvh; border-radius: 0; }
+    .fullscreen-header { padding: .75rem 1rem; }
+    .fullscreen-content { padding: .5rem; }
+    .fullscreen-content :global(.fullscreen-chart-svg) { height: auto !important; min-height: 0; }
   }
 </style>

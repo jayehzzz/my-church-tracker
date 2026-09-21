@@ -23,65 +23,25 @@
   import { page } from "$app/stores";
   import { onMount } from "svelte";
   import { session } from "$lib/auth/session.js";
+  import { navigationGroups } from "$lib/config/navigation.js";
 
-  // Navigation items configuration
-  const navigationItems = [
-    { icon: "home", label: "Dashboard", href: "/", active: false },
-    {
-      icon: "users",
-      label: "Evangelism",
-      href: "/evangelism",
-      active: false,
-    },
-    {
-      icon: "pipeline",
-      label: "Follow-Up CRM",
-      href: "/pipeline",
-      active: false,
-    },
-    {
-      icon: "calendar",
-      label: "Sunday Services",
-      href: "/services",
-      active: false,
-    },
-    {
-      icon: "clock",
-      label: "Meetings & Attendance",
-      href: "/meetings",
-      active: false,
-    },
-    {
-      icon: "image",
-      label: "Memories",
-      href: "/memories",
-      active: false,
-    },
-    {
-      icon: "user-group",
-      label: "People Directory",
-      href: "/people",
-      active: false,
-    },
-    { icon: "chart", label: "Development", href: "/development", active: false },
-    {
-      icon: "map-pin",
-      label: "Pastoral Care",
-      href: "/visitation",
-      active: false,
-    },
-    { icon: "chart", label: "Reports", href: "/reports", active: false },
-  ];
+  function canShowItem(item) {
+    return $session.status === "demo" || (
+      ($session.user?.role !== "leader" || ["/", "/evangelism", "/pipeline", "/people"].includes(item.href))
+      && (item.href !== "/visitation" || $session.user?.canViewConfidential)
+    );
+  }
 
-  // Svelte 5: Reactive navigation items with active state using $derived
-  const navItems = $derived(
-    navigationItems.filter(item => $session.status === 'demo' || (
-      ($session.user?.role !== 'leader' || ['/', '/evangelism', '/pipeline', '/people'].includes(item.href))
-      && (item.href !== '/visitation' || $session.user?.canViewConfidential)
-    )).map((item) => ({
-      ...item,
-      active: $page.url.pathname === item.href,
-    })),
+  const navGroups = $derived(
+    navigationGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter(canShowItem).map((item) => ({
+          ...item,
+          active: $page.url.pathname === item.href,
+        })),
+      }))
+      .filter((group) => group.items.length > 0),
   );
 
   // Handle sidebar toggle
@@ -161,34 +121,39 @@
   style="background-color: hsl(var(--card));"
 >
   <!-- Navigation Items -->
-  <nav class="flex-1 px-3 py-4 space-y-1">
-    {#each navItems as item}
-      <a
-        href={item.href}
-        data-sveltekit-preload-data="hover"
-        onclick={() => handleNavClick(item.href)}
-        class="flex items-center px-3 py-2 rounded-lg transition-all duration-200 {item.active
-          ? 'bg-primary text-primary-foreground shadow-lg'
-          : 'text-foreground/80 hover:bg-secondary hover:text-foreground'}"
-        aria-label={item.label}
-      >
-        <!-- Icon -->
-        <div class="flex-shrink-0 w-5 h-5">
-          {@html icons[item.icon]}
-        </div>
-
-        <!-- Label (hidden when collapsed) -->
+  <nav class="flex-1 overflow-y-auto px-3 py-3" aria-label="Primary navigation">
+    {#each navGroups as group, groupIndex (group.label)}
+      <div class={groupIndex ? "mt-4" : ""}>
         {#if $sidebarVisible}
-          <span class="ml-3 font-medium">{item.label}</span>
-        {:else}
-          <!-- Tooltip for collapsed state -->
-          <div
-            class="fixed left-16 ml-2 px-2 py-1 bg-card text-foreground text-sm rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50"
-          >
-            {item.label}
-          </div>
+          <p class="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            {group.label}
+          </p>
+        {:else if groupIndex}
+          <div class="mx-2 mb-2 border-t border-border/60" aria-hidden="true"></div>
         {/if}
-      </a>
+        <div class="space-y-1">
+          {#each group.items as item (item.href)}
+            <a
+              href={item.href}
+              data-sveltekit-preload-data="hover"
+              onclick={() => handleNavClick(item.href)}
+              class="group flex min-w-0 items-center rounded-lg px-3 py-2 transition-all duration-200 {item.active
+                ? 'bg-primary text-primary-foreground shadow-lg'
+                : 'text-foreground/80 hover:bg-secondary hover:text-foreground'}"
+              aria-label={item.label}
+              title={!$sidebarVisible ? item.label : undefined}
+            >
+              <div class="h-5 w-5 flex-shrink-0">
+                {@html icons[item.icon]}
+              </div>
+
+              {#if $sidebarVisible}
+                <span class="ml-3 min-w-0 truncate whitespace-nowrap font-medium">{item.label}</span>
+              {/if}
+            </a>
+          {/each}
+        </div>
+      </div>
     {/each}
   </nav>
 

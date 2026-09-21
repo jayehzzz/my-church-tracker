@@ -21,6 +21,49 @@ async function fixture() {
 const checkin = (person_id: any) => ({ person_id, first_timer: true, made_salvation_decision: false, gave_tithe: false });
 
 describe("authoritative attendance transactions", () => {
+    it("recognises a Sunday special service for follow-up and marks an outreach contact's first visit", async () => {
+        const { t, owner, ids, service, commitment } = await fixture();
+        await t.run(ctx => ctx.db.patch(ids.person, { member_status: "contact", contact_date: "2026-09-11", entry_point: "evangelism" }));
+        const c = await commitment({ gatheringDate: "2026-09-13" });
+        expect(await owner.query(api.crm.getGatheringChoices, { gatheringType: "sunday_service", gatheringDate: "2026-09-13" })).toEqual([]);
+        const s = await service({ service_date: "2026-09-13", service_type: "special_service" });
+        for (const gatheringType of ["sunday_service", "special_event"] as const) {
+            expect(await owner.query(api.crm.getGatheringChoices, { gatheringType, gatheringDate: "2026-09-13" })).toEqual([expect.objectContaining({ serviceId: s!._id })]);
+        }
+        await owner.mutation(api.crm.resolveCommitment, { commitmentId: c!._id, resolution: "attended", serviceId: s!._id });
+        expect((await t.run(ctx => ctx.db.query("attendance").collect()))[0]).toMatchObject({ first_timer: true });
+        expect(await t.run(ctx => ctx.db.get(ids.person))).toMatchObject({ member_status: "guest", first_visit_date: "2026-09-13", contact_date: "2026-09-11", promises_kept: 1 });
+        expect(await t.run(ctx => ctx.db.get(c!._id))).toMatchObject({ resolution: "attended", service_id: s!._id });
+        // A special event on another weekday must not fulfil a Sunday invitation.
+        await service({ service_date: "2026-09-12", service_type: "special_service" });
+        expect(await owner.query(api.crm.getGatheringChoices, { gatheringType: "sunday_service", gatheringDate: "2026-09-12" })).toEqual([]);
+    });
+    it("derives the first-timer flag when an existing outreach contact is checked into a service", async () => {
+        const { t, ids, service } = await fixture();
+        await t.run(ctx => ctx.db.patch(ids.person, { member_status: "contact", contact_date: "2026-09-11" }));
+        await service({ service_date: "2026-09-13", service_type: "special_service", total_attendance: 1, guests_count: 1, attendanceData: [{ ...checkin(ids.person), first_timer: false }] });
+        expect((await t.run(ctx => ctx.db.query("attendance").collect()))[0].first_timer).toBe(true);
+        expect(await t.run(ctx => ctx.db.get(ids.person))).toMatchObject({ member_status: "guest", first_visit_date: "2026-09-13" });
+    });
+    it("reconciles member plans and removes Sunday links when a special service is deleted", async () => {
+        const { t, owner, ids, service, commitment } = await fixture();
+        await t.run(ctx => ctx.db.patch(ids.person, { member_status: "member" }));
+        const c = await commitment({ gatheringDate: "2026-09-13" });
+        const plan = await owner.mutation(api.crm.setAttendancePlan, { personId: ids.person, leaderId: ids.leader, serviceDate: "2026-09-13", status: "confirmed" });
+        const s = await service({ service_date: "2026-09-13", service_type: "special_service" });
+        await owner.mutation(api.crm.setAttendancePlan, { personId: ids.person, leaderId: ids.leader, serviceDate: "2026-09-13", status: "attended", serviceId: s!._id });
+        expect(await t.run(ctx => ctx.db.get(plan!._id))).toMatchObject({ status: "attended", service_id: s!._id });
+        await owner.mutation(api.services.remove, { id: s!._id });
+        expect(await t.run(ctx => ctx.db.get(c!._id))).toMatchObject({ resolution: "cancelled" });
+        expect(await t.run(ctx => ctx.db.get(plan!._id))).toBeNull();
+    });
+    it("cancels an accidental confirmation without creating a no-show or attendance", async () => {
+        const { t, owner, commitment } = await fixture();
+        const c = await commitment();
+        await owner.mutation(api.crm.resolveCommitment, { commitmentId: c!._id, resolution: "cancelled", note: "Confirmed by mistake" });
+        expect(await t.run(ctx => ctx.db.get(c!._id))).toMatchObject({ resolution: "cancelled", resolution_note: "Confirmed by mistake" });
+        expect(await t.run(ctx => ctx.db.query("attendance").collect())).toEqual([]);
+    });
     it("service and CRM paths produce the same attendance, milestone and exactly-once commitment outcome", async () => {
         for (const path of ["service", "crm"]) {
             const { owner, ids, service, commitment, t } = await fixture();
@@ -242,6 +285,40 @@ describe('plans and promise timeline reconciliation',()=>{
         await owner.mutation(api.services.remove,{id:s!._id});
         expect(await t.run(ctx=>ctx.db.query('attendance_plans').collect())).toHaveLength(0);
     });
+    it('tracks member Sunday confirmations and later missed reasons in the shared commitment history',async()=>{
+        const {t,owner,ids}=await fixture();
+        await t.run(ctx=>ctx.db.patch(ids.person,{member_status:'member'}));
+        await owner.mutation(api.crm.setAttendancePlan,{personId:ids.person,leaderId:ids.leader,serviceDate:'2026-08-02',status:'confirmed',notes:'Confirmed by phone; plans to come with a friend'});
+        let commitments=await t.run(ctx=>ctx.db.query('gathering_commitments').collect());
+        expect(commitments).toHaveLength(1);
+        expect(commitments[0]).toMatchObject({response:'yes',resolution:'pending',confirmation_note:'Confirmed by phone; plans to come with a friend'});
+        expect(commitments[0].history?.at(-1)).toMatchObject({action:'confirmed',note:'Confirmed by phone; plans to come with a friend'});
+        await owner.mutation(api.crm.setAttendancePlan,{personId:ids.person,leaderId:ids.leader,serviceDate:'2026-08-02',status:'absent',notes:'Called after church; transport fell through'});
+        commitments=await t.run(ctx=>ctx.db.query('gathering_commitments').collect());
+        expect(commitments[0]).toMatchObject({response:'yes',resolution:'no_show',resolution_note:'Called after church; transport fell through'});
+        expect(commitments[0].history?.map(change=>change.action)).toEqual(['confirmed','no_show']);
+    });
+
+    it('automatically resolves a recorded Sunday yes as a no-show when the person is absent',async()=>{
+        const {t,service,commitment}=await fixture();
+        const expected=await commitment();
+        await service({total_attendance:3,guests_count:0,attendanceData:[]});
+        expect(await t.run(ctx=>ctx.db.get(expected!._id))).toMatchObject({response:'yes',resolution:'no_show'});
+    });
+
+    it('automatically marks an absent confirmed member while keeping attendees fulfilled',async()=>{
+        const {t,owner,ids,service}=await fixture();
+        await t.run(ctx=>ctx.db.patch(ids.person,{member_status:'member'}));
+        const plan=await owner.mutation(api.crm.setAttendancePlan,{personId:ids.person,leaderId:ids.leader,serviceDate:'2026-08-02',status:'confirmed'});
+        const s=await service({total_attendance:2,guests_count:0,attendanceData:[]});
+        expect(await t.run(ctx=>ctx.db.get(plan!._id))).toMatchObject({status:'absent'});
+        expect((await t.run(ctx=>ctx.db.query('gathering_commitments').collect()))[0]).toMatchObject({resolution:'no_show'});
+
+        await service({id:s!._id,total_attendance:1,guests_count:0,attendanceData:[{...checkin(ids.person),first_timer:false}]});
+        expect(await t.run(ctx=>ctx.db.get(plan!._id))).toMatchObject({status:'attended'});
+        expect((await t.run(ctx=>ctx.db.query('gathering_commitments').collect()))[0]).toMatchObject({resolution:'attended'});
+    });
+
     it('creates exactly one plan through CRM when the member had no plan',async()=>{
         const {t,owner,ids,service}=await fixture();
         await t.run(ctx=>ctx.db.patch(ids.person,{member_status:'member'})); await service();

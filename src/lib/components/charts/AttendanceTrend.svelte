@@ -5,8 +5,11 @@
 -->
 
 <script>
+  import { roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import ComparisonControls from "./ComparisonControls.svelte";
+  import ChartPointDetails from "./ChartPointDetails.svelte";
+  let detail = $state(null);
   import ChartViewToggle from "./ChartViewToggle.svelte";
-  import SearchableSelect from "$lib/components/ui/SearchableSelect.svelte";
   import {
     DEFAULT_CHART_DIMENSIONS,
     getNiceYScale,
@@ -32,9 +35,12 @@
 
   let hoveredIndex = $state(null);
   let chartType = $state("line");
+  let primaryKey = $state("total");
   let comparisonKey = $state("");
   let granularity = $state("day");
   let granularityManuallySet = $state(false);
+  let primaryAggregationMode = $state("average");
+  let comparisonAggregationMode = $state("average");
 
   $effect(() => {
     if (!granularityManuallySet) granularity = /year/i.test(periodLabel) ? "month" : "day";
@@ -45,9 +51,23 @@
   const chartBottom = chartHeight - padding.bottom;
   const innerHeight = chartBottom - padding.top;
 
+  const metricOptions = $derived.by(() => {
+    const options = [{ key: "total", label: "Attendance", color: "primary" }, ...comparisonOptions];
+    return options.filter((option, index) => options.findIndex((candidate) => candidate.key === option.key) === index);
+  });
+
+  const selectedPrimary = $derived(metricOptions.find((option) => option.key === primaryKey) || metricOptions[0]);
+  const selectedComparison = $derived(metricOptions.find((option) => option.key === comparisonKey));
+
+
+  function aggregateSeries(mode) {
+    return groupChartPoints(data, granularity, mode === "total" ? "sum" : "average");
+  }
+
   const chartData = $derived(() => {
-    const groupedData = groupChartPoints(data, granularity, "average");
-    if (groupedData.length === 0) {
+    const primaryGrouped = aggregateSeries(primaryAggregationMode);
+    const comparisonGrouped = selectedComparison ? aggregateSeries(comparisonAggregationMode) : [];
+    if (primaryGrouped.length === 0) {
       return {
         points: [],
         maxValue: 0,
@@ -56,20 +76,21 @@
       };
     }
 
-    const selectedComparison = comparisonOptions.find((option) => option.key === comparisonKey);
-    const maxPrimary = Math.max(...groupedData.map((d) => Number(d.total) || 0), 0);
+    const maxPrimary = Math.max(...primaryGrouped.map((d) => Number(d[selectedPrimary.key]) || 0), 0);
     const maxComparison = selectedComparison
-      ? Math.max(...groupedData.map((d) => Number(d[selectedComparison.key]) || 0), 0)
+      ? Math.max(...comparisonGrouped.map((d) => Number(d[selectedComparison.key]) || 0), 0)
       : 0;
     const overallMax = Math.max(maxPrimary, maxComparison, 1);
     const yScale = getNiceYScale(overallMax);
 
-    const { bandWidth, getCenterX } = getBandCoordinates(groupedData.length, innerWidth, padding.left);
+    const { bandWidth, getCenterX } = getBandCoordinates(primaryGrouped.length, innerWidth, padding.left);
 
-    const points = groupedData.map((d, i) => {
+    const points = primaryGrouped.map((d, i) => {
       const x = getCenterX(i);
-      const y = padding.top + innerHeight - ((Number(d.total) || 0) / yScale.max) * innerHeight;
-      const compVal = selectedComparison ? Number(d[selectedComparison.key]) || 0 : 0;
+      const primaryValue = Number(d[selectedPrimary.key]) || 0;
+      const comparisonPoint = comparisonGrouped.find((candidate) => candidate.date === d.date) || comparisonGrouped[i];
+      const y = padding.top + innerHeight - (primaryValue / yScale.max) * innerHeight;
+      const compVal = selectedComparison ? Number(comparisonPoint?.[selectedComparison.key]) || 0 : 0;
       const compY = selectedComparison
         ? padding.top + innerHeight - (compVal / yScale.max) * innerHeight
         : chartBottom;
@@ -78,9 +99,10 @@
         ...d,
         x,
         y,
+        primary: primaryValue,
         comparison: compVal,
         comparisonY: compY,
-        total: Number(d.total) || 0,
+        total: primaryValue,
         guests: Number(d.guests) || 0,
         members: Number(d.members) || (Number(d.total) || 0) - (Number(d.guests) || 0),
         date: d.date,
@@ -101,60 +123,96 @@
   });
 
   $effect(() => {
-    if (!comparisonOptions.length || !comparisonKey) return;
-    if (!comparisonOptions.some((option) => option.key === comparisonKey)) comparisonKey = "";
+    if (!metricOptions.some((option) => option.key === primaryKey)) primaryKey = "total";
+    if (comparisonKey && !metricOptions.some((option) => option.key === comparisonKey)) comparisonKey = "";
   });
 
-  const selectedComparison = $derived(comparisonOptions.find((option) => option.key === comparisonKey));
-  const comparisonColorValue = $derived(getChartColor(selectedComparison?.color || "warning"));
-  const pointMeasureLabel = $derived(granularity === "day" ? "Actual attendance" : "Average attendance per gathering");
-  const latestMeasureLabel = $derived(granularity === "day" ? "Latest actual" : `Latest ${granularity} average`);
-  const peakMeasureLabel = $derived(granularity === "day" ? "Highest actual" : `Highest ${granularity} average`);
-  const averageAttendance = $derived(
-    data.length ? Math.round(data.reduce((sum, item) => sum + (Number(item.total) || 0), 0) / data.length) : 0,
+  // Series colours describe chart roles, not metric types. Keeping Series A
+  // primary and Series B warning guarantees a visible distinction even when
+  // Attendance is moved from the primary series into the comparison series.
+  const comparisonColorValue = $derived(getChartColor("warning"));
+  const primaryMetricLabel = $derived(selectedPrimary?.label || "Attendance");
+  const primaryMetricLower = $derived(primaryMetricLabel.toLowerCase());
+  const comparisonMetricLower = $derived((selectedComparison?.label || "comparison").toLowerCase());
+  const pointMeasureLabel = $derived(
+    granularity === "day"
+      ? primaryMetricLabel
+      : primaryAggregationMode === "total"
+        ? `Total ${primaryMetricLower}`
+        : `Average ${primaryMetricLower} per gathering`,
+  );
+  const latestMeasureLabel = $derived(
+    granularity === "day"
+      ? `Latest ${primaryMetricLower}`
+      : primaryAggregationMode === "total"
+        ? `Latest ${granularity} total ${primaryMetricLower}`
+        : `Latest ${granularity} average ${primaryMetricLower}`,
+  );
+  const peakMeasureLabel = $derived(
+    granularity === "day"
+      ? `Highest ${primaryMetricLower}`
+      : primaryAggregationMode === "total"
+        ? `Highest ${granularity} total ${primaryMetricLower}`
+        : `Highest ${granularity} average ${primaryMetricLower}`,
+  );
+  const averagePrimary = $derived(
+    data.length ? roundedAverage(data.reduce((sum, item) => sum + (Number(item[selectedPrimary?.key]) || 0), 0), data.length) : 0,
   );
   const averageComparison = $derived(
     selectedComparison && data.length
-      ? Math.round(data.reduce((sum, item) => sum + (Number(item[selectedComparison.key]) || 0), 0) / data.length)
+      ? roundedAverage(data.reduce((sum, item) => sum + (Number(item[selectedComparison.key]) || 0), 0), data.length)
       : 0,
+  );
+  const periodAttendance = $derived(
+    primaryAggregationMode === "total"
+      ? data.reduce((sum, item) => sum + (Number(item[selectedPrimary?.key]) || 0), 0)
+      : averagePrimary,
+  );
+  const periodComparison = $derived(
+    selectedComparison && comparisonAggregationMode === "total"
+      ? data.reduce((sum, item) => sum + (Number(item[selectedComparison.key]) || 0), 0)
+      : averageComparison,
+  );
+  const periodMeasureLabel = $derived(
+    primaryAggregationMode === "total" ? `Period total ${primaryMetricLower}` : `Overall average ${primaryMetricLower}`,
+  );
+  const comparisonMeasureLabel = $derived(
+    comparisonAggregationMode === "total"
+      ? `Period total ${comparisonMetricLower}`
+      : `Overall average ${comparisonMetricLower}`,
   );
 
   function handlePointClick(point, event) {
+    event.preventDefault();
     event.stopPropagation();
-    if (onPointClick && point.id) onPointClick(point);
+    if (onPointClick && point.id && granularity === "day") onPointClick(point);
+    else detail = {
+      title: point.label || point.date,
+      subtitle: `${title} · ${periodLabel}`,
+      metrics: [
+        { label: pointMeasureLabel, value: point.primary },
+        ...(selectedComparison ? [{ label: `${selectedComparison.label}${granularity === 'day' ? '' : ` (${comparisonAggregationMode})`}`, value: point.comparison }] : []),
+      ],
+    };
   }
 
-  const isClickable = $derived(() => !!onPointClick && granularity === "day");
+  const isClickable = () => true;
 </script>
 
 <div class="card-base fullscreen-chart overflow-visible p-5" aria-labelledby="attendance-trend-title">
-  <div class="mb-4 flex flex-col gap-3 pr-12 sm:flex-row sm:items-start sm:justify-between">
+  <div class="mb-4 flex flex-col gap-3 pr-12">
     <div>
       <h3 id="attendance-trend-title" class="text-base font-semibold text-foreground">{title}</h3>
       {#if data.length > 0}
         <p class="mt-0.5 text-xs text-muted-foreground">{data.length} {itemLabel} recorded</p>
       {/if}
     </div>
-    <div class="flex flex-wrap items-center justify-end gap-2">
-      <label class="sr-only" for="{title.replace(/\W+/g, '-').toLowerCase()}-granularity">Chart time scale</label>
-      <select id="{title.replace(/\W+/g, '-').toLowerCase()}-granularity" bind:value={granularity} onchange={() => (granularityManuallySet = true)} class="h-9 rounded-lg border border-border bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-primary" aria-label="Chart time scale">
-        <option value="month">Month</option>
-        <option value="week">Week</option>
-        <option value="day">Day</option>
-      </select>
-      {#if comparisonOptions.length}
-        <div class="w-52">
-          <SearchableSelect
-            id="{title.replace(/\W+/g, '-').toLowerCase()}-comparison"
-            label="Compare with"
-            ariaLabel="Compare attendance with"
-            options={[{ value: "", label: "None" }, ...comparisonOptions.map((option) => ({ value: option.key, label: option.label }))]}
-            bind:value={comparisonKey}
-            placeholder="None"
-          />
-        </div>
-      {/if}
-      <ChartViewToggle value={chartType} onChange={(next) => (chartType = next)} label="Attendance chart view" />
+    <div class="flex flex-wrap items-end gap-2 justify-start w-full">
+      <label class="block text-xs text-muted-foreground">Group by
+        <select bind:value={granularity} onchange={() => granularityManuallySet = true} class="ml-2 h-9 rounded-lg border border-border bg-input px-3 text-xs text-foreground" aria-label="Chart time scale"><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option></select>
+      </label>
+      <ChartViewToggle value={chartType} onChange={(next) => chartType = next} label="Attendance chart view" />
+      <ComparisonControls options={metricOptions} bind:primaryKey bind:comparisonKey bind:primaryMode={primaryAggregationMode} bind:comparisonMode={comparisonAggregationMode} comparisonLabel="Compare attendance with" />
       {#if onFilterClick}
         <button
           type="button"
@@ -174,16 +232,18 @@
     </div>
   </div>
 
-  {#if selectedComparison}
-    <div class="mb-3 flex items-center justify-center gap-5 text-xs">
+  {#if selectedComparison || primaryKey !== "total"}
+    <div class="mb-3 flex flex-wrap items-center justify-center gap-3 text-xs">
       <div class="flex items-center gap-1.5">
         <span class="h-2.5 w-2.5 rounded-full bg-primary shadow-sm shadow-primary/40"></span>
         <span class="font-medium text-foreground">{pointMeasureLabel}</span>
       </div>
-      <div class="flex items-center gap-1.5">
-        <span class="h-2.5 w-2.5 rounded-full shadow-sm" style="background-color: {comparisonColorValue};"></span>
-        <span class="font-medium text-foreground">{selectedComparison.label}</span>
-      </div>
+      {#if selectedComparison}
+        <div class="flex items-center gap-1.5">
+          <span class="h-2.5 w-2.5 rounded-full shadow-sm" style="background-color: {comparisonColorValue};"></span>
+          <span class="font-medium text-foreground">{granularity === "day" ? selectedComparison.label : comparisonAggregationMode === "total" ? `Total ${comparisonMetricLower}` : `Average ${comparisonMetricLower} per gathering`}</span>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -233,7 +293,7 @@
         {/each}
 
         <!-- Hover background band -->
-        {#if hoveredIndex !== null}
+        {#if hoveredIndex !== null && chartData().points[hoveredIndex]}
           {@const activePoint = chartData().points[hoveredIndex]}
           <rect
             x={activePoint.x - activePoint.bandWidth * 0.44}
@@ -379,7 +439,7 @@
               class={isClickable() ? "cursor-pointer" : ""}
               role={isClickable() ? "button" : "presentation"}
               tabindex={isClickable() ? 0 : -1}
-              aria-label={isClickable() ? `View ${itemLabel.replace(/s$/, "")} on ${point.date}` : undefined}
+              aria-label={isClickable() ? `View ${point.label || point.date} details` : undefined}
               onmouseenter={() => (hoveredIndex = i)}
               onmouseleave={() => (hoveredIndex = null)}
               onfocus={() => (hoveredIndex = i)}
@@ -482,7 +542,7 @@
               class={isClickable() ? "cursor-pointer" : ""}
               role={isClickable() ? "button" : "presentation"}
               tabindex={isClickable() ? 0 : -1}
-              aria-label={isClickable() ? `View ${itemLabel.replace(/s$/, "")} on ${point.date}` : undefined}
+              aria-label={isClickable() ? `View ${point.label || point.date} details` : undefined}
               onmouseenter={() => (hoveredIndex = i)}
               onmouseleave={() => (hoveredIndex = null)}
               onfocus={() => (hoveredIndex = i)}
@@ -519,7 +579,7 @@
       </svg>
 
       <!-- Floating Hover Tooltip -->
-      {#if hoveredIndex !== null}
+      {#if hoveredIndex !== null && chartData().points[hoveredIndex]}
         {@const point = chartData().points[hoveredIndex]}
         {@const percentX = ((point.x / chartWidth) * 100).toFixed(1)}
         <div
@@ -557,20 +617,20 @@
       {/if}
     </div>
 
-    <div class="mt-4 grid {selectedComparison ? 'grid-cols-4' : 'grid-cols-3'} border-t border-border pt-4">
+    <div class="mt-4 grid {selectedComparison ? 'grid-cols-2 gap-y-4 sm:grid-cols-4' : 'grid-cols-3'} border-t border-border pt-4">
       <div class="text-center">
         <div class="text-lg font-bold text-foreground">{chartData().points[chartData().points.length - 1].total}</div>
         <div class="text-xs text-muted-foreground">{latestMeasureLabel}</div>
       </div>
       <div class="text-center">
-        <div class="text-lg font-bold text-primary">{averageAttendance}</div>
-        <div class="text-xs text-muted-foreground">Overall average attendance</div>
+        <div class="text-lg font-bold text-primary">{periodAttendance}</div>
+        <div class="text-xs text-muted-foreground">{periodMeasureLabel}</div>
         <div class="mt-0.5 text-[10px] text-muted-foreground">{periodLabel}</div>
       </div>
       {#if selectedComparison}
         <div class="text-center">
-          <div class="text-lg font-bold" style="color: {comparisonColorValue};">{averageComparison}</div>
-          <div class="text-xs text-muted-foreground">Overall average {selectedComparison.label.toLowerCase()}</div>
+          <div class="text-lg font-bold" style="color: {comparisonColorValue};">{periodComparison}</div>
+          <div class="text-xs text-muted-foreground">{comparisonMeasureLabel}</div>
           <div class="mt-0.5 text-[10px] text-muted-foreground">{periodLabel}</div>
         </div>
       {/if}
@@ -587,3 +647,5 @@
     </div>
   {/if}
 </div>
+
+<ChartPointDetails bind:detail />

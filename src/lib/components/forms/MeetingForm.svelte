@@ -84,6 +84,7 @@
     } else if (attendeeFilter === "guests") {
       result = result.filter(
         (person) =>
+          person.member_status === "contact" ||
           person.member_status === "guest" ||
           person.member_status === "visitor" ||
           (!person.member_status && person.contact_date),
@@ -260,7 +261,9 @@
 
   function isGuest(person) {
     return (
-      person.member_status === "guest" || person.member_status === "visitor"
+      person.member_status === "contact" ||
+      person.member_status === "guest" ||
+      person.member_status === "visitor"
     );
   }
 
@@ -568,7 +571,7 @@
                 type="button"
                 onclick={() => (attendeeFilter = "roster")}
                 class="rounded-full px-3 py-1.5 text-xs font-medium {attendeeFilter === 'roster' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}"
-              >Roster ({rosterIds.size})</button>
+              >Expected ({rosterIds.size})</button>
             {/if}
             <button
               type="button"
@@ -579,7 +582,7 @@
               type="button"
               onclick={() => (attendeeFilter = "guests")}
               class="rounded-full px-3 py-1.5 text-xs font-medium {attendeeFilter === 'guests' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}"
-            >Guests</button>
+            >Guests &amp; outreach contacts</button>
             <button
               type="button"
               onclick={() => (attendeeFilter = "all")}
@@ -593,14 +596,14 @@
 
         {#if recordingMode === "programme" && rosterIds.size > 0 && attendeeFilter === "roster"}
           <p class="rounded-lg bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
-            The roster is the expected group for {selectedProgram()?.name}. Only the people you check below are counted as present.
+            These are the regular people expected for {selectedProgram()?.name}. They are preloaded here each time; only people you mark are counted as present.
           </p>
         {/if}
 
         <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
           <div class="flex gap-2">
             <button type="button" class="font-medium text-primary hover:underline" onclick={selectVisible}>
-              Select visible
+              {attendeeFilter === "roster" ? "Mark expected present" : "Select visible"}
             </button>
             <span class="text-border">•</span>
             <button type="button" class="font-medium text-muted-foreground hover:text-foreground" onclick={clearAttendance}>
@@ -612,7 +615,7 @@
             class="rounded-lg bg-secondary px-3 py-1.5 font-medium text-foreground hover:bg-secondary/80"
             onclick={() => (showQuickAdd = !showQuickAdd)}
           >
-            + Add a new guest
+            + Add a new attendee
           </button>
         </div>
 
@@ -654,8 +657,8 @@
                       {person.first_name} {person.last_name}
                     </p>
                     <p class="text-xs capitalize text-muted-foreground">
-                      {isGuest(person) ? "Guest" : person.member_status || "Guest"}
-                      {#if recordingMode === "programme" && rosterIds.has(String(person.id))} · Programme roster{/if}
+                      {person.member_status === "contact" ? "Outreach Contact" : isGuest(person) ? "Guest" : person.member_status || "Guest"}
+                      {#if recordingMode === "programme" && rosterIds.has(String(person.id))} · Regularly expected{/if}
                     </p>
                   </div>
                 </label>

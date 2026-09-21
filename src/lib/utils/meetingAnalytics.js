@@ -1,3 +1,4 @@
+import { roundedAverage } from './comparisonMetrics.js';
 import { isHeldMeeting } from "./reportingMetrics.js";
 
 const PRESENT_STATUSES = new Set([undefined, null, "", "present"]);
@@ -177,7 +178,7 @@ export function filterMeetingRecords(
 
     const hasNamedGuests = ids.some((personId) => {
       const status = peopleMap.get(personId)?.member_status;
-      return status === "guest" || status === "visitor";
+      return status === "contact" || status === "guest" || status === "visitor";
     });
     const hasUnnamedGuests = Number(meeting.unnamed_guests_count || 0) > 0;
     if (filters.guestRecording === "named" && !hasNamedGuests) return false;
@@ -321,7 +322,7 @@ export function buildMeetingAnalytics(meetings, programs = [], now = new Date())
         id: group.id,
         label: group.label,
         value: group.meetings.length
-          ? Math.round(total / group.meetings.length)
+          ? roundedAverage(total, group.meetings.length)
           : 0,
         total,
         meetingCount: group.meetings.length,
@@ -353,7 +354,7 @@ export function buildMeetingAnalytics(meetings, programs = [], now = new Date())
       held: sorted.length,
       totalAttendance,
       uniquePeople: allPersonIds.length,
-      average: sorted.length ? Math.round(totalAttendance / sorted.length) : 0,
+      average: sorted.length ? roundedAverage(totalAttendance, sorted.length) : 0,
       awaiting: (meetings || []).filter(
         (meeting) => meeting.status === "attendance_needed",
       ).length,

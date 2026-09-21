@@ -40,17 +40,59 @@ demo for real church information.
 The app rejects demo mode for staging and production, so it cannot silently be
 deployed as another environment's dataset.
 
+## Rehearsal with a production-data copy
+
+Use rehearsal when a change needs realistic church data without writing to the
+live database. The dedicated deployment is `standing-mongoose-699` in the
+`church-tracker-staging` project. It contains a full copy of production data,
+including private records, so access must remain limited to approved church
+testers.
+
+Refresh it from the current live database with:
+
+```sh
+npm run rehearsal:refresh
+```
+
+The command verifies the named live and rehearsal deployments, creates a fresh
+file-inclusive live backup, deploys the current Convex schema/functions to the
+rehearsal target, replaces only the explicitly disposable rehearsal data, then
+exports rehearsal again and checks its table counts against the live snapshot.
+It restores `.env.local` after Convex updates it during the backend push.
+
+For local browser testing, keep an untracked `.env.rehearsal.local` containing:
+
+```text
+VITE_APP_ENV=staging
+VITE_APP_MODE=live
+VITE_CONVEX_URL=https://standing-mongoose-699.convex.cloud
+```
+
+Then run `npm run dev:rehearsal`. Vite continues to load the Auth0 public client
+configuration from the normal untracked local environment.
+
 ## Preview and release
 
+- Run `npm run verify` before review. A GitHub Actions workflow has been prepared
+  to repeat frontend tests, backend tests, backend TypeScript, the production
+  build, coverage and the isolated Playwright critical workflow on pull requests
+  and `main`, but it is not active until GitHub accepts the workflow file.
 - A feature branch gets a Vercel preview only after Vercel is configured for it.
   Set `VITE_APP_ENV=staging`, `VITE_APP_MODE=live`, and the *staging* Convex URL
   in Vercel Preview environment variables.
 - Test the generated preview against staging; do not seed or reset it unless its
   deployment has been explicitly marked disposable.
-- Merge an approved change to `main` only after preview checks pass. Vercel
-  Production variables must be `VITE_APP_ENV=production`, `VITE_APP_MODE=live`,
-  and the production Convex URL. Deploy the corresponding Convex functions to
-  that production deployment as part of the release procedure.
+- Every hosted release must start from a clean source commit. Record the exact
+  `git rev-parse HEAD` value, Vercel deployment identifier, and Convex deployment
+  name in the release handoff. Do not publish a dirty working tree directly;
+  that produces a deployment which cannot be reproduced from source control.
+- Merge an approved change to `main` only after preview and the available
+  verification checks pass. Once the GitHub workflow is accepted, its CI check
+  must also pass before merge.
+  Vercel Production variables must be `VITE_APP_ENV=production`,
+  `VITE_APP_MODE=live`, and the production Convex URL. Deploy the corresponding
+  Convex functions from that same reviewed source commit as part of the release
+  procedure.
 
 Vercel configuration files cannot create or verify hosted environment variables.
 Before the first preview or production release, a project administrator must set

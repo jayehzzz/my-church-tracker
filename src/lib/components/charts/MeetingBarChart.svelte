@@ -1,171 +1,45 @@
-<!--
-  MeetingBarChart.svelte
-  Accessible horizontal comparison chart for programme averages and roster rates.
--->
-
 <script>
-  let {
-    data = [],
-    title = "Programme comparison",
-    subtitle = "",
-    unit = "",
-    color = "primary",
-    onBarClick = null,
-    onFilterClick = null,
-    activeFilterCount = 0,
-    metricOptions = [],
-    periodLabel = "Selected period",
-  } = $props();
-
-  let hoveredIndex = $state(null);
-  let metricKey = $state("value");
-
-  const chartWidth = 100;
-  const labelWidth = 31;
-  const valueWidth = 10;
-  const rowHeight = 13;
-  const topPadding = 4;
-  const selectedMetric = $derived(metricOptions.find((option) => option.key === metricKey));
-  const visibleData = $derived((data || []).slice(0, 8).map((item) => ({
-    ...item,
-    value: Number(item[metricKey] ?? item.value) || 0,
-  })));
-  const displayUnit = $derived(selectedMetric?.unit ?? unit);
-  const chartHeight = $derived(
-    Math.max(42, topPadding * 2 + visibleData.length * rowHeight),
-  );
-  const maxValue = $derived(
-    Math.max(...visibleData.map((item) => Number(item.value) || 0), 1),
-  );
-  const barColor = $derived(
-    color === "success"
-      ? "hsl(var(--success))"
-      : color === "warning"
-        ? "hsl(var(--warning))"
-        : "hsl(var(--primary))",
-  );
-
-  $effect(() => {
-    if (metricOptions.length && !metricOptions.some((option) => option.key === metricKey)) {
-      metricKey = metricOptions[0].key;
-    }
-  });
-
-  function barWidth(value) {
-    return (
-      (Math.max(0, Number(value) || 0) / maxValue) *
-      (chartWidth - labelWidth - valueWidth)
-    );
+  import ComparisonControls from './ComparisonControls.svelte';
+  import ChartPointDetails from './ChartPointDetails.svelte';
+  import { roundedAverage } from '$lib/utils/comparisonMetrics.js';
+  let {data=[],title='Programme comparison',subtitle='',unit='',onBarClick=null,onFilterClick=null,activeFilterCount=0,metricOptions=[],periodLabel='Selected period'}=$props();
+  let primaryKey=$state('attendance'),comparisonKey=$state('');
+  let primaryMode=$state('average'),comparisonMode=$state('total');
+  let showAll=$state(false),detail=$state(null);
+  const options=$derived([
+    {key:'attendance',label:'Attendance',averageLabel:'Average per meeting'},
+    ...metricOptions.filter(option=>!['value','total'].includes(option.key)).map(option=>({...option,averageAvailable:false,averageLabel:'Average not applicable'}))
+  ]);
+  const selections=$derived([{key:primaryKey,mode:primaryMode,role:'A'},...(comparisonKey?[{key:comparisonKey,mode:comparisonMode,role:'B'}]:[])]);
+  function measure(item,selection){
+    if(selection.key==='attendance')return selection.mode==='total'?item.total:roundedAverage(item.total,item.meetingCount);
+    return item[selection.key];
   }
-
-  function activate(item, event) {
-    event.stopPropagation();
-    onBarClick?.(item);
+  function caption(selection){return `${options.find(option=>option.key===selection.key)?.label || ''} · ${selection.mode==='average'?'average per meeting':'actual count'}`;}
+  const visibleData=$derived(showAll?data:data.slice(0,8));
+  const maximum=$derived(Math.max(1,...visibleData.flatMap(item=>selections.map(selection=>measure(item,selection) || 0))));
+  function inspect(item){
+    if(onBarClick)onBarClick({...item,value:measure(item,selections[0])});
+    else detail={title:item.label,subtitle:periodLabel,metrics:selections.map(selection=>({label:caption(selection),value:measure(item,selection)}))};
   }
 </script>
-
-<div class="card-base overflow-visible p-5">
-  <div class="mb-4 flex items-start justify-between gap-3 pr-12">
-    <div>
-      <h3 class="text-sm font-semibold text-foreground">{title}</h3>
-      {#if subtitle}
-        <p class="mt-1 text-xs text-muted-foreground">{subtitle}</p>
-      {/if}
-    </div>
-    <div class="flex items-center gap-2">
-      {#if hoveredIndex !== null}
-        <span class="rounded-full bg-secondary px-2.5 py-1 text-xs font-medium text-foreground">
-          {visibleData[hoveredIndex].value}{displayUnit}
-        </span>
-      {/if}
-      {#if onFilterClick}
-        <button
-          type="button"
-          onclick={() => onFilterClick(title)}
-          class="relative flex h-8 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-          aria-label={`Filter ${title}`}
-        >
-          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h18l-7 9v6l-4 2v-8L3 4z" />
-          </svg>
-          Filter
-          {#if activeFilterCount > 0}
-            <span class="rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none text-primary-foreground">{activeFilterCount}</span>
-          {/if}
-        </button>
-      {/if}
-      {#if metricOptions.length}
-        <label class="sr-only" for="{title.replace(/\W+/g, '-').toLowerCase()}-metric">Comparison measure</label>
-        <select id="{title.replace(/\W+/g, '-').toLowerCase()}-metric" bind:value={metricKey} class="h-9 rounded-lg border border-border bg-input px-3 text-xs font-semibold text-foreground shadow-sm focus:border-primary" aria-label="Comparison measure">
-          {#each metricOptions as option}<option value={option.key}>{option.label}</option>{/each}
-        </select>
-      {/if}
-    </div>
-  </div>
-
-  {#if visibleData.length}
-    <svg
-      viewBox="0 0 {chartWidth} {chartHeight}"
-      class="chart-svg w-full overflow-visible"
-      style="height: {Math.max(180, visibleData.length * 40)}px"
-      role="img"
-      aria-label={title}
-    >
-      {#each visibleData as item, index}
-        {@const y = topPadding + index * rowHeight}
-        {@const width = barWidth(item.value)}
-        <text
-          x="0"
-          y={y + 6.1}
-          class="fill-muted-foreground text-[3.4px]"
-        >
-          {item.label.length > 20 ? `${item.label.slice(0, 18)}…` : item.label}
-        </text>
-        <rect
-          x={labelWidth}
-          y={y + 1.5}
-          width={chartWidth - labelWidth - valueWidth}
-          height="6"
-          rx="2"
-          class="fill-secondary/50"
-        />
-        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-        <rect
-          x={labelWidth}
-          y={y + 1.5}
-          width={width}
-          height="6"
-          rx="2"
-          fill={barColor}
-          fill-opacity={hoveredIndex === index ? 1 : 0.78}
-          class={onBarClick ? "cursor-pointer" : ""}
-          role={onBarClick ? "button" : "presentation"}
-          tabindex={onBarClick ? 0 : -1}
-          aria-label={onBarClick ? `${item.label}: ${item.value}${displayUnit}. View people.` : undefined}
-          onmouseenter={() => (hoveredIndex = index)}
-          onmouseleave={() => (hoveredIndex = null)}
-          onfocus={() => (hoveredIndex = index)}
-          onblur={() => (hoveredIndex = null)}
-          onclick={(event) => activate(item, event)}
-          onkeydown={(event) =>
-            (event.key === "Enter" || event.key === " ") && activate(item, event)}
-        />
-        <text
-          x={Math.min(labelWidth + width + 1.5, chartWidth - valueWidth + 1)}
-          y={y + 6.1}
-          class="fill-foreground text-[3.5px] font-semibold"
-        >
-          {item.value}{displayUnit}
-        </text>
+<section class="card-base p-5">
+  <header class="mb-4 flex flex-wrap items-start justify-between gap-3 pr-12">
+    <div><h3 class="text-base font-semibold text-foreground">{title}</h3><p class="mt-1 text-xs text-muted-foreground">{subtitle}</p><p class="mt-1 text-xs text-muted-foreground">{periodLabel}</p></div>
+    {#if onFilterClick}<button type="button" aria-label={`Filter ${title}`} class="rounded-lg border border-border px-3 py-2 text-xs" onclick={()=>onFilterClick(title)}>Filter{activeFilterCount?` (${activeFilterCount})`:''}</button>{/if}
+  </header>
+  <ComparisonControls {options} bind:primaryKey bind:comparisonKey bind:primaryMode bind:comparisonMode averageLabel="Average per meeting" />
+  <div class="my-3 flex flex-wrap gap-3 text-xs text-muted-foreground">{#each selections as selection}<span class:text-primary={selection.role==='A'} class:text-warning={selection.role==='B'}>Series {selection.role}: {caption(selection)}</span>{/each}</div>
+  {#each visibleData as item}
+    <button type="button" class="mb-2 block w-full rounded-lg p-2 text-left hover:bg-secondary/30 focus-visible:outline focus-visible:outline-primary" aria-label={`${item.label}. View people and comparison details.`} onclick={()=>inspect(item)}>
+      <span class="mb-2 block text-sm font-medium">{item.label}</span>
+      {#each selections as selection}
+        {@const value=measure(item,selection)}
+        <span class="mb-2 flex items-center gap-3 text-xs"><span class="w-3 text-muted-foreground">{selection.role}</span><span class="h-2 flex-1 overflow-hidden rounded-full bg-secondary"><span class="block h-full rounded-full" class:bg-primary={selection.role==='A'} class:bg-warning={selection.role==='B'} style={`width:${(value || 0)/maximum*100}%`}></span></span><strong class="min-w-12 text-right">{value ?? 'Unavailable'}{unit}</strong></span>
       {/each}
-    </svg>
-    <div class="mt-3 flex items-center justify-between border-t border-border pt-3 text-xs text-muted-foreground">
-      <span>{selectedMetric?.label || title} · {periodLabel}</span>
-      {#if onBarClick}<span>Click a bar to see people</span>{/if}
-    </div>
-  {:else}
-    <div class="flex h-48 items-center justify-center">
-      <p class="text-sm italic text-muted-foreground">No matching data</p>
-    </div>
-  {/if}
-</div>
+    </button>
+  {:else}<p class="py-10 text-center text-sm text-muted-foreground">No matching data</p>{/each}
+  {#if data.length>8}<button type="button" class="mt-3 text-xs text-primary" onclick={()=>showAll=!showAll}>{showAll?'Show fewer':`Show all ${data.length} meeting types`}</button>{/if}
+  <p class="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">Attendance average = total attendance ÷ held meetings for each programme. Unique people and meetings held are counts.</p>
+</section>
+<ChartPointDetails bind:detail />

@@ -1,3 +1,4 @@
+import { roundedAverage } from '$lib/utils/comparisonMetrics.js';
 /**
  * Dashboard Service
  * Combines church health reporting with the lightweight activity feed used by
@@ -5,9 +6,11 @@
  */
 import * as peopleService from "./peopleService.js";
 import * as servicesService from "./servicesService.js";
+import * as attendanceService from "./attendanceService.js";
 import * as evangelismService from "./evangelismService.js";
 import * as visitationsService from "./visitationsService.js";
 import * as meetingsService from "./meetingsService.js";
+import { serviceAttendanceMetrics, summarizeServicePeriod } from "$lib/utils/serviceAnalytics.js";
 
 function parseDate(value) {
   if (!value) return null;
@@ -63,7 +66,7 @@ function attendanceCount(service) {
 
 function averageAttendance(services) {
   if (!services.length) return 0;
-  return Math.round(services.reduce((sum, service) => sum + attendanceCount(service), 0) / services.length);
+  return roundedAverage(services.reduce((sum, service) => sum + attendanceCount(service), 0), services.length);
 }
 
 function percentChange(current, previous) {
@@ -79,7 +82,7 @@ export async function getDashboardKPIs(dateRange) {
   const prior = previousRange(dateRange);
   const hasRange = dateRange?.startDate && dateRange?.endDate;
 
-  const [membersResult, leadersResult, currentResult, previousResult] = await Promise.all([
+  const [membersResult, leadersResult, currentResult, previousResult, attendanceResult] = await Promise.all([
     peopleService.getByStatus("member"),
     peopleService.getByStatus("leader"),
     hasRange
@@ -88,19 +91,29 @@ export async function getDashboardKPIs(dateRange) {
     prior
       ? servicesService.getByDateRange(prior.startDate, prior.endDate)
       : Promise.resolve({ data: [] }),
+    attendanceService.getAll(),
   ]);
 
   const currentServices = (currentResult.data || []).filter((service) => isCompleted(service, "service_date"));
   const previousServices = (previousResult.data || []).filter((service) => isCompleted(service, "service_date"));
   const currentSundays = currentServices.filter(isSundayService);
   const previousSundays = previousServices.filter(isSundayService);
+  const attendanceRows = attendanceResult.data || [];
 
-  const attendance = averageAttendance(currentSundays);
-  const previousAttendance = averageAttendance(previousSundays);
-  const guests = currentServices.reduce((sum, service) => sum + (Number(service.guests_count) || 0), 0);
-  const previousGuests = previousServices.reduce((sum, service) => sum + (Number(service.guests_count) || 0), 0);
-  const salvations = currentServices.reduce((sum, service) => sum + (Number(service.salvation_decisions) || 0), 0);
-  const previousSalvations = previousServices.reduce((sum, service) => sum + (Number(service.salvation_decisions) || 0), 0);
+  const currentSundaySummary = summarizeServicePeriod(currentSundays, attendanceRows);
+  const previousSundaySummary = summarizeServicePeriod(previousSundays, attendanceRows);
+  const currentSummary = summarizeServicePeriod(currentServices, attendanceRows);
+  const previousSummary = summarizeServicePeriod(previousServices, attendanceRows);
+  const attendance = currentSundaySummary.serviceCount
+    ? roundedAverage(currentSundaySummary.totalAttendance, currentSundaySummary.serviceCount)
+    : 0;
+  const previousAttendance = previousSundaySummary.serviceCount
+    ? roundedAverage(previousSundaySummary.totalAttendance, previousSundaySummary.serviceCount)
+    : 0;
+  const guests = currentSummary.guestAttendance;
+  const previousGuests = previousSummary.guestAttendance;
+  const salvations = currentSummary.decisions;
+  const previousSalvations = previousSummary.decisions;
   const churchFamily = (membersResult.data?.length || 0) + (leadersResult.data?.length || 0);
 
   return {
@@ -119,11 +132,11 @@ export async function getDashboardKPIs(dateRange) {
       },
       {
         id: "guests",
-        title: "Guests welcomed",
+        title: "Guest attendances",
         value: guests,
         trend: percentChange(guests, previousGuests),
         format: "number",
-        description: "Across completed services",
+        description: "Includes first-timer visits",
         href: "/services",
         icon: "user-plus",
         variant: "default",
@@ -135,7 +148,7 @@ export async function getDashboardKPIs(dateRange) {
         trend: percentChange(salvations, previousSalvations),
         format: "number",
         description: "Recorded during services",
-        href: "/evangelism",
+        href: "/services",
         icon: "heart",
         variant: "success",
       },
@@ -145,7 +158,7 @@ export async function getDashboardKPIs(dateRange) {
         value: churchFamily,
         trend: null,
         format: "number",
-        description: "Active members & leaders",
+        description: "Members, including leaders",
         href: "/people",
         icon: "users",
         variant: "default",
@@ -160,9 +173,13 @@ export async function getDashboardKPIs(dateRange) {
  */
 export async function getAttendanceChartData(dateRange) {
   const hasRange = dateRange?.startDate && dateRange?.endDate;
-  const result = hasRange
-    ? await servicesService.getByDateRange(dateRange.startDate, dateRange.endDate)
-    : await servicesService.getAll();
+  const [result, attendanceResult] = await Promise.all([
+    hasRange
+      ? servicesService.getByDateRange(dateRange.startDate, dateRange.endDate)
+      : servicesService.getAll(),
+    attendanceService.getAll(),
+  ]);
+  const attendanceRows = attendanceResult.data || [];
   let services = (result.data || [])
     .filter(isSundayService)
     .filter((service) => isCompleted(service, "service_date"))
@@ -186,52 +203,22 @@ export async function getAttendanceChartData(dateRange) {
 
   if (!services.length) return { data: [], contextLabel, isFallback };
 
-  const start = parseDate(dateRange?.startDate) || parseDate(services[0].service_date);
-  const end = parseDate(dateRange?.endDate) || parseDate(services[services.length - 1].service_date);
-  const days = start && end ? Math.round((end - start) / 86400000) + 1 : 0;
-
-  if (days <= 120 || isFallback) {
-    return {
-      contextLabel,
-      isFallback,
-      data: services.map((service) => ({
-        date: service.service_date,
-        label: parseDate(service.service_date)?.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) || service.service_date,
-        attendance: attendanceCount(service),
-        guests: Number(service.guests_count) || 0,
-      })),
-    };
-  }
-
-  const months = new Map();
-  for (const service of services) {
-    const date = parseDate(service.service_date);
-    if (!date) continue;
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-    const entry = months.get(key) || {
-      key,
-      label: date.toLocaleDateString("en-GB", { month: "short", year: "2-digit" }),
-      attendance: 0,
-      guests: 0,
-      count: 0,
-    };
-    entry.attendance += attendanceCount(service);
-    entry.guests += Number(service.guests_count) || 0;
-    entry.count += 1;
-    months.set(key, entry);
-  }
-
   return {
     contextLabel,
     isFallback,
-    data: [...months.values()]
-      .sort((a, b) => a.key.localeCompare(b.key))
-      .map((item) => ({
-        date: `${item.key}-01`,
-        label: item.label,
-        attendance: Math.round(item.attendance / item.count),
-        guests: item.guests,
-      })),
+    data: services.map((service) => {
+      const metrics = serviceAttendanceMetrics(service, attendanceRows);
+      return {
+        id: service._id || service.id || null,
+        date: service.service_date,
+        label: parseDate(service.service_date)?.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) || service.service_date,
+        attendance: metrics.totalAttendance,
+        guests: metrics.guestAttendance,
+        firstTimers: metrics.firstTimers,
+        decisions: metrics.decisions,
+        tithers: metrics.tithers,
+      };
+    }),
   };
 }
 
@@ -254,18 +241,18 @@ export async function getRecentActivities(limit = 50) {
     const name = person
       ? `${person.first_name} ${person.last_name}`
       : [contact.first_name, contact.last_name].filter(Boolean).join(" ") || contact.person_name || "Unknown contact";
-    const isSalvation = contact.salvation_decision || contact.converted;
+    const isSalvation = Boolean(contact.outreach_salvation_decision ?? contact.salvation_decision);
     activities.push({
       id: `evangelism-${contact._id || contact.id}`,
       type: isSalvation ? "salvation" : "contact",
-      description: isSalvation ? `${name} made a salvation decision` : `${name} was contacted`,
+      description: isSalvation ? `${name} was saved during outreach` : `${name} was contacted`,
       person: name,
       personId: person?._id || person?.id || contact._id || contact.id || null,
       action: isSalvation
-        ? "Salvation decision recorded"
+        ? "Saved on outreach"
         : `Response: ${String(contact.response || "Pending").replace(/_/g, " ")}`,
-      timestamp: contact.contact_date || contact.created_at,
-      statusOrOutcome: isSalvation ? "Salvation decision" : contact.response || contact.status || "Pending",
+      timestamp: isSalvation ? (contact.outreach_salvation_date || contact.contact_date || contact.created_at) : (contact.contact_date || contact.created_at),
+      statusOrOutcome: isSalvation ? "Saved on outreach" : contact.response || contact.status || "Pending",
       notes: contact.notes || (Array.isArray(contact.comments) ? contact.comments.join(", ") : null),
       phone: person?.phone || contact.phone || null,
       email: person?.email || contact.email || null,

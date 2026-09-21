@@ -65,7 +65,7 @@ async function historyCounts(ctx: any, personId: any) {
         ctx.db.query("contact_collectors").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
         ctx.db.query("service_register_entries").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
         ctx.db.query("attendance_visit_evidence").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
-        ctx.db.query("church_import_rows").collect().then((rows: any[]) => rows.filter(row => row.target_person_id === personId)),
+        ctx.db.query("church_import_rows").withIndex("by_target_person", (q: any) => q.eq("target_person_id", personId)).collect(),
     ]);
 
     return {
@@ -365,11 +365,18 @@ async function mergeSafety(ctx: any, sourceId: any, targetId: any) {
     if (source.merged_into_id) throw new Error("This duplicate has already been merged");
     if (target.member_status === "archived") throw new Error("Choose an active record to retain");
 
-    const [sourceReferences, targetReferences, allAssignments, allTasks] = await Promise.all([
+    const [
+        sourceReferences,
+        targetReferences,
+        assignmentsCreatedBySource,
+        tasksCreatedBySource,
+        tasksCompletedBySource,
+    ] = await Promise.all([
         historyCounts(ctx, sourceId),
         historyCounts(ctx, targetId),
-        ctx.db.query("follow_up_assignments").collect(),
-        ctx.db.query("follow_up_tasks").collect(),
+        ctx.db.query("follow_up_assignments").withIndex("by_assigned_by", (q: any) => q.eq("assigned_by_id", sourceId)).collect(),
+        ctx.db.query("follow_up_tasks").withIndex("by_created_by", (q: any) => q.eq("created_by_id", sourceId)).collect(),
+        ctx.db.query("follow_up_tasks").withIndex("by_completed_by", (q: any) => q.eq("completed_by_id", sourceId)).collect(),
     ]);
     const conflicts: string[] = [];
     const hasSame = (sourceRows: any[], targetRows: any[], key: (row: any) => string) => {
@@ -416,8 +423,9 @@ async function mergeSafety(ctx: any, sourceId: any, targetId: any) {
         ...sourceReferences.tasksAssigned,
         ...sourceReferences.commitmentsLed,
         ...sourceReferences.plansLed,
-        ...allAssignments.filter((row: any) => row.assigned_by_id === sourceId),
-        ...allTasks.filter((row: any) => row.created_by_id === sourceId || row.completed_by_id === sourceId),
+        ...assignmentsCreatedBySource,
+        ...tasksCreatedBySource,
+        ...tasksCompletedBySource,
     ];
     if (sourceLeadershipReferences.length && target.member_status !== "leader") {
         conflicts.push("The retained record is not a leader but the duplicate owns leadership history.");
@@ -427,8 +435,9 @@ async function mergeSafety(ctx: any, sourceId: any, targetId: any) {
         source,
         target,
         sourceReferences,
-        allAssignments,
-        allTasks,
+        assignmentsCreatedBySource,
+        tasksCreatedBySource,
+        tasksCompletedBySource,
         conflicts,
         counts: Object.fromEntries(
             Object.entries(sourceReferences).map(([name, records]) => [name, (records as any[]).length]),
@@ -503,9 +512,9 @@ export const mergeReviewed = mutationFor("people:mergeReviewed")({
         await patchAll(refs.visitEvidence, { person_id: args.targetId });
         await patchAll(refs.importRows, { target_person_id: args.targetId });
         await patchAll(refs.supportedAgreements, { supporting_person_id: args.targetId });
-        await patchAll(review.allAssignments.filter((row: any) => row.assigned_by_id === args.sourceId), { assigned_by_id: args.targetId });
-        await patchAll(review.allTasks.filter((row: any) => row.created_by_id === args.sourceId), { created_by_id: args.targetId });
-        await patchAll(review.allTasks.filter((row: any) => row.completed_by_id === args.sourceId), { completed_by_id: args.targetId });
+        await patchAll(review.assignmentsCreatedBySource, { assigned_by_id: args.targetId });
+        await patchAll(review.tasksCreatedBySource, { created_by_id: args.targetId });
+        await patchAll(review.tasksCompletedBySource, { completed_by_id: args.targetId });
 
         await ctx.db.patch(args.sourceId, {
             member_status: "archived",

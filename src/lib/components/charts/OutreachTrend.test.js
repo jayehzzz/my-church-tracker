@@ -35,9 +35,9 @@ describe("OutreachTrend", () => {
 
     // Total contacts footer
     expect(getByText("31")).toBeDefined();
-    expect(getAllByText("10").length).toBeGreaterThan(0); // Avg/month and/or Y-axis
+    expect(getAllByText("10.3").length).toBeGreaterThan(0); // Avg/month and/or Y-axis
     expect(getAllByText("15").length).toBeGreaterThan(0); // Peak month and/or bar label
-    expect(getByText("Average monthly contacts").previousElementSibling?.classList.contains("text-primary")).toBe(true);
+    expect(getByText("Average monthly contacts reached").previousElementSibling?.classList.contains("text-primary")).toBe(true);
   });
 
   it("can switch to line chart view", async () => {
@@ -67,8 +67,8 @@ describe("OutreachTrend", () => {
     const select = getByLabelText("Compare outreach with");
     await fireEvent.change(select, { target: { value: "saved" } });
 
-    expect(getByText("Monthly contacts reached")).toBeDefined();
-    expect(getAllByText("Salvation decisions").length).toBeGreaterThan(1);
+    expect(getByText("Contacts reached · actual monthly count")).toBeDefined();
+    expect(getAllByText("Salvation decisions · period average per month").length).toBeGreaterThan(0);
   });
 
   it("displays empty state when data is empty", () => {
@@ -80,4 +80,13 @@ describe("OutreachTrend", () => {
 
     expect(getByText("No outreach outcomes recorded for this period.")).toBeDefined();
   });
+});
+
+it('compares monthly actuals with the same metric average including zero months and drills into raw records', async () => {
+  const points=[];
+  const {getByLabelText,getByRole}=render(OutreachTrend,{data:[{year:2025,month:'7',count:31}],periodRange:{startDate:'2025-07-01',endDate:'2025-09-30'},onPointClick:point=>points.push(point)});
+  await fireEvent.change(getByLabelText('Compare outreach with'),{target:{value:'count'}});
+  const average=getByRole('button',{name:'Jul: 31 Contacts reached · actual monthly count, 10.3 Contacts reached · period average per month'});
+  await fireEvent.click(average);
+  expect(points[0]).toMatchObject({year:2025,month:'7',count:31});
 });

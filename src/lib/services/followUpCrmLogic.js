@@ -204,6 +204,14 @@ function isMemberOrLeader(person) {
   return ['member', 'leader'].includes(normalise(person?.member_status));
 }
 
+function hasRecordedAttendance(person) {
+  return (
+    normalise(person?.member_status) === 'guest' ||
+    Boolean(person?.first_visit_date || person?.attended_church) ||
+    Number(person?.attended_meetings || person?.promises_kept || 0) > 0
+  );
+}
+
 /**
  * Return the coming Sunday (today when the supplied date is already Sunday).
  *
@@ -520,8 +528,8 @@ export function sortTasks(tasks = [], today = new Date()) {
  *
  * Regular members/leaders form the baseline and are assumed present unless an
  * away plan exists. Irregular members/leaders need an explicit confirmed plan.
- * Guests/prospects need an explicit, unresolved Yes commitment. Each person is
- * counted once even if duplicate plans/commitments exist.
+ * Outreach contacts and guests need an explicit, unresolved Yes commitment.
+ * Each person is counted once even if duplicate plans/commitments exist.
  */
 export function buildAttendanceForecast({
   people = [],
@@ -552,7 +560,9 @@ export function buildAttendanceForecast({
   const regularExpectedPeople = [];
   const confirmedRegularPeople = [];
   const confirmedIrregularPeople = [];
-  const confirmedGuestPeople = [];
+  const confirmedNonMemberPeople = [];
+  const confirmedOutreachPeople = [];
+  const confirmedReturningGuestPeople = [];
   const expectedById = new Map();
 
   for (const [id, person] of peopleById) {
@@ -575,7 +585,7 @@ export function buildAttendanceForecast({
     }
   }
 
-  const confirmedGuestIds = new Set();
+  const confirmedNonMemberIds = new Set();
   for (const commitment of commitments) {
     if (formatCalendarDate(calendarDate(serviceDateFrom(commitment))) !== targetDate) continue;
     if (!isExplicitPendingYes(commitment)) continue;
@@ -587,8 +597,12 @@ export function buildAttendanceForecast({
     if (!person || isArchived(person) || isMemberOrLeader(person)) continue;
     if (planDisposition(plansByPerson.get(id)) === 'away') continue;
 
-    if (!confirmedGuestIds.has(id)) confirmedGuestPeople.push(person);
-    confirmedGuestIds.add(id);
+    if (!confirmedNonMemberIds.has(id)) {
+      confirmedNonMemberPeople.push(person);
+      if (hasRecordedAttendance(person)) confirmedReturningGuestPeople.push(person);
+      else confirmedOutreachPeople.push(person);
+    }
+    confirmedNonMemberIds.add(id);
     expectedById.set(id, person);
   }
 
@@ -599,10 +613,15 @@ export function buildAttendanceForecast({
     regular_baseline: regularBaselinePeople.length,
     known_away: knownAwayPeople.length,
     confirmed_irregular: confirmedIrregularPeople.length,
-    confirmed_guests: confirmedGuestPeople.length,
+    confirmed_outreach_contacts: confirmedOutreachPeople.length,
+    confirmed_returning_guests: confirmedReturningGuestPeople.length,
+    confirmed_non_members: confirmedNonMemberPeople.length,
+    // Compatibility alias for existing backend/UI callers. This has historically
+    // represented every non-member with a pending Yes, not only returning guests.
+    confirmed_guests: confirmedNonMemberPeople.length,
     confirmed_regular: confirmedRegularPeople.length,
     confirmed_total:
-      confirmedRegularPeople.length + confirmedIrregularPeople.length + confirmedGuestPeople.length,
+      confirmedRegularPeople.length + confirmedIrregularPeople.length + confirmedNonMemberPeople.length,
     expected_people: expectedPeople,
     expected_person_ids: [...expectedById.keys()],
     regular_baseline_people: regularBaselinePeople,
@@ -610,7 +629,10 @@ export function buildAttendanceForecast({
     regular_expected_people: regularExpectedPeople,
     confirmed_regular_people: confirmedRegularPeople,
     confirmed_irregular_people: confirmedIrregularPeople,
-    confirmed_guest_people: confirmedGuestPeople
+    confirmed_non_member_people: confirmedNonMemberPeople,
+    confirmed_outreach_people: confirmedOutreachPeople,
+    confirmed_returning_guest_people: confirmedReturningGuestPeople,
+    confirmed_guest_people: confirmedNonMemberPeople
   };
 }
 
@@ -716,6 +738,11 @@ export function deriveTeamStats({
       if (person) confirmedPeopleById.set(String(personId), person);
     }
 
+    const confirmedPeople = [...confirmedPeopleById.values()];
+    const confirmedNonMembers = confirmedPeople.filter((person) => !isMemberOrLeader(person));
+    const confirmedOutreachContacts = confirmedNonMembers.filter((person) => !hasRecordedAttendance(person));
+    const confirmedReturningGuests = confirmedNonMembers.filter(hasRecordedAttendance);
+
     const followUpsThisWeek = leaderFollowUps.filter((followUp) => {
       const date = calendarDate(followUp.follow_up_date ?? followUp.activity_date ?? followUp.created_at)?.timestamp;
       return date != null && date >= monday && date <= current.timestamp;
@@ -734,7 +761,7 @@ export function deriveTeamStats({
     const showedUp = leaderFollowUps.filter((followUp) =>
       ['came_to_church', 'showed_up', 'attended'].includes(normalise(followUp.outcome))
     ).length;
-    const converted = assignedPeople.filter((person) => ['member', 'leader'].includes(normalise(person.member_status))).length;
+    const joinedChurch = assignedPeople.filter((person) => ['member', 'leader'].includes(normalise(person.member_status))).length;
     const assignedSignals = assignedPeople.map((person) => deriveCandidateSignals({
       contact: person,
       followUps,
@@ -785,7 +812,10 @@ export function deriveTeamStats({
       people_without_next_action: withoutNextActionPeople.length,
       without_next_action_people: withoutNextActionPeople,
       confirmed_this_sunday: confirmedPeopleById.size,
-      confirmed_people: [...confirmedPeopleById.values()],
+      confirmed_people: confirmedPeople,
+      confirmed_non_members: confirmedNonMembers.length,
+      confirmed_outreach_contacts: confirmedOutreachContacts.length,
+      confirmed_returning_guests: confirmedReturningGuests.length,
       follow_ups_this_week: followUpsThisWeek.length,
       follow_ups_this_month: followUpsThisMonth.length,
       unique_contacts_this_week: new Set(followUpsThisWeek.map(personIdFrom).filter(Boolean).map(String)).size,
@@ -802,7 +832,9 @@ export function deriveTeamStats({
           : formatCalendarDate(calendarDate(lastActivityTimestamp)),
       showed_up: showedUp,
       stale_contacts: freshUntouchedPeople.length,
-      converted
+      joined_church: joinedChurch,
+      // Compatibility alias for older callers. This count represents church membership.
+      converted: joinedChurch
     };
   });
 

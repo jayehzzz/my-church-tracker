@@ -1,7 +1,17 @@
 <script>
     import { Card, Badge } from "$lib/components/ui";
 
-    let { outreachContacts } = $props();
+    let { outreachContacts, onRecordClick = null } = $props();
+
+    function openRecord(contact) {
+        onRecordClick?.(contact);
+    }
+
+    function handleRowKeydown(event, contact) {
+        if (!onRecordClick || !["Enter", " "].includes(event.key)) return;
+        event.preventDefault();
+        openRecord(contact);
+    }
 
     function formatShortDate(dateStr) {
         if (!dateStr) return "—";
@@ -70,11 +80,16 @@
                     <tbody class="divide-y divide-border">
                         {#each outreachContacts as contact}
                             <tr
-                                class="group hover:bg-muted/50 transition-colors"
+                                class="group transition-colors {onRecordClick ? 'cursor-pointer hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary' : 'hover:bg-muted/50'}"
+                                tabindex={onRecordClick ? 0 : undefined}
+                                aria-label={onRecordClick ? `View outreach details for ${contact.first_name} ${contact.last_name || ''}` : undefined}
+                                onclick={() => openRecord(contact)}
+                                onkeydown={(event) => handleRowKeydown(event, contact)}
                             >
                                 <td class="py-2 font-medium">
                                     <a
                                         href="/people/{contact.id}"
+                                        onclick={(event) => event.stopPropagation()}
                                         class="text-foreground hover:text-primary hover:underline block"
                                     >
                                         {contact.first_name}

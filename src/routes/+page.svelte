@@ -23,9 +23,17 @@
       date: point.date || point.key,
       total: Number(point.attendance) || 0,
       guests: Number(point.guests) || 0,
+      firstTimers: Number(point.firstTimers) || 0,
+      decisions: Number(point.decisions) || 0,
+      tithers: Number(point.tithers) || 0,
       id: point.id || point.service_id || "",
     })),
   );
+
+  function openAttendanceService(point) {
+    if (!point?.id) return;
+    goto(`/services?service=${encodeURIComponent(point.id)}`);
+  }
 
   const today = dateOnly(new Date());
   const todayLabel = new Intl.DateTimeFormat("en-GB", {
@@ -40,6 +48,7 @@
   ]);
   const dueTasks = $derived(allOpenTasks.filter((task) => !task.due_date || task.due_date <= today));
   const overdueTasks = $derived(dueTasks.filter((task) => task.due_date && task.due_date < today));
+  const dueTodayTasks = $derived(dueTasks.filter((task) => task.due_date === today));
   const freshUnassigned = $derived((workspace?.unassigned_contacts || []).filter(isFreshContact));
   const visitationCount = $derived(workspace?.visitation_follow_ups?.length || 0);
   const expectedCount = $derived(Number(workspace?.attendance_forecast?.expected_total) || 0);
@@ -51,6 +60,7 @@
       byId.family && {
         ...byId.family,
         title: "Total members",
+        description: "Includes leaders",
       },
       byId.attendance && {
         ...byId.attendance,
@@ -166,17 +176,22 @@
           <h2 id="attention-summary-title" class="text-sm font-semibold text-foreground">Needs attention</h2>
           <a href="/pipeline" class="text-xs font-semibold text-primary hover:underline">Open workspace</a>
         </div>
-        <div class="grid grid-cols-3 divide-x divide-border">
+        <div class="grid grid-cols-2 divide-x divide-y divide-border sm:grid-cols-4 sm:divide-y-0">
+          <a href="/pipeline" class="group px-3 py-3 no-underline transition-colors hover:bg-destructive/5 sm:px-4">
+            <p class="text-xs font-semibold text-foreground">Overdue follow-ups</p>
+            <p class="mt-1 text-lg font-semibold {overdueTasks.length ? 'text-destructive' : 'text-success'}">{overdueTasks.length}</p>
+            <p class="mt-0.5 text-[11px] text-muted-foreground">{dueTodayTasks.length ? `${dueTodayTasks.length} also due today` : 'Nothing else due today'}</p>
+          </a>
           <a href="/pipeline" class="group px-3 py-3 no-underline transition-colors hover:bg-secondary/25 sm:px-4">
-            <p class="truncate text-xs text-muted-foreground">Fresh handoffs</p>
+            <p class="text-xs text-muted-foreground">Fresh handoffs</p>
             <p class="mt-1 text-lg font-semibold {freshUnassigned.length ? 'text-warning' : 'text-success'}">{freshUnassigned.length}</p>
           </a>
           <a href="/visitation?view=attention" class="group px-3 py-3 no-underline transition-colors hover:bg-secondary/25 sm:px-4">
-            <p class="truncate text-xs text-muted-foreground">Pastoral care</p>
+            <p class="text-xs text-muted-foreground">Pastoral care</p>
             <p class="mt-1 text-lg font-semibold text-foreground">{visitationCount}</p>
           </a>
           <a href="/pipeline" class="group px-3 py-3 no-underline transition-colors hover:bg-secondary/25 sm:px-4">
-            <p class="truncate text-xs text-muted-foreground">Sunday ready</p>
+            <p class="text-xs text-muted-foreground">Sunday ready</p>
             <p class="mt-1 text-lg font-semibold text-foreground">{confirmedCount}<span class="text-xs font-normal text-muted-foreground">/{expectedCount}</span></p>
           </a>
         </div>
@@ -188,17 +203,22 @@
         {#if loading && !attendanceChart.data.length}
           <div class="min-h-[430px] animate-pulse rounded-2xl border border-border bg-card"></div>
         {:else}
-          <FullscreenWrapper title="Attendance & guests">
+          <FullscreenWrapper title="Attendance & guest attendance">
             {#snippet filters()}
               <FilterBar compact />
             {/snippet}
             <AttendanceTrend
               data={attendanceTrendData}
-              title="Attendance & guests"
+              title="Attendance & guest attendance"
               itemLabel={attendanceChart.isFallback ? "recent Sundays" : "periods"}
               periodLabel={attendanceChart.contextLabel}
-              comparisonOptions={[{ key: "guests", label: "Guests", color: "warning" }]}
-              onPointClick={(point) => goto(`/services?service=${encodeURIComponent(point.id)}`)}
+              comparisonOptions={[
+                { key: "guests", label: "Guest attendances", color: "warning" },
+                { key: "firstTimers", label: "First-timer visits", color: "info" },
+                { key: "decisions", label: "Salvation decisions", color: "success" },
+                { key: "tithers", label: "Tithers", color: "warning" },
+              ]}
+              onPointClick={openAttendanceService}
             />
           </FullscreenWrapper>
         {/if}

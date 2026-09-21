@@ -11,8 +11,51 @@
   let { isOpen = false, onclose } = $props();
 
   let dropdownRef = $state(null);
+  let dropdownLeft = $state(16);
+  let dropdownTop = $state(72);
   let selectedCampus = $state("Demo campus");
+  let churchSettings = $state(null);
+  let hasLoadedChurchSettings = $state(false);
   const campuses = ["Demo campus"];
+
+  function portal(node) {
+    document.body.appendChild(node);
+
+    return {
+      destroy() {
+        node.remove();
+      },
+    };
+  }
+
+  function updateDropdownPosition() {
+    const trigger = document.querySelector("[data-churchhub-trigger]");
+    if (!trigger) return;
+
+    const triggerRect = trigger.getBoundingClientRect();
+    const dropdownWidth = dropdownRef?.offsetWidth || 384;
+    const viewportGutter = 16;
+    const maxLeft = Math.max(
+      viewportGutter,
+      window.innerWidth - dropdownWidth - viewportGutter,
+    );
+
+    dropdownLeft = Math.min(
+      Math.max(viewportGutter, triggerRect.left),
+      maxLeft,
+    );
+    dropdownTop = triggerRect.bottom + 8;
+  }
+
+  $effect(() => {
+    if (!isOpen || isDemoMode() || hasLoadedChurchSettings) return;
+    hasLoadedChurchSettings = true;
+    void (async () => {
+      const service = await import("$lib/services/churchSettingsService.js");
+      const result = await service.get();
+      if (!result.error) churchSettings = result.data;
+    })();
+  });
 
   // Dismiss dropdown when clicking anywhere in the empty space outside
   $effect(() => {
@@ -37,6 +80,20 @@
     }
   });
 
+  $effect(() => {
+    if (!isOpen) return;
+
+    const frame = requestAnimationFrame(updateDropdownPosition);
+    window.addEventListener("resize", updateDropdownPosition);
+    window.addEventListener("scroll", updateDropdownPosition, true);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateDropdownPosition);
+      window.removeEventListener("scroll", updateDropdownPosition, true);
+    };
+  });
+
   function handleAction(path) {
     onclose?.();
     goto(path);
@@ -58,8 +115,11 @@
 {#if isOpen}
   <!-- Dropdown Card -->
   <div
+    use:portal
     bind:this={dropdownRef}
-    class="absolute left-4 top-14 z-50 w-96 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card/95 backdrop-blur-xl shadow-2xl overflow-hidden text-card-foreground transition-all"
+    class="fixed z-[100] w-96 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card/95 backdrop-blur-xl shadow-2xl overflow-hidden text-card-foreground transition-all"
+    style:left={`${dropdownLeft}px`}
+    style:top={`${dropdownTop}px`}
     transition:scale={{ start: 0.95, duration: 150 }}
   >
     <!-- Header: Church Branding & Status -->
@@ -73,12 +133,12 @@
           </div>
           <div>
             <h2 class="font-bold text-foreground text-sm leading-tight">
-              {isDemoMode() ? "Demo church profile" : "Church profile unavailable"}
+              {isDemoMode() ? "Demo church profile" : churchSettings?.church_name || "Church profile"}
             </h2>
             <div class="flex items-center space-x-1.5 mt-0.5">
               <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
               <span class="text-xs text-muted-foreground font-medium">
-                {isDemoMode() ? "Local demo hub" : "Organization profile not connected"}
+                {isDemoMode() ? "Local demo hub" : churchSettings ? `${churchSettings.constituency} · ${churchSettings.tracked_group}` : "Loading organization profile…"}
               </span>
             </div>
           </div>
@@ -134,7 +194,10 @@
         <span class="block text-base font-bold text-amber-500">8</span>
         <span class="text-[10px] text-muted-foreground font-medium">Follow-ups</span>
       </div>
-    </div>{:else}<div class="px-4 py-3 bg-secondary/15 border-b border-border/40 text-xs text-muted-foreground">Live organization metrics are shown on the dashboard; no church profile summary is configured here yet.</div>{/if}
+    </div>{:else if churchSettings}<div class="px-4 py-3 bg-secondary/15 border-b border-border/40 text-xs text-muted-foreground">
+      <p class="font-medium text-foreground">{churchSettings.address}</p>
+      <p class="mt-1">{churchSettings.constituency} constituency · {churchSettings.tracked_group}</p>
+    </div>{:else}<div class="px-4 py-3 bg-secondary/15 border-b border-border/40 text-xs text-muted-foreground">Loading church profile…</div>{/if}
 
     <!-- Quick Action Launchpad -->
     <div class="p-3">

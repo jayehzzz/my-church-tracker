@@ -110,7 +110,7 @@ export const kpiData = [
   },
   {
     id: 'visitors',
-    label: 'New Guests',
+    label: 'First-time Visits',
     currentValue: 34,
     previousValue: 36,
     format: 'number'
@@ -183,7 +183,7 @@ export const activityData = (() => {
   
   const activityTemplates = [
     { type: 'new_member', action: 'joined the church', description: 'New member registration' },
-    { type: 'visitor', action: 'attended for the first time', description: 'First-time guest' },
+    { type: 'visitor', action: 'attended for the first time', description: 'First-time attendance' },
     { type: 'salvation', action: 'made a salvation decision', description: 'Salvation decision recorded' },
     { type: 'baptism', action: 'was baptized', description: 'Baptism completed' },
     { type: 'event', action: 'registered for Youth Camp', description: 'Event registration' },
@@ -360,7 +360,7 @@ export function getFilteredKPIs(dateRange) {
     ? Math.round(sundayServices.reduce((sum, a) => sum + a.count, 0) / sundayServices.length)
     : 0;
   
-  const newVisitors = filteredActivities.filter(a => a.type === 'visitor').length;
+  const firstTimeVisits = filteredActivities.filter(a => a.type === 'visitor').length;
   const newMembers = filteredActivities.filter(a => a.type === 'new_member').length;
   
   // Calculate previous period for trend comparison
@@ -382,7 +382,7 @@ export function getFilteredKPIs(dateRange) {
     : avgAttendance;
   
   const previousActivities = getFilteredActivities(previousRange);
-  const prevVisitors = previousActivities.filter(a => a.type === 'visitor').length;
+  const previousFirstTimeVisits = previousActivities.filter(a => a.type === 'visitor').length;
   const prevMembers = previousActivities.filter(a => a.type === 'new_member').length;
   
   // Find the closest KPI history snapshot for member count
@@ -403,9 +403,9 @@ export function getFilteredKPIs(dateRange) {
       format: 'number'
     },
     {
-      title: 'New Guests',
-      value: newVisitors || kpiData[2].currentValue,
-      trend: calculateTrendPercentage(newVisitors, prevVisitors),
+      title: 'First-time Visits',
+      value: firstTimeVisits || kpiData[2].currentValue,
+      trend: calculateTrendPercentage(firstTimeVisits, previousFirstTimeVisits),
       format: 'number'
     },
     {

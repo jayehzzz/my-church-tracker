@@ -24,7 +24,8 @@ export function addDemoOutreachExamples(people, services, attendance, contacts, 
       const visits = i < (leaderIndex === 0 ? 2 : 1) ? 2 : i < (leaderIndex === 0 ? 3 : 2) ? 1 : 0;
       // The final contact in each scenario was collected by the other worker.
       const collector = i === total-1 ? leaders[1-leaderIndex] : leader;
-      const contact = { id, first_name, last_name, member_status:'guest',status:'guest',
+      const journeyStatus = visits > 0 ? 'guest' : 'contact';
+      const contact = { id, first_name, last_name, member_status:journeyStatus,status:journeyStatus,
         contact_date:first.service_date,contact_method:'in_person',response:'responsive',
         collected_by_id:collector.id,invited_by_id:leader.id,attended_church:visits>0,
         ...(visits ? {first_visit_date:first.service_date} : {}),
