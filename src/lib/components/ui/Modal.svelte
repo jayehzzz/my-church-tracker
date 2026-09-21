@@ -186,6 +186,7 @@
   .modal-content {
     width: 100%;
     max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -226,7 +227,10 @@
 
   .modal-body {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     padding: 1.25rem;
   }
 
@@ -237,5 +241,43 @@
     gap: 0.75rem;
     padding: 1rem 1.25rem;
     border-top: 1px solid hsl(var(--border));
+  }
+
+  @media (max-width: 640px) {
+    .modal-backdrop {
+      align-items: flex-end;
+      padding-top: max(0.5rem, env(safe-area-inset-top));
+      padding-right: max(0.5rem, env(safe-area-inset-right));
+      padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+      padding-left: max(0.5rem, env(safe-area-inset-left));
+    }
+
+    .modal-content {
+      max-height: calc(100dvh - 1rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+      border-radius: 0.875rem;
+    }
+
+    .modal-header,
+    .modal-body,
+    .modal-footer {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
+
+    .modal-header {
+      padding-top: 0.875rem;
+      padding-bottom: 0.875rem;
+    }
+
+    .modal-body {
+      padding-top: 1rem;
+      padding-bottom: 1rem;
+    }
+
+    .modal-footer {
+      flex-wrap: wrap;
+      padding-top: 0.875rem;
+      padding-bottom: 0.875rem;
+    }
   }
 </style>

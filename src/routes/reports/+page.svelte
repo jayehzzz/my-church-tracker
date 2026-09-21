@@ -392,6 +392,7 @@
                 <KPICard
                     title="Prayer Hours"
                     value={summaryKPIs().prayerHours}
+                    format="decimal"
                     icon="clock"
                     suffix="hrs"
                     description={$dateRange.label}
