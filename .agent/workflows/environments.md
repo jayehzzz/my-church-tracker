@@ -81,10 +81,11 @@ the copied church records. Preview defaults now select that Practice deployment.
 
 ## Preview and release
 
-- Run `npm run verify` before review. A GitHub Actions workflow has been prepared
-  to repeat frontend tests, backend tests, backend TypeScript, the production
+- Run `npm run verify` before review. The recovered GitHub Actions workflow
+  repeats frontend tests, backend tests, backend TypeScript, the production
   build, coverage and the isolated Playwright critical workflow on pull requests
-  and `main`, but it is not active until GitHub accepts the workflow file.
+  and `main`. It is published and verified on the Practice setup PR; it reaches
+  `main` when that PR is approved and merged.
 - A feature branch gets a Vercel preview only after Vercel is configured for it.
   Set `VITE_APP_ENV=staging`, `VITE_APP_MODE=live`, and the *staging* Convex URL
   in Vercel Preview environment variables.
@@ -94,9 +95,10 @@ the copied church records. Preview defaults now select that Practice deployment.
   `git rev-parse HEAD` value, Vercel deployment identifier, and Convex deployment
   name in the release handoff. Do not publish a dirty working tree directly;
   that produces a deployment which cannot be reproduced from source control.
-- Merge an approved change to `main` only after preview and the available
-  verification checks pass. Once the GitHub workflow is accepted, its CI check
-  must also pass before merge.
+- Merge an approved change to `main` only after preview and verification checks
+  pass. GitHub protects `main` with a required pull request and the `application`
+  verification check, including for administrators. Force pushes and branch
+  deletion are disabled. The owner's release approval is still required.
   Vercel Production variables must be `VITE_APP_ENV=production`,
   `VITE_APP_MODE=live`, and the production Convex URL. Deploy the corresponding
   Convex functions from that same reviewed source commit as part of the release
