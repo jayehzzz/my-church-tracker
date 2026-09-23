@@ -32,6 +32,7 @@
     activeFilterCount = 0,
     comparisonOptions = [],
     wholeNumberValues = false,
+    showSummaryFooter = true,
   } = $props();
 
   let hoveredIndex = $state(null);
@@ -623,6 +624,7 @@
       {/if}
     </div>
 
+    {#if showSummaryFooter}
     <div class="mt-4 grid {selectedComparison ? 'grid-cols-2 gap-y-4 sm:grid-cols-4' : 'grid-cols-3'} border-t border-border pt-4">
       <div class="text-center">
         <div class="text-lg font-bold text-foreground">{displayValue(chartData().points[chartData().points.length - 1].total)}</div>
@@ -647,6 +649,7 @@
         <div class="text-xs text-muted-foreground">{peakMeasureLabel}</div>
       </div>
     </div>
+    {/if}
   {:else}
     <div class="flex h-52 items-center justify-center">
       <p class="text-sm italic text-muted-foreground">No attendance data available</p>

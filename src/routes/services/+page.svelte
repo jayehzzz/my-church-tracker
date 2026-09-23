@@ -4,7 +4,7 @@
   
   Features:
   - Dual views: Service List View and Dashboard View
-  - KPI Cards (Total Attended, Guests, Salvation Decisions, Attendance Rate)
+  - Concise summary with expandable attendance and outcomes detail
   - Custom table with photo thumbnails and individual names
   - Service Details Modal with Edit/Delete actions
   - Global filters that persist across views
@@ -353,17 +353,6 @@
   });
 
   const highestService = $derived(() => sortedByAttendance()[0]);
-  const lowestService = $derived(
-    () => sortedByAttendance()[sortedByAttendance().length - 1],
-  );
-
-  const recentDecisions = $derived(() => {
-    return [...analyticsServices()]
-      .sort((a, b) => new Date(b.service_date) - new Date(a.service_date))
-      .slice(0, 3)
-      .reduce((sum, s) => sum + serviceMetrics(s).decisions, 0);
-  });
-
   const recentServices = $derived(() =>
     [...analyticsServices()]
       .sort((a, b) => new Date(b.service_date) - new Date(a.service_date))
@@ -371,18 +360,6 @@
   );
 
   const latestService = $derived(() => recentServices()[0]);
-  const previousService = $derived(() => recentServices()[1]);
-  const attendanceDelta = $derived(() => {
-    if (!latestService() || !previousService()) return null;
-    return serviceMetrics(latestService()).totalAttendance -
-      serviceMetrics(previousService()).totalAttendance;
-  });
-
-  const returningGuestRate = $derived(() =>
-    kpis().totalAttendance > 0
-      ? Math.round((kpis().totalReturningGuests / kpis().totalAttendance) * 100)
-      : 0,
-  );
 
   // Donut chart data
   const donutData = $derived(() => {
@@ -1088,8 +1065,8 @@
           <section class="overflow-hidden rounded-2xl border border-border bg-card" aria-labelledby="period-overview-title">
             <div class="flex items-center justify-between border-b border-border px-5 py-4">
               <div>
-                <h2 id="period-overview-title" class="text-sm font-semibold text-foreground">Period overview</h2>
-                <p class="mt-1 text-xs text-muted-foreground">A concise view across {kpis().serviceCount} recorded {kpis().serviceCount === 1 ? "service" : "services"}.</p>
+                <h2 id="period-overview-title" class="text-sm font-semibold text-foreground">This period</h2>
+                <p class="mt-1 text-xs text-muted-foreground">Across {kpis().serviceCount} recorded {kpis().serviceCount === 1 ? "service" : "services"}.</p>
               </div>
               {#if latestService()}
                 <button type="button" class="text-xs font-semibold text-primary hover:underline" onclick={() => handleServiceClick(latestService())}>
@@ -1097,63 +1074,26 @@
                 </button>
               {/if}
             </div>
-
-            <div class="grid grid-cols-2 divide-x divide-y divide-border lg:grid-cols-4 lg:divide-y-0">
+            <div class="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
               <div class="px-5 py-5">
-                <div class="flex items-center justify-between gap-3">
-                  <p class="text-xs font-medium text-muted-foreground">Avg tithers / service</p>
-                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2a5 5 0 00-10 0v2m10 0H7m8-13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                  </span>
-                </div>
-                  <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{wholePerson(attendanceMix().averageTithers)}</p>
-                  <p class="mt-1 text-xs text-muted-foreground">{kpis().totalTithers} recorded across the period · {kpis().titherRate}% of member attendance</p>
+                <p class="text-xs font-medium text-muted-foreground">Latest attendance</p>
+                <p class="mt-3 text-3xl font-semibold tracking-tight text-foreground">{serviceMetrics(latestService()).totalAttendance}</p>
+                <p class="mt-1 text-xs text-muted-foreground">{formatShortDate(latestService().service_date)}</p>
               </div>
-
               <div class="px-5 py-5">
-                <div class="flex items-center justify-between gap-3">
-                  <p class="text-xs font-medium text-muted-foreground">Avg returning guests</p>
-                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-info/10 text-info">
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v6m3-3h-6m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 21v-1a6 6 0 0112 0v1" /></svg>
-                  </span>
-                </div>
-                <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{wholePerson(attendanceMix().averageReturningGuests)}</p>
-                <p class="mt-1 text-xs text-muted-foreground">Average per service · {kpis().totalReturningGuests} returning guest visits · {returningGuestRate()}% share</p>
+                <p class="text-xs font-medium text-muted-foreground">First-timer visits</p>
+                <p class="mt-3 text-3xl font-semibold tracking-tight text-foreground">{kpis().totalFirstTimers}</p>
+                <p class="mt-1 text-xs text-muted-foreground">Period total</p>
               </div>
-
               <div class="px-5 py-5">
-                <div class="flex items-center justify-between gap-3">
-                  <p class="text-xs font-medium text-muted-foreground">Decisions</p>
-                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-success/10 text-success">
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 000-7.78z" /></svg>
-                  </span>
-                </div>
-                <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{kpis().totalDecisions}</p>
-                <p class="mt-1 text-xs text-muted-foreground">{recentDecisions()} across the latest 3 services</p>
-              </div>
-
-              <div class="px-5 py-5">
-                <div class="flex items-center justify-between gap-3">
-                  <p class="text-xs font-medium text-muted-foreground">Latest service</p>
-                  <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-warning/10 text-warning">
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3v18h18M7 15l4-4 3 3 5-6" /></svg>
-                  </span>
-                </div>
-                <p class="mt-4 text-3xl font-semibold tracking-tight text-foreground">{latestService() ? serviceMetrics(latestService()).totalAttendance : 0}</p>
-                <p class="mt-1 text-xs {attendanceDelta() === null ? 'text-muted-foreground' : attendanceDelta() >= 0 ? 'text-success' : 'text-warning'}">
-                  {#if attendanceDelta() === null}
-                    No previous service to compare
-                  {:else if attendanceDelta() === 0}
-                    No change from previous service
-                  {:else}
-                    {attendanceDelta() > 0 ? "+" : ""}{attendanceDelta()} from previous service
-                  {/if}
-                </p>
+                <p class="text-xs font-medium text-muted-foreground">Salvation decisions</p>
+                <p class="mt-3 text-3xl font-semibold tracking-tight text-foreground">{kpis().totalDecisions}</p>
+                <p class="mt-1 text-xs text-muted-foreground">Period total</p>
               </div>
             </div>
           </section>
 
-          <section class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]" aria-label="Attendance performance">
+          <section class="min-w-0" aria-label="Attendance trend">
             <div class="relative min-w-0">
               <FullscreenWrapper title="Attendance trend">
                 {#snippet filters()}
@@ -1162,8 +1102,10 @@
                 <AttendanceTrend
                   data={trendData()}
                   title="Attendance trend"
+                  itemLabel="services"
                   periodLabel={$dateRange.label}
                   wholeNumberValues={true}
+                  showSummaryFooter={false}
                   onPointClick={handleChartPointClick}
                   comparisonOptions={[
                     { key: "returningGuests", label: "Returning guests", color: "warning" },
@@ -1174,46 +1116,6 @@
                 />
               </FullscreenWrapper>
             </div>
-
-            <aside class="rounded-2xl border border-border bg-card p-5">
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <h2 class="text-sm font-semibold text-foreground">At a glance</h2>
-                  <p class="mt-1 text-xs text-muted-foreground">Useful context for this period.</p>
-                </div>
-                <span class="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">{returningGuestRate()}% of attendance returning guests</span>
-              </div>
-
-              <div class="mt-5 space-y-1">
-                {#if highestService()}
-                  <button type="button" class="flex w-full items-center justify-between gap-4 rounded-lg px-3 py-3 text-left transition-colors hover:bg-secondary/35" onclick={() => handleServiceClick(highestService())}>
-                    <span>
-                      <span class="block text-xs text-muted-foreground">Highest attendance</span>
-                      <span class="mt-1 block text-sm font-medium text-foreground">{formatShortDate(highestService().service_date)} · {highestService().sermon_topic || "Service"}</span>
-                    </span>
-                    <span class="text-lg font-semibold text-success">{serviceMetrics(highestService()).totalAttendance}</span>
-                  </button>
-                {/if}
-
-                {#if latestService()}
-                  <button type="button" class="flex w-full items-center justify-between gap-4 rounded-lg px-3 py-3 text-left transition-colors hover:bg-secondary/35" onclick={() => handleServiceClick(latestService())}>
-                    <span>
-                      <span class="block text-xs text-muted-foreground">Latest returning guests</span>
-                      <span class="mt-1 block text-sm font-medium text-foreground">{formatShortDate(latestService().service_date)}</span>
-                    </span>
-                    <span class="text-lg font-semibold text-info">{serviceMetrics(latestService()).returningGuestAttendance}</span>
-                  </button>
-                {/if}
-
-                <div class="flex items-center justify-between gap-4 rounded-lg px-3 py-3">
-                  <span>
-                    <span class="block text-xs text-muted-foreground">Recent decisions</span>
-                    <span class="mt-1 block text-sm font-medium text-foreground">Latest 3 services</span>
-                  </span>
-                  <span class="text-lg font-semibold text-primary">{recentDecisions()}</span>
-                </div>
-              </div>
-            </aside>
           </section>
 
           <section class="overflow-hidden rounded-2xl border border-border bg-card" aria-labelledby="recent-services-title">
@@ -1236,18 +1138,37 @@
                     <p class="truncate text-sm font-medium text-foreground transition-colors group-hover:text-primary">{service.sermon_topic || "Untitled service"}</p>
                     <p class="mt-1 truncate text-xs text-muted-foreground">{service.sermon_speaker || "Speaker not recorded"}{service.location ? " · " + service.location : ""}</p>
                   </div>
-                  <div class="col-span-2 flex items-center justify-end gap-4 text-xs sm:col-span-1">
-                    <span class="text-muted-foreground"><strong class="text-foreground">{serviceMetrics(service).totalAttendance}</strong> attended</span>
-                    <span class="text-info"><strong>{serviceMetrics(service).returningGuestAttendance}</strong> returning guests</span>
-                    <span class="hidden text-success md:inline"><strong>{serviceMetrics(service).firstTimers}</strong> first timers</span>
-                    <span class="hidden text-success lg:inline"><strong>{serviceMetrics(service).decisions}</strong> decisions</span>
-                    <svg class="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                  <div class="col-span-2 flex items-center justify-end text-muted-foreground sm:col-span-1">
+                    <span class="sr-only">Open service details</span>
+                    <svg class="h-4 w-4 transition-transform group-hover:translate-x-0.5 group-hover:text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
                   </div>
                 </button>
               {/each}
             </div>
           </section>
 
+          <details class="group overflow-hidden rounded-2xl border border-border bg-card">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 outline-none transition-colors hover:bg-secondary/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
+              <span>
+                <span class="block text-sm font-semibold text-foreground">Detailed attendance &amp; outcomes</span>
+                <span class="mt-1 block text-xs text-muted-foreground">Compare services, explore attendance mix and review outcomes.</span>
+              </span>
+              <span class="flex shrink-0 items-center gap-2 text-xs font-semibold text-primary">
+                <span class="group-open:hidden">Show details</span>
+                <span class="hidden group-open:inline">Hide details</span>
+                <svg class="h-4 w-4 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m6 9 6 6 6-6" /></svg>
+              </span>
+            </summary>
+            <div class="space-y-6 border-t border-border p-4 sm:p-5">
+              {#if highestService()}
+                <button type="button" class="flex w-full items-center justify-between gap-4 rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-secondary/35" onclick={() => handleServiceClick(highestService())}>
+                  <span>
+                    <span class="block text-xs text-muted-foreground">Highest attended service</span>
+                    <span class="mt-1 block text-sm font-medium text-foreground">{formatShortDate(highestService().service_date)} · {highestService().sermon_topic || "Service"}</span>
+                  </span>
+                  <span class="shrink-0 text-sm font-semibold text-primary">Open service →</span>
+                </button>
+              {/if}
           <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <FullscreenWrapper title="Attendance & outcomes" class={typeDistribution().typeEntries.length <= 1 ? 'lg:col-span-2' : ''}>
             <section class="card-base p-5" aria-labelledby="attendance-mix-title">
@@ -1346,6 +1267,8 @@
             </section></FullscreenWrapper>
             {/if}
           </div>
+            </div>
+          </details>
 
           <details class="overflow-hidden rounded-2xl border border-border bg-card">
             <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 outline-none transition-colors hover:bg-secondary/25 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">

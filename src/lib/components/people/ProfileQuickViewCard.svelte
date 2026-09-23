@@ -180,7 +180,7 @@
                 {#if person.is_tither}
                     <span
                         class="text-[10px] px-2 py-0.5 rounded bg-success/20 text-success"
-                        >Tither</span
+                        >Tither status recorded</span
                     >
                 {/if}
             </div>

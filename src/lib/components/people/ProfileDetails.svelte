@@ -22,7 +22,7 @@
     ["Leadership role", formatLeadershipRole(person.role)],
     ["Basonta membership", person.church_role === "basonta" ? "Basonta member" : person.church_role ? formatChurchRole(person.church_role) : "Not recorded"],
     ["Membership date", date(person.membership_date)], ["Baptised", yesNo(person.is_baptised)],
-    ["Tithing", yesNo(person.is_tither)], ["Basonta / ministry groups", person.basontas?.length ? person.basontas.map(label).join(", ") : "None recorded"],
+    ["Manually recorded tither status", yesNo(person.is_tither)], ["Basonta / ministry groups", person.basontas?.length ? person.basontas.map(label).join(", ") : "None recorded"],
   ]);
   let connectionHeading = $derived(journeyStatus === "contact" ? "Outreach information" : journeyStatus === "guest" ? "Guest information" : "How they connected");
   let firstAttendance = $derived(person.first_visit_date ? date(person.first_visit_date) : journeyStatus === "contact" ? "Not yet attended" : "Not recorded");

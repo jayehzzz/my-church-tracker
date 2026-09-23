@@ -31,6 +31,13 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 Append one concise entry per task: status/date, changed behavior, validation results, remaining work or required user input, and current branch/commit or uncommitted state. Keep credentials and private records out of this file. If external configuration prevents verification, state that and keep the task incomplete instead of using mock success as proof.
 
+### Tracking and dashboard simplification — implemented locally (22 September 2026)
+
+- Sunday Services now starts with three headline figures, the attendance trend and recent services. Detailed attendance, outcomes and comparisons remain available through an expandable section; redundant “At a glance” figures and the repeated trend footer were removed from that view. Reports now starts with a concise period summary, CSV exports and links to section dashboards; its remaining metrics and breakdowns are available through an expandable section.
+- New-person capture shows name, contact details and church status first. Optional profile fields expand on request and remain visible when editing. The confidential profile tither field is now explicitly **Not recorded / Yes / No**, described as a manually recorded status rather than dated giving evidence. Existing recorded giving and person data are preserved.
+- Removed eight unused chart components, an orphaned activity service with no backend API module, and obsolete documentation. The `activities` table and backend follow-up functions remain because stored-row/external-client usage has not been audited; no data deletion or migration was performed.
+- Checks: `npm run verify` and `git diff --check` passed; built-in browser checked local demo flows on People, Sunday Services and Reports, including 390px page widths without horizontal overflow. No production deployment or live church-record write. State: `main` at inherited `ef56155`, all changes uncommitted.
+
 ### Evangelism simplification — complete locally (19 September 2026)
 
 - Simplified contact capture to identity/contact date, shared outreach credit and assigned worker; next-contact date appears only when an initial call can be scheduled. Email, address, method, primary inviter, notes and historical milestones are optional details. Removed initial response classification and Evangelism membership controls while preserving existing categories, attribution, permissions and membership. Membership links lead to People; the profile and editor use “Church status.”

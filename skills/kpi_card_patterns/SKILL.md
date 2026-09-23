@@ -207,23 +207,9 @@ function calculateTrend(current, previous) {
 
 ---
 
-## 7. With Sparkline
+## 7. Trend visualization
 
-For compact trend visualization:
-
-```svelte
-<div class="card-base p-4">
-  <div class="flex items-start justify-between">
-    <div>
-      <span class="text-xs text-muted-foreground uppercase">{label}</span>
-      <div class="text-2xl font-bold">{value}</div>
-    </div>
-    <div class="w-20 h-8">
-      <Sparkline data={trendData} />
-    </div>
-  </div>
-</div>
-```
+The unused `Sparkline.svelte` component was retired on 22 September 2026. Use the existing `AttendanceTrend.svelte` for attendance trends in a separate chart panel; see [the chart guide](../../docs/07-chart-components.md) for its supported data and props. Do not import the retired component into KPI cards.
 
 ---
 

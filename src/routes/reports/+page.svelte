@@ -1,12 +1,12 @@
 <!--
   Reports Page
   ============
-  Comprehensive reports dashboard with KPI summaries and CSV export functionality.
+  Period summary and CSV exports, with detailed report metrics on demand.
   
   Features:
-  - Summary KPIs across all modules
+  - Concise period summary and expandable report metrics
   - Date range filter integration
-  - Module-specific operational summaries
+  - Links to section dashboards and detailed operational summaries
   - CSV export for each module
 -->
 
@@ -309,115 +309,26 @@
             </div>
         {/if}
 
-        <!-- Tab Navigation -->
-        <nav class="mb-6 flex gap-6 overflow-x-auto border-b border-border" aria-label="Report sections">
-                {#each tabs as tab}
-                    <button
-                        type="button"
-                        onclick={() => (activeTab = tab.id)}
-                        aria-current={activeTab === tab.id ? "page" : undefined}
-                        class="relative shrink-0 px-1 pb-3 text-sm font-medium transition-colors {activeTab ===
-                        tab.id
-                            ? 'text-foreground'
-                            : 'text-muted-foreground hover:text-foreground'}"
-                    >
-                        {tab.label}
-                        {#if activeTab === tab.id}
-                            <span class="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary"></span>
-                        {/if}
-                    </button>
-                {/each}
-        </nav>
-
-        <!-- Overview Tab -->
-        <FullscreenWrapper title="Report comparison">
-            {#snippet filters()}<FilterBar compact />{/snippet}
-            <section class="card-base p-5">
-                <h2 class="mb-4 pr-12 text-base font-semibold">Report comparison</h2>
-                <MetricComparison metrics={comparisonMetrics} periodLabel={activeTab==='people'?'Current people snapshot':$dateRange.label} />
-                <p class="mt-3 text-xs text-muted-foreground">Monthly averages include empty and partial calendar months in the selected period. People and outstanding follow-ups are current counts; an average does not apply.</p>
-            </section>
-        </FullscreenWrapper>
-        {#if activeTab === "overview"}
-            <p class="mb-4 text-sm text-muted-foreground">
-                Activity totals use <span class="font-medium text-foreground">{$dateRange.label}</span>. The people-directory total is all time.
-            </p>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                <KPICard
-                    title="Total People"
-                    value={summaryKPIs().totalPeople}
-                    icon="users"
-                    description="All-time directory"
-                    trend={null}
-                />
-                <KPICard
-                    title="New Contacts"
-                    value={summaryKPIs().newContacts}
-                    icon="user-plus"
-                    variant="info"
-                    description={$dateRange.label}
-                    trend={null}
-                />
-                <KPICard
-                    title="Joined Church"
-                    value={summaryKPIs().joinedChurch}
-                    icon="check-circle"
-                    variant="success"
-                    description={$dateRange.label}
-                    trend={null}
-                />
-                <KPICard
-                    title="Saved on Outreach"
-                    value={summaryKPIs().outreachSalvationDecisions}
-                    icon="heart"
-                    variant="success"
-                    description={$dateRange.label}
-                    trend={null}
-                />
-                <KPICard
-                    title="Service Salvation Decisions"
-                    value={summaryKPIs().salvationDecisions}
-                    icon="heart"
-                    variant="success"
-                    description={$dateRange.label}
-                    trend={null}
-                />
-                <KPICard
-                    title="Total Attendance"
-                    value={summaryKPIs().totalAttendance}
-                    icon="users"
-                    description={$dateRange.label}
-                    trend={null}
-                />
-                <KPICard
-                    title="Prayer Hours"
-                    value={summaryKPIs().prayerHours}
-                    format="decimal"
-                    icon="clock"
-                    suffix="hrs"
-                    description={$dateRange.label}
-                    trend={null}
-                />
-                <KPICard
-                    title="Visits Completed"
-                    value={summaryKPIs().visitsCompleted}
-                    icon="home"
-                    variant="success"
-                    description={$dateRange.label}
-                    trend={null}
-                />
-                <KPICard
-                    title="Follow-ups Needed"
-                    value={summaryKPIs().followUpsNeeded}
-                    icon="clock"
-                    variant={summaryKPIs().followUpsNeeded > 0
-                        ? "warning"
-                        : "default"}
-                    description={$dateRange.label}
-                    trend={null}
-                />
+        <section aria-labelledby="period-summary-heading" class="mb-8">
+            <div class="mb-4">
+                <h2 id="period-summary-heading" class="text-lg font-semibold text-foreground">Period summary</h2>
+                <p class="mt-1 text-sm text-muted-foreground">
+                    Activity totals use <span class="font-medium text-foreground">{$dateRange.label}</span>. Directory counts are current snapshots.
+                </p>
             </div>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <KPICard title="New Contacts" value={summaryKPIs().newContacts} icon="user-plus" variant="info" description={$dateRange.label} trend={null} />
+                <KPICard title="Sunday Attendance" value={summaryKPIs().totalAttendance} icon="users" description={$dateRange.label} trend={null} />
+                <KPICard title="Prayer Hours" value={summaryKPIs().prayerHours} format="decimal" icon="clock" suffix="hrs" description={$dateRange.label} trend={null} />
+                <KPICard title="Visits Completed" value={summaryKPIs().visitsCompleted} icon="home" variant="success" description={$dateRange.label} trend={null} />
+            </div>
+        </section>
 
+        <section aria-labelledby="report-exports-heading" class="mb-8">
+            <div class="mb-4">
+                <h2 id="report-exports-heading" class="text-lg font-semibold text-foreground">Export records</h2>
+                <p class="mt-1 text-sm text-muted-foreground">People includes the full directory. Other exports use the selected period and the same report rules as their totals.</p>
+            </div>
             <!-- Quick Export Cards -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div class="card-base flex items-center justify-between">
@@ -428,6 +339,7 @@
                         <p class="text-xs text-muted-foreground">
                             {people.length} records
                         </p>
+                        <a href="/people" class="mt-2 inline-block text-xs font-medium text-primary hover:underline">Open People directory →</a>
                     </div>
                     <Button
                         size="sm"
@@ -447,6 +359,7 @@
                         <p class="text-xs text-muted-foreground">
                             {filteredContacts().length} records
                         </p>
+                        <a href="/evangelism" class="mt-2 inline-block text-xs font-medium text-primary hover:underline">Open Evangelism dashboard →</a>
                     </div>
                     <Button
                         size="sm"
@@ -466,6 +379,7 @@
                         <p class="text-xs text-muted-foreground">
                             {filteredServices().length} records
                         </p>
+                        <a href="/services" class="mt-2 inline-block text-xs font-medium text-primary hover:underline">Open Services dashboard →</a>
                     </div>
                     <Button
                         size="sm"
@@ -485,6 +399,7 @@
                         <p class="text-xs text-muted-foreground">
                             {filteredMeetings().length} records
                         </p>
+                        <a href="/meetings" class="mt-2 inline-block text-xs font-medium text-primary hover:underline">Open Meetings dashboard →</a>
                     </div>
                     <Button
                         size="sm"
@@ -504,6 +419,7 @@
                         <p class="text-xs text-muted-foreground">
                             {filteredVisitations().length} records
                         </p>
+                        <a href="/visitation" class="mt-2 inline-block text-xs font-medium text-primary hover:underline">Open Pastoral Care dashboard →</a>
                     </div>
                     <Button
                         size="sm"
@@ -515,7 +431,49 @@
                     </Button>
                 </div>
             </div>
-        {/if}
+        </section>
+
+        <details class="mb-6 overflow-hidden rounded-xl border border-border bg-card">
+            <summary class="cursor-pointer px-5 py-4 text-sm font-semibold text-foreground hover:bg-secondary/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+                Detailed report metrics and comparisons
+            </summary>
+            <div class="border-t border-border px-5 py-5">
+                <p class="mb-5 text-sm text-muted-foreground">Explore the full breakdowns for {$dateRange.label}. People are a current directory snapshot; follow-ups come from care records in the selected period.</p>
+                <nav class="mb-6 flex gap-6 overflow-x-auto border-b border-border" aria-label="Detailed report sections">
+                    {#each tabs as tab}
+                        <button
+                            type="button"
+                            onclick={() => (activeTab = tab.id)}
+                            aria-current={activeTab === tab.id ? "page" : undefined}
+                            class="relative shrink-0 px-1 pb-3 text-sm font-medium transition-colors {activeTab === tab.id ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'}"
+                        >
+                            {tab.label}
+                            {#if activeTab === tab.id}
+                                <span class="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary"></span>
+                            {/if}
+                        </button>
+                    {/each}
+                </nav>
+                <FullscreenWrapper title="Report comparison">
+                    {#snippet filters()}<FilterBar compact />{/snippet}
+                    <section class="card-base p-5">
+                        <h2 class="mb-4 pr-12 text-base font-semibold">Report comparison</h2>
+                        <MetricComparison metrics={comparisonMetrics} periodLabel={activeTab === 'people' ? 'Current people snapshot' : $dateRange.label} />
+                        <p class="mt-3 text-xs text-muted-foreground">Monthly averages include empty and partial calendar months in the selected period. People are a current snapshot. Outstanding follow-ups are counted from care records in the selected period; an average does not apply.</p>
+                    </section>
+                </FullscreenWrapper>
+                {#if activeTab === "overview"}
+                    <div class="mt-6">
+                        <h3 class="mb-4 text-sm font-semibold text-foreground">Other summary totals</h3>
+                        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                            <KPICard title="Total People" value={summaryKPIs().totalPeople} icon="users" description="All-time directory" trend={null} />
+                            <KPICard title="Joined Church" value={summaryKPIs().joinedChurch} icon="check-circle" variant="success" description={$dateRange.label} trend={null} />
+                            <KPICard title="Saved on Outreach" value={summaryKPIs().outreachSalvationDecisions} icon="heart" variant="success" description={$dateRange.label} trend={null} />
+                            <KPICard title="Service Salvation Decisions" value={summaryKPIs().salvationDecisions} icon="heart" variant="success" description={$dateRange.label} trend={null} />
+                            <KPICard title="Follow-ups Needed" value={summaryKPIs().followUpsNeeded} icon="clock" variant={summaryKPIs().followUpsNeeded > 0 ? "warning" : "default"} description={$dateRange.label} trend={null} />
+                        </div>
+                    </div>
+                {/if}
 
         <!-- People Tab -->
         {#if activeTab === "people"}
@@ -889,5 +847,7 @@
                 </div>
             </div></FullscreenWrapper>
         {/if}
+            </div>
+        </details>
     {/if}
 </DashboardLayout>

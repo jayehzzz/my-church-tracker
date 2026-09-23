@@ -59,7 +59,7 @@ This consistent pattern makes error handling predictable across the application.
 | `evangelismService.js` | Evangelism contact operations |
 | `meetingsService.js` | Meeting operations |
 | `visitationsService.js` | Visitation tracking |
-| `activitiesService.js` | Activity log operations |
+| `dashboardService.js` | Dashboard metrics and recent activity derived from domain records |
 | `storageService.js` | File upload/download |
 
 ---
@@ -559,42 +559,13 @@ Filters visitations by date.
 
 ---
 
-## 📅 activitiesService.js
+## 📅 Dashboard recent activity
 
-**Location**: `src/lib/services/activitiesService.js`
+**Location**: `src/lib/services/dashboardService.js`
 
-**Purpose**: Manages activity log entries.
+Home calls `getRecentActivities(limit = 50)` to build its recent activity feed from evangelism contacts, visitations, services and meetings. It returns the derived activity array directly.
 
-### Functions
-
-#### `getAll()`
-Fetches all activities.
-
-#### `getById(id)`
-Fetches a specific activity.
-
-#### `create(activityData)`
-Creates a new activity.
-
-**Required fields**:
-- `activity_type` (string)
-- `activity_date` (string)
-
-#### `getByType(activityType)`
-Filters by activity type.
-
-#### `getByDateRange(startDate, endDate)`
-Filters by date range.
-
-#### `getRecent(limit)`
-Gets most recent activities.
-
-**Parameters**:
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `limit` | number | 10 | Maximum number to return |
-
-**Used by**: Dashboard recent activity feed
+The unused `activitiesService.js` was removed on 22 September 2026 after verifying that it had no frontend callers and that neither a `convex/activities` module nor an `activities` entry in the generated API declaration existed. The Convex `activities` table, `follow_ups` functions and all stored records are outside this frontend cleanup and remain unchanged. Absence of a frontend caller does not establish that historical data is disposable.
 
 ---
 

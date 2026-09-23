@@ -5,6 +5,7 @@ import PersonForm from '../forms/PersonForm.svelte';
 import * as peopleService from '$lib/services/peopleService';
 vi.mock('$lib/services/peopleService', () => ({
   findDuplicates: vi.fn(async () => ({ data: [], error: null })),
+  create: vi.fn(async (data) => ({ data: { id: 'created', ...data }, error: null })),
   update: vi.fn(async (id, data) => ({ data: { id, ...data }, error: null })),
 }));
 vi.mock("svelte/transition", () => ({ fade: () => ({}), fly: () => ({}), scale: () => ({}) }));
@@ -24,6 +25,22 @@ it('saves profile notes through the person service while retaining existing cont
   await fireEvent.click(getByRole('button', { name: 'Save Changes' }));
   await waitFor(() => expect(peopleService.update).toHaveBeenCalledWith('1', expect.objectContaining({ notes: 'Updated note', email: person.email, phone: person.phone })));
   expect(onsave).toHaveBeenCalled();
+});
+
+it('keeps first capture short and leaves unassessed tither status unrecorded', async () => {
+  const { getByLabelText, getByRole, queryByLabelText } = render(PersonForm, { isOpen: true });
+  expect(getByLabelText(/First Name/)).toBeTruthy();
+  expect(getByLabelText('Email')).toBeTruthy();
+  expect(getByLabelText('Church status')).toBeTruthy();
+  expect(queryByLabelText('Employment Status')).toBeNull();
+  expect(queryByLabelText('Manually recorded tither status')).toBeNull();
+
+  await fireEvent.input(getByLabelText(/First Name/), { target: { value: 'Grace' } });
+  await fireEvent.click(getByRole('button', { name: /Add optional profile details/ }));
+  expect(getByLabelText('Employment Status')).toBeTruthy();
+  expect(getByLabelText('Manually recorded tither status').value).toBe('');
+  await fireEvent.click(getByRole('button', { name: 'Add Person' }));
+  await waitFor(() => expect(peopleService.create).toHaveBeenCalledWith(expect.objectContaining({ first_name: 'Grace', is_tither: null })));
 });
 
 it('keeps first timer out of persistent journey status and separates leadership from Basonta membership', () => {

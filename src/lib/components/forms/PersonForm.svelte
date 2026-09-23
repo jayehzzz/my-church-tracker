@@ -65,7 +65,7 @@
     church_role: "no_role",
     role: "no_role",
     is_baptised: false,
-    is_tither: false,
+    is_tither: "",
     completed_schools: [],
   });
 
@@ -80,6 +80,7 @@
   let locationMessage = $state("");
   let verifiedLocation = $state(null);
   let confirmingDiscard = $state(false);
+  let showMoreDetails = $state(false);
   let addressSearchQuery = $state("");
   let addressSearchResults = $state([]);
   let searchingAddresses = $state(false);
@@ -200,7 +201,7 @@
           church_role: person.church_role || "no_role",
           role: person.role || "no_role",
           is_baptised: person.is_baptised ?? false,
-          is_tither: person.is_tither ?? false,
+          is_tither: person.is_tither === true ? "yes" : person.is_tither === false ? "no" : "",
           completed_schools: normalizeCompletedSchools(
             person.completed_schools || [],
           ),
@@ -228,11 +229,12 @@
           church_role: "no_role",
           role: "no_role",
           is_baptised: false,
-          is_tither: false,
+          is_tither: "",
           completed_schools: [],
         };
       }
       errors = {};
+      showMoreDetails = Boolean(person);
       duplicateCandidates = [];
       duplicateAcknowledged = false;
       initialFormSnapshot = untrack(() => JSON.stringify(formData));
@@ -403,6 +405,7 @@
       const checkedCurrentAddress = verifiedLocation?.addressKey === addressKey;
       const payload = {
         ...formData,
+        is_tither: formData.is_tither === "" ? null : formData.is_tither === "yes",
         surname_status: formData.last_name.trim() ? "known" : "missing",
         ...(checkedCurrentAddress
           ? { lat: verifiedLocation.lat, lng: verifiedLocation.lng }
@@ -538,6 +541,18 @@
         />
       </div>
 
+      {#if mode === "create"}
+        <button
+          type="button"
+          class="text-sm font-medium text-primary hover:underline"
+          aria-expanded={showMoreDetails}
+          onclick={() => (showMoreDetails = !showMoreDetails)}
+        >
+          {showMoreDetails ? "Hide" : "Add"} optional profile details {showMoreDetails ? "↑" : "↓"}
+        </button>
+      {/if}
+
+      {#if showMoreDetails}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input
           label="Date of Birth"
@@ -576,6 +591,7 @@
           disabled={saving}
         />
       </div>
+      {/if}
     </div>
 
     <hr class="border-border" />
@@ -600,7 +616,7 @@
         />
       </div>
 
-      <div class="space-y-4">
+      {#if showMoreDetails}<div class="space-y-4">
         <div class="rounded-lg border border-border/70 bg-secondary/20 p-4 space-y-3">
           <div>
             <label for="person-address-search" class="text-sm font-medium text-foreground">Search for the correct address</label>
@@ -683,7 +699,7 @@
         {#if locationMessage}
           <p class="text-sm text-muted-foreground" aria-live="polite">{locationMessage}</p>
         {/if}
-      </div>
+      </div>{/if}
     </div>
 
     <hr class="border-border" />
@@ -713,6 +729,7 @@
         Outreach Contact = collected through evangelism but has not attended yet. Guest = has attended but is not yet a member. Choose Member only when membership is confirmed. First timer is recorded on the person's first attendance, not as a permanent status.
       </p>
 
+      {#if showMoreDetails}
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <SearchableSelect
           label="Basonta Membership"
@@ -799,24 +816,21 @@
           />
         </label>
         {#if confidential}
-        <label
-          class="flex cursor-pointer items-center justify-between gap-4 rounded-lg border border-border/60 bg-secondary/20 p-4"
-        >
-          <span>
-            <span class="block text-sm font-medium text-foreground">Tithe Payer</span>
-            <span class="block text-xs text-muted-foreground">Restricted stewardship information</span>
-          </span>
-          <input
-            type="checkbox"
-            bind:checked={formData.is_tither}
-            disabled={saving}
-            class="h-4 w-4 rounded border-border text-primary focus:ring-primary"
-          />
-        </label>
+        <div class="rounded-lg border border-border/60 bg-secondary/20 p-4">
+          <label for="person-tither-status" class="block text-sm font-medium text-foreground">Manually recorded tither status</label>
+          <p class="text-xs text-muted-foreground">A profile note, not evidence of giving. Dated records appear in Development.</p>
+          <select id="person-tither-status" bind:value={formData.is_tither} disabled={saving} class="mt-2 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground">
+            <option value="">Not recorded</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
         {/if}
       </div>
+      {/if}
     </div>
 
+    {#if showMoreDetails}
     <hr class="border-border" />
 
     <fieldset class="space-y-4">
@@ -870,6 +884,7 @@
       <label for="person-notes" class="text-sm font-medium text-foreground">Notes</label>
       <textarea id="person-notes" bind:value={formData.notes} disabled={saving} rows="4" class="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" placeholder="Add useful background information"></textarea>
     </div>{/if}
+    {/if}
   </form>
 
   {#snippet footer()}

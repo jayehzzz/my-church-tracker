@@ -24,59 +24,47 @@ Form components live in `src/lib/components/forms/` and handle all data entry in
 
 **Location**: `src/lib/components/forms/PersonForm.svelte`
 
-**Purpose**: Form for adding and editing people (members, guests, leaders).
+**Purpose**: Form for adding and editing one unified person record. New-person capture shows name, contact details, and church status first. Optional background, address, roles, ministry groups, baptism, tither status, schools, and notes are available through **Add optional profile details**. Editing an existing person shows all fields so recorded values remain visible.
+
+The confidential **Manually recorded tither status** has three choices: Not recorded, Yes, and No. It is a profile note; dated giving evidence is recorded on gathering attendance and summarised in Development. Leaving the choice unassessed does not store a false value.
 
 ### Properties
 
 | Property | Type | Description |
 |----------|------|-------------|
 | `person` | object | Existing person data (for edit mode) |
-| `mode` | string | `'create'` or `'edit'` |
+| `isOpen` | boolean | Controls the modal; `person` determines create or edit mode |
 
 ### Events
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `on:submit` | `{ data }` | Form was successfully submitted |
-| `on:cancel` | - | User cancelled |
+| `onsave` | Saved person | Form was successfully submitted |
+| `oncancel` | - | User cancelled |
 
 ### Form Fields
 
-#### Identity Section
+#### Initial capture
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | First Name | text | ✅ | Person's first/given name |
-| Last Name | text | ✅ | Person's surname |
-| Preferred Name | text | ❌ | Nickname if different |
+| Last Name | text | ❌ | Person's surname, when known |
 | Email | email | ❌ | Contact email address |
 | Phone | tel | ❌ | Contact phone number |
-| Address | textarea | ❌ | Full address for mapping |
-| Birthday | date | ❌ | Date of birth |
+| Church status | select | ✅ | Contact, guest, member, leader, or archived |
+| Membership date | date | ❌ | Shown for members and leaders |
 
-#### Status Section
+#### Optional profile details
 
-| Field | Type | Required | Options |
-|-------|------|----------|---------|
-| Member Status | select | ✅ | Guest, Member, Leader, Archived |
-| Role | select | ❌ | No Role, Basonta Leader, Bacenta Leader, Basonta Worker |
-| Activity Status | select | ❌ | Regular, Irregular, Dormant |
-
-#### Spiritual Journey Section
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| First Visit Date | date | ❌ | When they first attended |
-| Membership Date | date | ❌ | When they became a member |
-| Is Baptised | checkbox | ❌ | Have they been baptized? |
-| Is Tither | checkbox | ❌ | Do they regularly tithe? |
+These include birthday, demographics, address lookup and mapping, connection source, Basonta membership, leadership role, ministry groups, baptism, church schools, confidential notes, and manually recorded tither status. None is required for initial capture.
 
 ### Validation Rules
 
 | Field | Rule | Error Message |
 |-------|------|---------------|
 | First Name | Required, min 2 chars | "First name is required" |
-| Last Name | Required, min 2 chars | "Last name is required" |
+| Last Name | Optional; do not invent a surname | — |
 | Email | Valid email format | "Please enter a valid email" |
 | Phone | Valid phone format | "Please enter a valid phone number" |
 | Member Status | Required | "Please select a status" |

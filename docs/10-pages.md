@@ -276,21 +276,15 @@ Chronological list of all activities involving this person.
 
 **Purpose**: Track and analyze church service attendance and metrics.
 
+The overview keeps latest attendance, first-timer visits and salvation decisions beside the attendance trend and recent services. Detailed attendance and outcomes, including comparisons and service mix, are available from the expandable details section. List and Memories views remain separate.
+
 ### Sections
 
-#### KPI Cards
-| Metric | Description |
-|--------|-------------|
-| Total Services | Count in period |
-| Average Attendance | Mean attendance |
-| Total Guests | Sum of guests |
-| Total Salvations | Sum of salvations |
+#### Headline summary
+Latest service attendance, first-timer visits and salvation decisions appear above the trend. Other totals and comparisons are inside **Detailed attendance & outcomes**.
 
-#### Attendance Chart
-Line chart showing attendance over time:
-- Weekly view
-- Service type breakdown
-- Trend line
+#### Attendance chart
+The attendance trend supports line/bar views, time grouping and selectable comparisons.
 
 #### Services Table
 List of all services:
@@ -485,6 +479,8 @@ Donut chart of visit outcomes:
 
 **Purpose**: Generate reports and export data for analysis.
 
+The first view is a concise period summary with CSV exports and links to each section dashboard. The expandable **Detailed report metrics and comparisons** section retains the other totals, comparisons and report breakdowns.
+
 ### Report Types
 
 | Report | Description |
@@ -501,19 +497,11 @@ Donut chart of visit outcomes:
 #### Date Range Selection
 Custom date picker for report period.
 
-#### Export Options
-| Format | Description |
-|--------|-------------|
-| CSV | Comma-separated values |
-| Excel | .xlsx format |
-| PDF | Printable document |
-| Print | Direct print |
+#### Export options
+CSV downloads are available for the report sections.
 
-#### Report Preview
-Preview report before exporting with:
-- Summary statistics
-- Charts
-- Data tables
+#### Detailed metrics
+The expandable details area contains summary metrics, comparisons and section breakdowns. Links on the export cards lead to the corresponding operational dashboards.
 
 ---
 
