@@ -8,9 +8,10 @@
     role="status"
     data-testid="rehearsal-banner"
   >
-    <span class="font-black tracking-[0.14em]">REHEARSAL</span>
+    <span class="font-black tracking-[0.14em]">PRACTICE</span>
     <span class="mx-2" aria-hidden="true">•</span>
-    <span>Safe test sandbox — edits here do not affect the live church site.</span>
-    <span class="hidden sm:inline"> Starting rehearsal again resets this data from production.</span>
+    <span>These are copied records. Edits here do not affect live data.</span>
+    <span class="block sm:hidden">Refresh replaces Practice edits.</span>
+    <span class="hidden sm:inline"> Refreshing Practice replaces your Practice edits with a new copy of live data.</span>
   </div>
 {/if}

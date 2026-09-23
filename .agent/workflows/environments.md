@@ -68,8 +68,16 @@ VITE_APP_MODE=live
 VITE_CONVEX_URL=https://standing-mongoose-699.convex.cloud
 ```
 
-Then run `npm run dev:rehearsal`. Vite continues to load the Auth0 public client
+Then run `npm run dev:rehearsal`. Opening it preserves existing Practice edits;
+refresh is a separate, explicitly requested replacement. The compatible
+`dev:rehearsal:keep` alias also preserves them. `dev:rehearsal:refresh` explicitly
+refreshes and then opens it. Vite continues to load the Auth0 public client
 configuration from the normal untracked local environment.
+
+The permanent hosted Practice link is https://my-church-tracker-rehearsal.vercel.app.
+Follow [the Practice workflow](../../docs/practice-workflow.md) to publish a
+Preview there. Git branches isolate code; the pinned Convex deployment isolates
+the copied church records. Preview defaults now select that Practice deployment.
 
 ## Preview and release
 

@@ -31,6 +31,13 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 Append one concise entry per task: status/date, changed behavior, validation results, remaining work or required user input, and current branch/commit or uncommitted state. Keep credentials and private records out of this file. If external configuration prevents verification, state that and keep the task incomplete instead of using mock success as proof.
 
+### Branch cleanup and Practice workflow — setup in progress (23 September 2026)
+
+- Started `codex/practice-workflow` from clean `main` at `09ddd41`. Audited the three older local branches and two old GitHub branches; their only missing useful file was the Node 24 GitHub verification workflow. Carried that file forward and saved a verified private Git bundle before deleting the old branches. GitHub now automatically deletes branches after merge.
+- Practice keeps existing edits when opened, has an amber Practice banner, and rejects explicit Practice configurations pointing at another deployment or development/staging pointing at the known live database. Added [a simple owner workflow and operator instructions](../practice-workflow.md). Vercel Preview selects the isolated `standing-mongoose-699`; the existing permanent Practice alias and church sign-in are reused.
+- Local verification: 287 frontend tests, 87 backend tests, backend TypeScript and production build passed. Existing Practice data was exported privately before preparing a fresh copy. Hosted update, final browser/write-isolation checks and GitHub verification are still pending in this entry. No live release or deliberate live church-record write.
+- Source changes are being prepared on `codex/practice-workflow`. The owner completed the one-time GitHub device approval; the CLI now has the `workflow` permission needed to publish the recovered verification file.
+
 ### Tracking and dashboard simplification — implemented locally (22 September 2026)
 
 - Sunday Services now starts with three headline figures, the attendance trend and recent services. Detailed attendance, outcomes and comparisons remain available through an expandable section; redundant “At a glance” figures and the repeated trend footer were removed from that view. Reports now starts with a concise period summary, CSV exports and links to section dashboards; its remaining metrics and breakdowns are available through an expandable section.

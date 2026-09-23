@@ -2,11 +2,32 @@ import { ConvexClient, ConvexHttpClient } from "convex/browser";
 import { accessErrorCode } from './auth/errors.js';
 
 const environment = import.meta.env?.VITE_APP_ENV || (import.meta.env?.DEV ? "development" : "production");
+const hostingEnvironment = import.meta.env?.HOSTING_ENV || "";
 const requestedMode = import.meta.env?.VITE_APP_MODE || "live";
 const appVariant = import.meta.env?.VITE_APP_VARIANT?.trim().toLowerCase() || "";
 const convexUrl = import.meta.env?.VITE_CONVEX_URL?.trim();
 const validEnvironments = new Set(["development", "staging", "production"]);
 const rehearsalConvexUrl = "https://standing-mongoose-699.convex.cloud";
+const liveConvexHost = "elated-bee-284.convex.cloud";
+
+// Accept an optional trailing slash, but no path, credentials, query, or alternate host.
+function deploymentUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password &&
+      url.pathname === "/" && !url.search && !url.hash ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+const configuredDeployment = convexUrl ? deploymentUrl(convexUrl) : null;
+let configuredHost = null;
+try {
+  configuredHost = convexUrl ? new URL(convexUrl).hostname : null;
+} catch {
+  // Leave malformed URLs to the existing client validation outside Practice mode.
+}
 
 let configurationError = null;
 if (!validEnvironments.has(environment)) {
@@ -15,6 +36,19 @@ if (!validEnvironments.has(environment)) {
   configurationError = 'VITE_APP_MODE must be "live" or "demo".';
 } else if (requestedMode === "demo" && environment !== "development") {
   configurationError = "Demo mode is allowed only in the development environment.";
+} else if (hostingEnvironment === "preview" &&
+  (environment !== "staging" || requestedMode !== "live" || appVariant !== "rehearsal" || configuredDeployment !== rehearsalConvexUrl)) {
+  configurationError = "Vercel Preview requires explicit staging Practice configuration on the pinned standing-mongoose-699 deployment.";
+} else if (hostingEnvironment === "development" && environment === "production") {
+  configurationError = "Vercel Development cannot use a production app environment.";
+} else if (appVariant === "rehearsal" &&
+  (requestedMode !== "live" || environment === "production" || configuredDeployment !== rehearsalConvexUrl)) {
+  configurationError = "Practice requires live mode, a non-production environment, and the pinned standing-mongoose-699 Convex deployment.";
+} else if (environment !== "production" && configuredHost === liveConvexHost) {
+  configurationError = "The live elated-bee-284 Convex deployment cannot be used in development or staging.";
+} else if (configuredHost === new URL(rehearsalConvexUrl).hostname &&
+  (environment === "production" || configuredDeployment !== rehearsalConvexUrl)) {
+  configurationError = "The Practice Convex deployment requires a non-production environment and its pinned URL.";
 } else if (requestedMode === "live" && !convexUrl) {
   configurationError = "No Convex deployment is configured. Set VITE_CONVEX_URL for this environment, or explicitly start local demo mode.";
 }
@@ -22,7 +56,8 @@ if (!validEnvironments.has(environment)) {
 /** Demo is intentionally local-only and never creates a Convex client. */
 export const isDemoMode = () => requestedMode === "demo" && !configurationError;
 export const isRehearsalMode = () =>
-  appVariant === "rehearsal" || convexUrl === rehearsalConvexUrl;
+  !configurationError && requestedMode === "live" && environment !== "production" &&
+  configuredDeployment === rehearsalConvexUrl;
 export const isConvexConfigured = () => !configurationError && !isDemoMode() && Boolean(convexUrl);
 export const getConfigurationError = () => configurationError;
 export const getDataSource = () => (isDemoMode() ? "demo" : isConvexConfigured() ? "convex" : "unavailable");

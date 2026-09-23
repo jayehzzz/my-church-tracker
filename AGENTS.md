@@ -1,5 +1,6 @@
 # Church Tracker working context
 
+- For day-to-day changes, read `docs/practice-workflow.md`. Use one temporary `codex/` branch and the permanent Practice link with its pinned separate database. Opening Practice must preserve test edits; refresh only when explicitly requested. Merging/pushing `main` can publish production, so wait for explicit live-release approval. Retire merged branches after release.
 - SvelteKit/Svelte 5 frontend; Convex backend. Use the built-in browser for local app testing.
 - The user reported no real church data entered as of 5 September 2026. Preserve existing records and uncommitted work; do not assume a configured database is disposable.
 - For the improvement programme, read `docs/implementation/README.md` and only the requested numbered brief. Read relevant sections of `docs/project-review-2026-09-05.md` as needed; verify findings against current code rather than repeating the full audit.

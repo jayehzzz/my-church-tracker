@@ -48,6 +48,10 @@ This project leverages the bleeding edge of web development:
 
 ## ⚡ Getting Started
 
+For the day-to-day process of requesting, trying and approving changes, start with
+[Making changes with Practice](docs/practice-workflow.md). Practice has a separate
+copy of the church data and a permanent website link.
+
 Follow these steps to set up the project locally on your machine.
 
 ### Prerequisites
@@ -90,7 +94,9 @@ deployment; production release requires separately configured Vercel and Convex
 production environments. Local development never deploys or releases production.
 
 For realistic testing against a disposable full copy of the live church data,
-run `npm run rehearsal:refresh` and then `npm run dev:rehearsal`. Rehearsal uses
+explicitly run `npm run rehearsal:refresh` when you want to replace the Practice
+records with a new copy. Run `npm run dev:rehearsal` to open it and keep your test
+edits. Rehearsal uses
 the isolated `standing-mongoose-699` Convex deployment; see
 `.agent/workflows/environments.md` and `docs/recovery.md` for the safeguards and
 refresh procedure.

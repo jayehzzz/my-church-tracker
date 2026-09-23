@@ -264,9 +264,9 @@
         {#if isRehearsalMode()}
           <span
             class="shrink-0 rounded-full border border-amber-300/60 bg-amber-300/15 px-2 py-1 text-[10px] font-black tracking-[0.12em] text-amber-200"
-            title="Rehearsal sandbox"
+            title="Practice copy of live data"
           >
-            REHEARSAL
+            PRACTICE
           </span>
         {/if}
       </div>
