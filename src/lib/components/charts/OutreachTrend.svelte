@@ -1,7 +1,7 @@
 <script>
   import { createChoice, createSelection } from "$lib/components/drilldown/selection.js";
   import ComparisonControls from "./ComparisonControls.svelte";
-  import { completeMonthlySeries, roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import { completeMonthlySeries, wholeCountAverage } from "$lib/utils/comparisonMetrics.js";
   import { todayDate } from "$lib/utils/reportingMetrics.js";
   import { pointInsight } from "$lib/utils/chartInsights.js";
   import ChartPointDetails from "./ChartPointDetails.svelte";
@@ -40,7 +40,7 @@
   })));
   const primaryMetric = $derived(metricOptions.find(option => option.key === primaryKey) || metricOptions[0]);
   const totalFor = key => monthlyRows.reduce((sum,row) => sum + (Number(row[key]) || 0),0);
-  const averageFor = key => roundedAverage(totalFor(key), monthlyRows.length) ?? 0;
+  const averageFor = key => wholeCountAverage(totalFor(key), monthlyRows.length) ?? 0;
   const primaryCaption = $derived(`${primaryMetric.label} · ${primaryMode === 'total' ? 'actual monthly count' : 'period average per month'}`);
   const comparisonCaption = $derived(`${metricOptions.find(option => option.key === comparisonKey)?.label || ''} · ${comparisonMode === 'total' ? 'actual monthly count' : 'period average per month'}`);
   let chartType = $state("bar");
@@ -69,7 +69,7 @@
       : 0;
 
     const overallMax = Math.max(maxRawCount, maxComparisonRaw, 1);
-    const yScale = getNiceYScale(overallMax);
+    const yScale = getNiceYScale(overallMax, 4, 1.2, true);
 
     const { bandWidth, getCenterX } = getBandCoordinates(rawPoints.length, innerWidth, padding.left);
 
@@ -167,7 +167,7 @@
   </header>
 
   {#if monthlyRows.length}
-    <p class="mb-3 text-xs text-muted-foreground">Actual count shows each month’s total. Average shows the period total ÷ {monthlyRows.length} calendar month{monthlyRows.length === 1 ? "" : "s"}, including months with no contacts and any partial months in the selected period.</p>
+    <p class="mb-3 text-xs text-muted-foreground">Actual count shows each month’s total. Average shows the period total ÷ {monthlyRows.length} calendar month{monthlyRows.length === 1 ? "" : "s"}, rounded to a whole person. Months with no contacts and partial months are included.</p>
   {/if}
   {#if chartData().selected}
     <div class="mb-3 flex flex-wrap items-center justify-center gap-3 text-xs">

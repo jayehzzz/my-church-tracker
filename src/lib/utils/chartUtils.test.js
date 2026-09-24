@@ -127,7 +127,8 @@ describe("chartUtils", () => {
       const months = groupChartPoints(points, "month", "average");
 
       expect(weeks[0]).toMatchObject({ date: "2026-08-03", total: 120, guests: 15, label: "Week of 3 Aug" });
-      expect(months[0]).toMatchObject({ date: "2026-08-01", total: 133.3, guests: 20, label: "Aug 2026" });
+      expect(months[0]).toMatchObject({ date: "2026-08-01", guests: 20, label: "Aug 2026" });
+      expect(months[0].total).toBeCloseTo(400 / 3);
       expect(months[0].id).toBeUndefined();
     });
   });
@@ -146,4 +147,8 @@ it('retains distinct decimal ticks for small averages', () => {
   expect(new Set(scale.ticks).size).toBe(scale.ticks.length);
   expect(scale.ticks[1]).toBeGreaterThan(0);
   expect(scale.ticks[1]).toBeLessThan(1);
+});
+
+it('uses whole-number ticks for people charts with small averages', () => {
+  expect(getNiceYScale(0.7, 4, 1.2, true).ticks.every(Number.isInteger)).toBe(true);
 });

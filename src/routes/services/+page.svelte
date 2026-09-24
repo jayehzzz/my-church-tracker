@@ -14,7 +14,7 @@
 -->
 
 <script>
-  import { roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import { roundedAverage, wholeCountAverage } from "$lib/utils/comparisonMetrics.js";
   import MetricComparison from "$lib/components/charts/MetricComparison.svelte";
   import ServiceDrilldown from "$lib/components/drilldown/ServiceDrilldown.svelte";
   import { saveDomainReturn, takeDomainReturn } from "$lib/components/drilldown/domainReturnState.js";
@@ -414,13 +414,15 @@
   // Donut chart data
   const donutData = $derived(() => {
     const mix = attendanceMix();
+    const counts = kpis();
+    const perService = total => wholeCountAverage(total, counts.serviceCount) ?? 0;
     return {
-      members: mix.averageMembers,
-      returningGuests: mix.averageReturningGuests,
-      unclassifiedNonMembers: mix.averageUnclassifiedNonMembers,
-      firstTimers: mix.averageFirstTimers,
-      tithers: mix.averageTithers,
-      total: mix.averageAttendance,
+      members: perService(counts.totalAttendance - counts.totalGuests),
+      returningGuests: perService(counts.totalReturningGuests),
+      unclassifiedNonMembers: perService(counts.totalUnclassifiedNonMembers),
+      firstTimers: perService(counts.totalFirstTimers),
+      tithers: perService(counts.totalTithers),
+      total: perService(counts.totalAttendance),
       memberPct: mix.memberPct,
       returningGuestPct: mix.returningGuestPct,
       unclassifiedNonMemberPct: mix.unclassifiedNonMemberPct,

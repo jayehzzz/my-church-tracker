@@ -28,7 +28,7 @@
   {:else if current.kind === 'attendance'}
     {@const axis = current.programmeId ? summary.breakdown.find(a => a.id === current.programmeId) : summary.axes.find(a => a.key === current.axisKey)}
     {#if axis}
-      <p class="text-sm">{current.comparisonAverage ? `${axis.meetings.attended} recorded attendances / ${axis.weeks.offered} offered weeks = ${axis.weeks.offered ? (axis.meetings.attended / axis.weeks.offered).toFixed(1) : 'unavailable'} attendances per offered week` : current.basis === 'weeks' ? `${axis.weeks.attended} weeks with recorded attendance / ${axis.weeks.offered} weeks with known registers` : `${axis.meetings.attended} recorded attendances / ${axis.meetings.offered} gatherings with known registers`}</p>
+      <p class="text-sm">{current.comparisonAverage ? `${axis.meetings.attended} recorded attendances / ${axis.weeks.offered} offered weeks ≈ ${axis.weeks.offered ? Math.round(axis.meetings.attended / axis.weeks.offered) : 'unavailable'} attendances per offered week (rounded)` : current.basis === 'weeks' ? `${axis.weeks.attended} weeks with recorded attendance / ${axis.weeks.offered} weeks with known registers` : `${axis.meetings.attended} recorded attendances / ${axis.meetings.offered} gatherings with known registers`}</p>
       <p class="mb-3 text-xs text-muted-foreground">Selected gatherings establish the denominator; missing attendance is not proof that this person was expected or absent. {axis.unknown} unknown registers excluded.</p>
       {#if current.basis === 'weeks'}
         {#each axis.sources.weekly as week}
@@ -49,7 +49,7 @@
     {#if event}<p>{date(event.date)} · {event.name}</p>{#if current.evidenceKind === 'giving'}<p class="text-sm">Giving recorded on {date(event.date)} for this gathering.</p>{/if}<p class="text-sm text-muted-foreground">Attendance: {status(personId,event)}</p><a class="evidence-link" href={eventUrl(event)}>{eventLabel(event)} →</a>{:else}<p>Gathering unavailable.</p>{/if}
   {:else if current.kind === 'givingSummary'}
     {#if !summary.tithing.available}<p>Confidential access required.</p>
-    {:else}<p class="text-sm">{summary.tithing.months.filter(m => m.complete).reduce((count,m) => count + m.dates.length,0)} distinct recorded dates across {summary.tithing.eligible} eligible complete months{current.mode === 'average' ? summary.tithing.eligible ? ` = ${(summary.tithing.months.filter(m => m.complete).reduce((count,m) => count + m.dates.length,0) / summary.tithing.eligible).toFixed(1)} per eligible month` : ' · average unavailable: no eligible months' : ''}.</p>
+    {:else}<p class="text-sm">{summary.tithing.months.filter(m => m.complete).reduce((count,m) => count + m.dates.length,0)} distinct recorded dates across {summary.tithing.eligible} eligible complete months{current.mode === 'average' ? summary.tithing.eligible ? ` ≈ ${Math.round(summary.tithing.months.filter(m => m.complete).reduce((count,m) => count + m.dates.length,0) / summary.tithing.eligible)} per eligible month (rounded)` : ' · average unavailable: no eligible months' : ''}.</p>
       {#each summary.tithing.months as month}<button class="evidence-row" data-drilldown-focus={month.month} onclick={() => navigate({kind:'giving',title:`Monthly giving · ${month.month}`,personId,month:month.month},month.month)}>{month.month} · {month.dates.length} recorded {month.dates.length === 1 ? 'date' : 'dates'} · {month.complete ? 'eligible' : month.reason} →</button>{/each}
     {/if}
   {:else if current.kind === 'giving'}
@@ -63,7 +63,7 @@
     {/if}
   {:else if current.kind === 'outreach'}
     {@const people = summary.outreach.sources[current.metricKey] || []}
-    <p class="text-sm">{people.length} distinct {people.length === 1 ? 'person' : 'people'}{current.mode === 'average' ? current.denominator ? ` / ${current.denominator} calendar months = ${(people.length / current.denominator).toFixed(1)} per month` : ' · average unavailable: no calendar months' : ''} · {summary.outreach.complete ? 'permitted records' : 'only contacts in your permitted scope'}</p>
+    <p class="text-sm">{people.length} distinct {people.length === 1 ? 'person' : 'people'}{current.mode === 'average' ? current.denominator ? ` / ${current.denominator} calendar months ≈ ${Math.round(people.length / current.denominator)} per month (rounded)` : ' · average unavailable: no calendar months' : ''} · {summary.outreach.complete ? 'permitted records' : 'only contacts in your permitted scope'}</p>
     {#if current.mode === 'average'}<p class="text-xs text-muted-foreground">Calendar months in the selected period, including months with no matching records:</p>{#each monthsInRange(range) as month}<p class="text-xs text-muted-foreground">{month.month}: {people.filter(contact => outreachDate(contact,current.metricKey)?.startsWith(month.month)).length}</p>{/each}{/if}
     {#each people as contact}
       <button class="evidence-row" data-drilldown-focus={String(contact.id)} onclick={() => navigate({kind:'contact',title:contactName(contact),personId,contactId:String(contact.id),metricKey:current.metricKey},String(contact.id))}>

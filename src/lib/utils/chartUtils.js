@@ -33,9 +33,10 @@ export const DEFAULT_CHART_DIMENSIONS = {
  * @param {number} maxValue - Maximum data value in dataset
  * @param {number} [targetIntervals=4] - Target number of divisions
  * @param {number} [headroom=1.2] - Multiplier for headroom above peak value
+ * @param {boolean} [wholeCounts=false] - Use whole-number ticks for people/count charts
  * @returns {{ max: number, ticks: number[], interval: number }}
  */
-export function getNiceYScale(maxValue, targetIntervals = 4, headroom = 1.2) {
+export function getNiceYScale(maxValue, targetIntervals = 4, headroom = 1.2, wholeCounts = false) {
   if (maxValue <= 0) {
     return { max: 4, ticks: [0, 1, 2, 3, 4], interval: 1 };
   }
@@ -50,6 +51,7 @@ export function getNiceYScale(maxValue, targetIntervals = 4, headroom = 1.2) {
   else if (residual <= 2.5) niceInterval = 2.5 * magnitude;
   else if (residual <= 5) niceInterval = 5 * magnitude;
   else niceInterval = 10 * magnitude;
+  if (wholeCounts) niceInterval = Math.max(1, Math.ceil(niceInterval));
 
   const tickMax = Math.max(
     niceInterval * 3,
@@ -198,7 +200,7 @@ export function groupChartPoints(points = [], granularity = 'day', aggregation =
     const result = { ...first, date: granularity === 'month' ? `${key}-01` : key };
     for (const field of numericKeys) {
       const total = sourceRows.reduce((sum, item) => sum + (Number(item[field]) || 0), 0);
-      result[field] = aggregation === 'sum' ? total : Math.round(total / sourceRows.length * 10) / 10;
+      result[field] = aggregation === 'sum' ? total : total / sourceRows.length;
     }
     result.id = bucketPoints.length === 1 ? first.id : undefined;
     result.topic = bucketPoints.length === 1 ? first.topic : undefined;

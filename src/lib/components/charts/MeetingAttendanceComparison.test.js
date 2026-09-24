@@ -11,7 +11,7 @@ describe('meeting comparison details', () => {
     const {getByLabelText,getByText,getByRole} = render(MeetingAttendanceComparison,{series});
     await fireEvent.change(getByLabelText('Chart time scale'),{target:{value:'month'}});
     expect(getByText('Meetings shown', {selector:'p'}).previousElementSibling).toHaveTextContent('3');
-    expect(getByText('Average attendance').previousElementSibling).toHaveTextContent('50');
+    expect(getByText('Average attendance (rounded)').previousElementSibling).toHaveTextContent('50');
     await fireEvent.click(getByRole('button',{name:'Bar',exact:true}));
     await fireEvent.click(getByRole('button',{name:'Bacenta, Sept 2026, 30 average attendance per meeting'}));
     expect(getByRole('dialog',{name:'Sept 2026'})).toHaveTextContent('30');

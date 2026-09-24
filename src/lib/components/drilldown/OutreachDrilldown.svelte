@@ -94,7 +94,7 @@
   {@const result = outreachContributions(rows, choice)}
   <p class="mb-2 text-sm text-muted-foreground">{outreachMetricLabel(choice.metricKey)} · contact cohort {result.scope?.startDate || 'first record'} – {result.scope?.endDate || 'today'}</p>
   {#if choice.mode === 'average'}
-    <p class="mb-3 font-medium">{result.total} qualifying contacts ÷ {result.denominator} calendar months = {result.displayed ?? 'unavailable'} per month</p>
+    <p class="mb-3 font-medium">{result.total} qualifying contacts ÷ {result.denominator} calendar months ≈ {result.denominator ? Math.round(result.total / result.denominator) : 'unavailable'} per month (rounded to a whole person)</p>
     <p class="mb-3 text-sm text-muted-foreground">The chart repeats this full-period average at each point. Months with no contacts and partial months count in the denominator.</p>
     <ul class="mb-4 space-y-1 text-sm" aria-label="Contributing months">
       {#each result.months as month}
@@ -104,7 +104,7 @@
   {:else}<p class="mb-3 font-medium">{result.total} matching contact{result.total === 1 ? '' : 's'} {choice.aggregateScope === 'period' ? 'in the selected period' : `in ${monthName(result.clickedMonth)}`}</p>{/if}
   {#if choice.metricKey !== 'count'}<p class="mb-3 text-sm text-muted-foreground">These outcomes belong to people first contacted in this cohort; the outcome may have been recorded later.</p>{/if}
   <ContributionList domain="contact" records={outreachRecordRows(result.matches, choice.metricKey)} onselect={row => { oncontact?.(row.id); navigate({ kind: 'contact', title: row.title, id: row.id }, row.id); }} />
-  {#if choice.value != null && Number(choice.value) !== result.displayed}<p class="mt-3 text-sm text-warning">The chart displays {choice.value}; current records calculate {result.displayed ?? 'unavailable'}.</p>{/if}
+  {#if choice.value != null && Number(choice.value) !== (choice.mode === 'average' ? Math.round(result.total / result.denominator) : result.displayed)}<p class="mt-3 text-sm text-warning">The chart displays {choice.value}; current records calculate {choice.mode === 'average' ? Math.round(result.total / result.denominator) : result.displayed}.</p>{/if}
 {/snippet}
 
 <DrilldownDialog bind:state renderView={view} />

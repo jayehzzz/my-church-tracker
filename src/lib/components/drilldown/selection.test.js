@@ -19,7 +19,8 @@ describe('drilldown source identity', () => {
     expect(weeks[0]).toMatchObject({ bucketStart: '2026-08-24', bucketEnd: '2026-08-30', total: 82 });
     const months = groupChartPoints(rows, 'month', 'average');
     expect(months[0]).toMatchObject({ sourceIds: ['first', 'second', 'third'], sourceCount: 3,
-      bucketStart: '2026-08-01', bucketEnd: '2026-08-31', total: 40.7 });
+      bucketStart: '2026-08-01', bucketEnd: '2026-08-31' });
+    expect(months[0].total).toBeCloseTo(122 / 3);
     expect(months[0].sourcePoints).toEqual(rows.slice(0, 3));
     expect(months[1].sourceIds).toEqual(['fourth']);
     expect(months[0].firstTimers).toBe(1);
@@ -39,7 +40,7 @@ describe('drilldown source identity', () => {
     const firstWeek = groupChartPoints(rows.slice(0, 2), 'week', 'average')[0];
     const secondWeek = groupChartPoints(rows.slice(2), 'week', 'average')[0];
     const month = groupChartPoints([firstWeek, secondWeek], 'month', 'average')[0];
-    expect(month.total).toBe(40.7);
+    expect(month.total).toBeCloseTo(122 / 3);
     expect(month.sourceIds).toEqual(['first', 'second', 'third']);
     expect(month.sourceCount).toBe(3);
   });

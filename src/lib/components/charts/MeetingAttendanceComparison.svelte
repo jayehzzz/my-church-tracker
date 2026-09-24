@@ -3,7 +3,7 @@
   import ChartPointDetails from "./ChartPointDetails.svelte";
   import { pointInsight } from "$lib/utils/chartInsights.js";
   let detail = $state(null);
-  import { roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import { wholeCountAverage } from "$lib/utils/comparisonMetrics.js";
   import ComparisonControls from "./ComparisonControls.svelte";
   import ChartViewToggle from "./ChartViewToggle.svelte";
   import { getNiceYScale, groupChartPoints, getChartColor, DEFAULT_CHART_DIMENSIONS, makeSmoothCurve } from "$lib/utils/chartUtils.js";
@@ -36,10 +36,10 @@
     const points = selectedSeries.flatMap((item) => item.points || []);
     const dates = [...new Set(points.map((point) => point.date))].sort();
     const bandWidth = (width - padding.left - padding.right) / Math.max(1, dates.length);
-    const yScale = getNiceYScale(Math.max(...points.map((point) => Number(point.total) || 0), 1));
+    const yScale = getNiceYScale(Math.max(...points.map((point) => Math.round(Number(point.total) || 0)), 1), 4, 1.2, true);
     const x = (date) => padding.left + (Math.max(0, dates.indexOf(date)) + 0.5) * bandWidth;
     const y = (value) => padding.top + (1 - (Number(value) || 0) / yScale.max) * (height - padding.top - padding.bottom);
-    const plotted = selectedSeries.map((item) => ({ ...item, plottedPoints: (item.points || []).map((point) => ({ ...point, x: x(point.date), y: y(point.total) })) }));
+    const plotted = selectedSeries.map((item) => ({ ...item, plottedPoints: (item.points || []).map((point) => ({ ...point, total: Math.round(Number(point.total) || 0), x: x(point.date), y: y(Math.round(Number(point.total) || 0)) })) }));
     const step = Math.max(1, Math.ceil(dates.length / 6));
     const labels = Object.fromEntries(points.map((point) => [point.date, point.label]));
     return { width, height, padding, yScale, x, y, plotted, labels, bandWidth, dates: dates.filter((_, index) => index % step === 0 || index === dates.length - 1) };
@@ -65,7 +65,7 @@
   <header class="mb-4 flex flex-col gap-3 pr-12">
     <div>
       <h3 id="meeting-comparison-title" class="text-base font-semibold text-foreground">{title}</h3>
-      <p class="mt-0.5 text-xs text-muted-foreground">Compare actual totals and averages by {granularity} across selected meeting types.</p>
+      <p class="mt-0.5 text-xs text-muted-foreground">Compare actual totals and averages by {granularity} across selected meeting types. Averages are rounded to whole people per meeting.</p>
       <p class="mt-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{periodLabel}</p>
     </div>
     <div class="flex min-w-0 flex-wrap items-start gap-2">
@@ -123,7 +123,7 @@
     </div>
     <footer class="mt-4 grid grid-cols-3 divide-x divide-border border-t border-border pt-4 text-center">
       <div><p class="text-lg font-semibold text-foreground">{summaryPoints.length}</p><p class="text-[11px] text-muted-foreground">Meetings shown</p></div>
-      <div><p class="text-lg font-semibold text-primary">{roundedAverage(summaryPoints.reduce((sum, point) => sum + point.total, 0), summaryPoints.length) ?? 0}</p><p class="text-[11px] text-muted-foreground">Average attendance</p></div>
+      <div><p class="text-lg font-semibold text-primary">{wholeCountAverage(summaryPoints.reduce((sum, point) => sum + point.total, 0), summaryPoints.length) ?? 0}</p><p class="text-[11px] text-muted-foreground">Average attendance (rounded)</p></div>
       <div><p class="text-lg font-semibold text-foreground">{Math.max(0, ...summaryPoints.map((point) => point.total))}</p><p class="text-[11px] text-muted-foreground">Highest attendance</p></div>
     </footer>
   {:else}

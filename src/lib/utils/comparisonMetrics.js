@@ -2,6 +2,9 @@ import { todayDate } from './reportingMetrics.js';
 
 export const roundedAverage = (total, count) => total != null && count > 0 ? Math.round(total / count * 10) / 10 : null;
 
+// Keep exact totals for calculations, but show people and attendance as whole counts.
+export const wholeCountAverage = (total, count) => total != null && count > 0 ? Math.round(total / count) : null;
+
 // Include zero-record calendar months; future months are not evidence of zero activity.
 export function completeMonthlySeries(data = [], range = {}, today = todayDate()) {
   const keyed = new Map(data.map(row => [`${row.year}-${String(row.month).padStart(2, '0')}`, row]));

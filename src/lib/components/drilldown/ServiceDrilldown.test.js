@@ -17,7 +17,8 @@ describe('service dialog interaction', () => {
     const selection = periodServiceSelection('total', services, { mode: 'average', range: { startDate: '2026-09-01', endDate: '2026-09-30' } });
     const state = openDrilldown({ kind: 'selection', title: 'Average attendance', selection });
     const ui = render(ServiceDrilldown, { state, services, attendance: [], people: [], wholeNumberAverages: true });
-    expect(ui.getByText(/83 across 2 services = 42 per service/)).toBeDefined();
+    expect(ui.getByText(/83 across 2 services ≈ 42 per service \(rounded to a whole person\)/)).toBeDefined();
+    expect(ui.getByRole('dialog').textContent).not.toContain('41.5');
     expect(ui.getByText('2 services included')).toBeDefined();
     expect(ui.getByText('Attendance: 41')).toBeDefined();
     await fireEvent.click(ui.getAllByRole('button', { name: 'View service' })[0]);

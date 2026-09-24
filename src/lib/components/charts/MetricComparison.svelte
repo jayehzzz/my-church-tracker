@@ -2,8 +2,8 @@
   import { createChoice, createSelection } from '$lib/components/drilldown/selection.js';
   import ComparisonControls from './ComparisonControls.svelte';
   import ChartPointDetails from './ChartPointDetails.svelte';
-  import { roundedAverage } from '$lib/utils/comparisonMetrics.js';
-  let {metrics=[],periodLabel='Selected period',onSelect=null,onDrilldown=null,domain=null,filters={},wholeNumberAverages=false}=$props();
+  import { roundedAverage, wholeCountAverage } from '$lib/utils/comparisonMetrics.js';
+  let {metrics=[],periodLabel='Selected period',onSelect=null,onDrilldown=null,domain=null,filters={},wholeNumberAverages=true}=$props();
   let primaryKey=$state(''),comparisonKey=$state('');
   let primaryMode=$state('total'),comparisonMode=$state('average');
   let detail=$state(null);
@@ -13,8 +13,7 @@
     if(comparisonKey&&!options.some(option=>option.key===comparisonKey))comparisonKey='';
   });
   const averageValue=(metric)=>{
-    const value=roundedAverage(metric?.total,metric?.denominator);
-    return wholeNumberAverages && value!=null ? Math.round(value) : value;
+    return wholeNumberAverages ? wholeCountAverage(metric?.total,metric?.denominator) : roundedAverage(metric?.total,metric?.denominator);
   };
   const selections=$derived([{key:primaryKey,mode:primaryMode,role:'A'},...(comparisonKey?[{key:comparisonKey,mode:comparisonMode,role:'B'}]:[])].map(selection=>{
     const metric=metrics.find(metric=>metric.key===selection.key);
@@ -40,7 +39,7 @@
         <button type="button" class="rounded-xl border border-border p-4 text-left hover:bg-secondary/25" onclick={()=>inspect(selection)}>
           <span class="block text-xs text-muted-foreground">Series {selection.role} · {selection.metric.label}</span>
           <strong class="mt-1 block text-2xl" class:text-primary={selection.role==='A'} class:text-warning={selection.role==='B'}>{selection.value ?? 'Unavailable'}</strong>
-          <span class="mt-1 block text-xs text-muted-foreground">{selection.mode==='total'?'Actual total count':`${selection.metric.averageLabel} · divisor ${selection.metric.denominator}`}</span>
+          <span class="mt-1 block text-xs text-muted-foreground">{selection.mode==='total'?'Actual total count':`${selection.metric.averageLabel} · rounded to a whole count · divisor ${selection.metric.denominator}`}</span>
           <span class="mt-1 block text-xs text-muted-foreground">{selection.metric.periodLabel || periodLabel}</span>
         </button>
       {/if}

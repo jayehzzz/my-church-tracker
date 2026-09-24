@@ -106,6 +106,24 @@ describe("AttendanceTrend", () => {
     expect(queryByText("Overall average attendance")).toBeNull();
   });
 
+  it("plots grouped averages at the displayed whole-person height", async () => {
+    const { container, getByRole, getByText } = render(AttendanceTrend, {
+      props: { data: [
+        { date: "2026-07-05", total: 7 },
+        { date: "2026-07-12", total: 8 },
+        { date: "2026-08-02", total: 8 },
+      ], periodLabel: "This Year (2026)" },
+    });
+    expect(getByText(/Averages per gathering are shown as whole people/)).toBeDefined();
+    const points = [...container.querySelectorAll('svg circle[stroke="hsl(var(--primary))"]')];
+    expect(points).toHaveLength(2);
+    expect(points[0].getAttribute('cy')).toBe(points[1].getAttribute('cy'));
+    expect(container.querySelector('svg')?.textContent).not.toContain('7.5');
+    await fireEvent.click(getByRole('button', { name: 'View Jul 2026 details' }));
+    expect(getByRole('dialog')).toHaveTextContent('8');
+    expect(getByRole('dialog').textContent).not.toContain('7.5');
+  });
+
   it("shows empty state when no data provided", () => {
     const { getByText } = render(AttendanceTrend, {
       props: {

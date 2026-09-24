@@ -18,7 +18,7 @@ it('keeps the selected outcome metric and average mode through the full-period r
   await fireEvent.click(view.getByRole('button', { name: /Series A · First timers/ }));
   expect(selections[0].choices[0]).toMatchObject({ metricKey: 'visited', mode: 'average', aggregateScope: 'period', sourceIds: ['jan'] });
   const detail = render(OutreachDrilldown, { state: openDrilldown({ kind: 'selection', title: 'Outreach', selection: selections[0] }), rows });
-  expect(detail.getByRole('dialog')).toHaveTextContent('1 qualifying contacts ÷ 3 calendar months = 0.3 per month');
+  expect(detail.getByRole('dialog')).toHaveTextContent('1 qualifying contacts ÷ 3 calendar months ≈ 0 per month (rounded to a whole person)');
   expect(detail.getByRole('dialog')).toHaveTextContent('February 2026: 0');
   expect(detail.getByRole('dialog')).toHaveTextContent('Alice');
   expect(detail.queryByText('Bob')).toBeNull();

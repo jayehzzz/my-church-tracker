@@ -5,7 +5,7 @@ function number(value) {
 }
 
 function display(value) {
-  return Number(value.toFixed(1)).toLocaleString('en-GB');
+  return Math.round(value).toLocaleString('en-GB');
 }
 
 /** Context for a selected chart value, using only the points currently shown. */

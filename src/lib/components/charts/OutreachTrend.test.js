@@ -35,7 +35,7 @@ describe("OutreachTrend", () => {
 
     // Total contacts footer
     expect(getByText("31")).toBeDefined();
-    expect(getAllByText("10.3").length).toBeGreaterThan(0); // Avg/month and/or Y-axis
+    expect(getAllByText("10").length).toBeGreaterThan(0); // Rounded average/month
     expect(getAllByText("15").length).toBeGreaterThan(0); // Peak month and/or bar label
     expect(getByText("Average monthly contacts reached").previousElementSibling?.classList.contains("text-primary")).toBe(true);
   });
@@ -86,7 +86,7 @@ it('compares monthly actuals with the same metric average including zero months 
   const points=[];
   const {getByLabelText,getByRole}=render(OutreachTrend,{data:[{year:2025,month:'7',count:31}],periodRange:{startDate:'2025-07-01',endDate:'2025-09-30'},onPointClick:point=>points.push(point)});
   await fireEvent.change(getByLabelText('Compare outreach with'),{target:{value:'count'}});
-  const average=getByRole('button',{name:'Jul: 31 Contacts reached · actual monthly count, 10.3 Contacts reached · period average per month'});
+  const average=getByRole('button',{name:'Jul: 31 Contacts reached · actual monthly count, 10 Contacts reached · period average per month'});
   await fireEvent.click(average);
   expect(points[0]).toMatchObject({year:2025,month:'7',count:31});
 });

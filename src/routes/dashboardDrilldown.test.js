@@ -24,7 +24,7 @@ it('opens the dashboard average from its exact Sunday sources and restores it af
   const first = render(Page);
   await waitFor(() => expect(first.getByRole('button', { name: 'Inspect Avg attendance' })).toBeInTheDocument());
   await fireEvent.click(first.getByRole('button', { name: 'Inspect Avg attendance' }));
-  expect(first.getByRole('dialog')).toHaveTextContent('20 across 2 services = 10 per service');
+  expect(first.getByRole('dialog')).toHaveTextContent('20 across 2 services ≈ 10 per service');
   await fireEvent.click(first.getAllByRole('button', { name: 'View service' })[0]);
   expect(first.getByRole('dialog')).toHaveTextContent('First Sunday');
   await fireEvent.click(first.getByRole('button', { name: 'Back to previous details' }));
@@ -33,7 +33,7 @@ it('opens the dashboard average from its exact Sunday sources and restores it af
   first.unmount();
   const returned = render(Page);
   returned.component.snapshot.restore(saved);
-  await waitFor(() => expect(returned.getByRole('dialog')).toHaveTextContent('20 across 2 services = 10 per service'));
+  await waitFor(() => expect(returned.getByRole('dialog')).toHaveTextContent('20 across 2 services ≈ 10 per service'));
   await fireEvent.click(returned.getByRole('button', { name: 'Close modal' }));
   await fireEvent.change(returned.getByRole('combobox', { name: 'Chart time scale' }), { target: { value: 'month' } });
   await fireEvent.change(returned.getByRole('combobox', { name: 'Compare attendance with' }), { target: { value: 'guests' } });

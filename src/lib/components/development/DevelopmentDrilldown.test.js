@@ -22,7 +22,7 @@ it('uses the explicit comparison person ID even when display names match, then r
  expect(selected).toHaveBeenCalledWith(expect.objectContaining({personId:'second',axisKey:'prayer'}));
  radar.unmount();
  const view=show({kind:'attendance',title:'Prayer',personId:'first',axisKey:'prayer',basis:'weeks',comparisonAverage:true});
- expect(view.getByRole('dialog')).toHaveTextContent('1 recorded attendances / 1 offered weeks = 1.0');
+ expect(view.getByRole('dialog')).toHaveTextContent('1 recorded attendances / 1 offered weeks ≈ 1 attendances per offered week (rounded)');
  expect(view.getByRole('dialog')).toHaveTextContent('Register unknown · excluded');
  await fireEvent.click(view.getByRole('button',{name:/3 Jun 2026 · Prayer meeting · Recorded present/}));
  expect(view.getByRole('dialog')).toHaveTextContent('Attendance: Recorded present');
@@ -41,7 +41,7 @@ it('keeps two same-date giving events under one date and labels the event as giv
 });
 it('shows distinct brought and returned Sunday evidence with exact service links',async()=>{
  const view=show({kind:'outreach',title:'Returned',personId:'second',metricKey:'returned',mode:'average',denominator:3});
- expect(view.getByRole('dialog')).toHaveTextContent('1 distinct person / 3 calendar months = 0.3 per month');
+ expect(view.getByRole('dialog')).toHaveTextContent('1 distinct person / 3 calendar months ≈ 0 per month (rounded)');
  expect(view.getByRole('dialog')).toHaveTextContent('2026-07: 0');
  await fireEvent.click(view.getByRole('button',{name:/Visitor Person.*returned 14 Jun 2026/}));
  expect(view.getByRole('dialog')).toHaveTextContent('First recorded Sunday: 7 Jun 2026');

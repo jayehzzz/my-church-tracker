@@ -34,7 +34,7 @@
       {@const rows = current.month ? metric.rows.filter(row => String(row[metric.dateField] || '').startsWith(current.month)) : metric.rows}
       <p class="mb-3 text-sm text-muted-foreground">{current.month || metric.periodLabel || current.periodLabel || 'Selected period'} · {metric.label}</p>
       {#if current.mode === 'average' && !current.month}
-        <p class="mb-3 font-medium">{metric.total} ÷ {metric.denominator} {metric.domain === 'services' ? 'completed services' : metric.domain === 'meetings' ? 'held meetings' : 'calendar months'} = {metric.average ?? 'Unavailable'}</p>
+        <p class="mb-3 font-medium">{metric.total} ÷ {metric.denominator} {metric.domain === 'services' ? 'completed services' : metric.domain === 'meetings' ? 'held meetings' : 'calendar months'} ≈ {metric.average == null ? 'Unavailable' : Math.round(metric.total / metric.denominator)} (rounded to a whole count)</p>
         {#if metric.months.length}
           <ul aria-label="Contributing months" class="mb-4 space-y-1 text-sm">
             {#each metric.months as month}

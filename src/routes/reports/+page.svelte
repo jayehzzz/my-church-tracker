@@ -671,7 +671,7 @@
                             Avg Attendance
                         </p>
                         <p class="text-xl font-semibold text-foreground">
-                            {metric('attendance')?.average ?? 'Unavailable'}
+                            {metric('attendance')?.average == null ? 'Unavailable' : Math.round(metric('attendance').total / metric('attendance').denominator)}
                         </p>
                     </button>
                 </div>
@@ -741,7 +741,7 @@
                             Avg per Meeting
                         </p>
                         <p class="text-xl font-semibold text-foreground">
-                            {metric('meetingAttendance')?.average ?? 'Unavailable'}
+                            {metric('meetingAttendance')?.average == null ? 'Unavailable' : Math.round(metric('meetingAttendance').total / metric('meetingAttendance').denominator)}
                         </p>
                     </button>
                 </div>

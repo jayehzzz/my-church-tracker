@@ -2,7 +2,7 @@
   import { createChoice, createSelection } from '$lib/components/drilldown/selection.js';
   import ComparisonControls from './ComparisonControls.svelte';
   import ChartPointDetails from './ChartPointDetails.svelte';
-  import { roundedAverage } from '$lib/utils/comparisonMetrics.js';
+  import { wholeCountAverage } from '$lib/utils/comparisonMetrics.js';
   let {data=[],title='Programme comparison',subtitle='',unit='',onBarClick=null,onDrilldown=null,filters={},onFilterClick=null,activeFilterCount=0,metricOptions=[],periodLabel='Selected period'}=$props();
   let primaryKey=$state('attendance'),comparisonKey=$state('');
   let primaryMode=$state('average'),comparisonMode=$state('total');
@@ -13,7 +13,7 @@
   ]);
   const selections=$derived([{key:primaryKey,mode:primaryMode,role:'A'},...(comparisonKey?[{key:comparisonKey,mode:comparisonMode,role:'B'}]:[])]);
   function measure(item,selection){
-    if(selection.key==='attendance')return selection.mode==='total'?item.total:roundedAverage(item.total,item.meetingCount);
+    if(selection.key==='attendance')return selection.mode==='total'?item.total:wholeCountAverage(item.total,item.meetingCount);
     return item[selection.key];
   }
   function caption(selection){return `${options.find(option=>option.key===selection.key)?.label || ''} · ${selection.mode==='average'?'average per meeting':'actual count'}`;}
@@ -47,6 +47,6 @@
     </button>
   {:else}<p class="py-10 text-center text-sm text-muted-foreground">No matching data</p>{/each}
   {#if data.length>8}<button type="button" class="mt-3 text-xs text-primary" onclick={()=>showAll=!showAll}>{showAll?'Show fewer':`Show all ${data.length} meeting types`}</button>{/if}
-  <p class="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">Attendance average = total attendance ÷ held meetings for each programme. Unique people and meetings held are counts.</p>
+  <p class="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">Attendance averages are rounded to whole people per meeting. Unique people and meetings held are exact counts.</p>
 </section>
 <ChartPointDetails bind:detail />

@@ -28,7 +28,7 @@ it('opens Series B average through zero months to exact source and keeps CSV sta
   await fireEvent.change(view.getByLabelText('Comparison metric'), { target: { value: 'joinedChurch' } });
   await fireEvent.click(view.getByRole('button', { name: /Series B · Reached people who joined/ }));
   const dialog = view.getByRole('dialog', { name: 'Reached people who joined' });
-  expect(dialog).toHaveTextContent('1 ÷ 3 calendar months = 0.3');
+  expect(dialog).toHaveTextContent('1 ÷ 3 calendar months ≈ 0 (rounded to a whole count)');
   expect(dialog).toHaveTextContent('2026-07: 0');
   expect(dialog).toHaveTextContent('2026-08: 0');
   await fireEvent.click(view.getByRole('button', { name: /2026-09: 1/ }));

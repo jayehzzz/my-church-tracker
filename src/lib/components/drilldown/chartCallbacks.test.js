@@ -42,7 +42,7 @@ it('keeps clicked month separate from period-wide outreach average and both seri
   ], periodRange: { startDate: '2025-07-01', endDate: '2025-09-30' },
   onDrilldown: selection => received.push(selection) });
   await fireEvent.change(view.getByRole('combobox', { name: 'Compare outreach with' }), { target: { value: 'count' } });
-  await fireEvent.click(view.getByRole('button', { name: 'Jul: 31 Contacts reached · actual monthly count, 10.3 Contacts reached · period average per month' }));
+  await fireEvent.click(view.getByRole('button', { name: 'Jul: 31 Contacts reached · actual monthly count, 10 Contacts reached · period average per month' }));
   expect(received[0].selectedRole).toBeNull();
   expect(received[0].choices[1]).toMatchObject({ metricKey: 'count', mode: 'average',
     pointBounds: { startDate: '2025-07-01', endDate: '2025-07-31' },

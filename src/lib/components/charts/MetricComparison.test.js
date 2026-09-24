@@ -5,13 +5,13 @@ import MeetingBarChart from './MeetingBarChart.svelte';
 afterEach(cleanup);
 
 describe('shared dashboard comparisons', () => {
-  it('compares the same metric as a total and decimal average and opens details', async () => {
+  it('compares the same metric as an exact total and a rounded whole-person average', async () => {
     const {getByLabelText,getByRole}=render(MetricComparison,{metrics:[{key:'attendance',label:'Attendance',total:31,denominator:3,averageLabel:'Average per service'}]});
     await fireEvent.change(getByLabelText('Comparison metric'),{target:{value:'attendance'}});
     expect(getByRole('button',{name:/Series A · Attendance/})).toHaveTextContent('31');
-    expect(getByRole('button',{name:/Series B · Attendance/})).toHaveTextContent('10.3');
+    expect(getByRole('button',{name:/Series B · Attendance/})).toHaveTextContent('10');
     await fireEvent.click(getByRole('button',{name:/Series B · Attendance/}));
-    expect(getByRole('dialog',{name:'Attendance'})).toHaveTextContent('Average per service10.3');
+    expect(getByRole('dialog',{name:'Attendance'})).toHaveTextContent('Average per service10');
     expect(getByRole('dialog',{name:'Attendance'})).toHaveTextContent('Denominator3');
   });
   it('can round people averages to whole numbers for headcount dashboards', async () => {
@@ -39,7 +39,7 @@ describe('shared dashboard comparisons', () => {
     const {getByLabelText,getByRole}=render(MeetingBarChart,{data:[{id:'a',label:'Prayer',total:31,meetingCount:3}],metricOptions:[{key:'uniquePeople',label:'Unique people'}]});
     await fireEvent.change(getByLabelText('Comparison metric'),{target:{value:'attendance'}});
     const row=getByRole('button',{name:'Prayer. View meeting comparison details.'});
-    expect(row).toHaveTextContent('10.3');
+    expect(row).toHaveTextContent('10');
     expect(row).toHaveTextContent('31');
     await fireEvent.click(row);
     expect(getByRole('dialog',{name:'Prayer'})).toHaveTextContent('actual count31');

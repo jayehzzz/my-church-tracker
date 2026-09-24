@@ -5,7 +5,7 @@
   import EventDetail from './EventDetail.svelte';
   import { selectedChoice } from './selection.js';
   import { serviceId, metricLabels, selectServiceContributions, serviceContribution, namedServicePeople } from './serviceAdapter.js';
-  let { state = $bindable(null), services = [], attendance = [], people = [], status = 'ready', error = '', onretry = null, onedit = null, onprofile = null, wholeNumberAverages = false } = $props();
+  let { state = $bindable(null), services = [], attendance = [], people = [], status = 'ready', error = '', onretry = null, onedit = null, onprofile = null, wholeNumberAverages = true } = $props();
   const confidential = $derived($session.status === 'demo' || $session.user?.canViewConfidential === true);
   function date(value) { return value ? new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Date unavailable'; }
   function title(service) { return service.sermon_topic || String(service.service_type || 'Service').replaceAll('_', ' '); }
@@ -59,8 +59,8 @@
 {#snippet list(choice, navigate)}
   {@const result = rowsFor(choice)}
   <p class="mb-2 text-sm text-muted-foreground">{choice.contextLabel ? `${choice.contextLabel} · ` : ""}{choice.pointBounds?.startDate || choice.scopeBounds?.startDate || 'Selected period'} – {choice.pointBounds?.endDate || choice.scopeBounds?.endDate || 'today'}{choice.scopeBounds && choice.pointBounds && (choice.scopeBounds.startDate !== choice.pointBounds.startDate || choice.scopeBounds.endDate !== choice.pointBounds.endDate) ? ` · Selected scope ${choice.scopeBounds.startDate} – ${choice.scopeBounds.endDate}` : ''} · {metricLabels[choice.metricKey] || choice.metricKey}</p>
-  {@const shown = choice.mode === "average" && (choice.displayPrecision === 0 || wholeNumberAverages) ? Math.round(result.displayed) : result.displayed}
-  <p class="mb-2 font-medium">{choice.mode === 'average' ? result.denominator ? `${result.total} across ${result.denominator} services = ${shown} per service${shown !== result.displayed ? ` (${result.displayed} before display rounding)` : ""}` : 'Average unavailable: no recorded services in this selection.' : `${result.total} across ${result.denominator} services`}</p>
+  {@const shown = choice.mode === "average" && (choice.displayPrecision === 0 || wholeNumberAverages) ? Math.round(result.total / result.denominator) : result.displayed}
+  <p class="mb-2 font-medium">{choice.mode === 'average' ? result.denominator ? `${result.total} across ${result.denominator} services ≈ ${shown} per service (rounded to a whole person)` : 'Average unavailable: no recorded services in this selection.' : `${result.total} across ${result.denominator} services`}</p>
   <p class="mb-4 text-sm text-muted-foreground">This breakdown shows how each service contributes to the selected number. A 0 means the service is included in the period but added nothing to this measure.</p>
   <ContributionList domain="service" records={result.rows.map(({ service, contribution }) => ({ id: serviceId(service), title: title(service), date: date(service.service_date), contribution, note: String(service.service_type || '').replaceAll('_', ' ') }))} countLabel={`${result.denominator} service${result.denominator === 1 ? '' : 's'} included`} contributionLabel={metricLabels[choice.metricKey] || choice.metricKey} onselect={row => navigate({ kind: 'service', title: row.title, id: row.id, metricKey: choice.metricKey }, row.id)} />
   {#if choice.value != null && Number(choice.value) !== result.displayed && Number(choice.value) !== shown}<p class="mt-3 text-sm text-warning">The chart displays {choice.value}; source records currently calculate {shown}. Refresh the page if records changed.</p>{/if}
