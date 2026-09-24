@@ -39,6 +39,12 @@ describe("service recording", () => {
     expect(withContactAttendance).toMatchObject({ named: 2, guests: 2, returningGuests: 1, firstTimers: 1 });
   });
 
+  it("keeps a historical first visit in the non-member total after that person becomes a member", () => {
+    const summary = summarizeNamedAttendance(new Set(["p1"]), { p1: { first_timer: true } }, people);
+    expect(summary).toMatchObject({ guests: 1, returningGuests: 0, firstTimers: 1 });
+    expect(resolveServiceCounts({ total_attendance: "", guests_count: "" }, summary).guests_count).toBe(1);
+  });
+
   it("uses named records as sensible defaults while allowing a larger headcount", () => {
     const summary = { named: 2, guests: 1, firstTimers: 1, salvationDecisions: 1, tithers: 1 };
     expect(resolveServiceCounts({ total_attendance: "", guests_count: "4", salvation_decisions: "", tithers_count: "" }, summary)).toEqual({
