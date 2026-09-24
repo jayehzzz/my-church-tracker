@@ -22,7 +22,8 @@
     import { Button } from "$lib/components/ui";
     import KPICard from "$lib/components/dashboard/KPICard.svelte";
     import { dateRange } from "$lib/stores/filterStore";
-    import { exportToCSV, exportColumns } from "$lib/utils/exportUtils";
+    import { exportToCSV } from "$lib/utils/exportUtils";
+    import { reportExportTypes, reportExportRows, reportExportOptions } from "$lib/utils/reportExports";
     import {
         buildPeopleJourneySummary,
         buildReportSummary,
@@ -53,6 +54,23 @@
     let visitations = $state(demoMode ? mockVisitations : []);
     let loading = $state(!demoMode);
     let error = $state(null);
+    let exportType = $state('people');
+    let exportDateMode = $state('period');
+    let peopleDateField = $state('');
+    let exportPersonId = $state('');
+    let exportPersonRelation = $state('self');
+    let exportValues = $state(Object.fromEntries(reportExportTypes.people.filters.map((filter) => [filter.key, ''])));
+    let chosenColumns = $state({});
+    let exporting = $state(false);
+    const exportConfig = $derived(reportExportTypes[exportType]);
+    const exportSources = $derived({ people, contacts, services, meetings, care: visitations });
+    const exportRows = $derived(reportExportRows(exportType, exportSources, {
+        dateMode: exportDateMode, peopleDateField, personId: exportPersonId,
+        personRelation: exportPersonRelation, values: exportValues,
+    }, $dateRange));
+    const selectedColumns = $derived(exportConfig.columns.filter((column) => chosenColumns[column.key] !== false));
+    const sortedPeople = $derived([...people].sort((a, b) =>
+        `${a.last_name || ''} ${a.first_name || ''}`.localeCompare(`${b.last_name || ''} ${b.first_name || ''}`)));
 
     // Active report tab
     let activeTab = $state("overview");
@@ -182,53 +200,29 @@
         void loadReports();
     });
 
-    // Export handlers
-    function handleExportPeople() {
-        exportToCSV(
-            people,
-            `people-report-${new Date().toISOString().split("T")[0]}`,
-            exportColumns.people,
-        );
+    function chooseExportType(type) {
+        exportType = type;
+        exportDateMode = 'period';
+        peopleDateField = '';
+        exportPersonId = '';
+        exportPersonRelation = reportExportTypes[type].personRelations[0].key;
+        exportValues = Object.fromEntries(reportExportTypes[type].filters.map((filter) => [filter.key, '']));
+        chosenColumns = {};
     }
 
-    function handleExportContacts() {
-        exportToCSV(
-            filteredContacts(),
-            `evangelism-report-${new Date().toISOString().split("T")[0]}`,
-            exportColumns.evangelismContacts,
-        );
+    function openExport(type) {
+        chooseExportType(type);
+        document.getElementById('report-exports-heading')?.scrollIntoView({ behavior: 'smooth' });
     }
 
-    function handleExportServices() {
-        exportToCSV(
-            filteredServices(),
-            `services-report-${new Date().toISOString().split("T")[0]}`,
-            exportColumns.services,
-        );
-    }
-
-    function handleExportMeetings() {
-        exportToCSV(
-            filteredMeetings(),
-            `meetings-report-${new Date().toISOString().split("T")[0]}`,
-            exportColumns.meetings,
-        );
-    }
-
-    function handleExportVisitations() {
-        exportToCSV(
-            filteredVisitations(),
-            `visitations-report-${new Date().toISOString().split("T")[0]}`,
-            exportColumns.visitations,
-        );
-    }
-
-    function handleExportAll() {
-        handleExportPeople();
-        setTimeout(() => handleExportContacts(), 100);
-        setTimeout(() => handleExportServices(), 200);
-        setTimeout(() => handleExportMeetings(), 300);
-        setTimeout(() => handleExportVisitations(), 400);
+    async function downloadSelected() {
+        if (exporting || loading || error || selectedColumns.length === 0) return;
+        exporting = true;
+        try {
+            await exportToCSV(exportRows, `${exportType}-report-${new Date().toISOString().slice(0, 10)}`, selectedColumns);
+        } finally {
+            exporting = false;
+        }
     }
 
     // Tab configuration
@@ -256,21 +250,8 @@
             subtitle="Review ministry activity and export the records behind each summary."
         />
 
-        <Button onclick={handleExportAll} disabled={loading || Boolean(error)}>
-            <svg
-                class="w-4 h-4 mr-2"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-            >
-                <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-            </svg>
-            Export All (CSV)
+        <Button onclick={() => document.getElementById('report-exports-heading')?.scrollIntoView({ behavior: 'smooth' })} disabled={loading || Boolean(error)}>
+            Set up a CSV download
         </Button>
     </div>
 
@@ -326,109 +307,96 @@
 
         <section aria-labelledby="report-exports-heading" class="mb-8">
             <div class="mb-4">
-                <h2 id="report-exports-heading" class="text-lg font-semibold text-foreground">Export records</h2>
-                <p class="mt-1 text-sm text-muted-foreground">People includes the full directory. Other exports use the selected period and the same report rules as their totals.</p>
+                <h2 id="report-exports-heading" class="text-lg font-semibold text-foreground">Download records as CSV</h2>
+                <p class="mt-1 text-sm text-muted-foreground">Choose the records, people and fields you need. Each download has one row per record; a person filter on gatherings selects whole gatherings and keeps their whole attendance totals.</p>
             </div>
-            <!-- Quick Export Cards -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div class="card-base flex items-center justify-between">
-                    <div>
-                        <h4 class="text-sm font-medium text-foreground">
-                            People
-                        </h4>
-                        <p class="text-xs text-muted-foreground">
-                            {people.length} records
-                        </p>
-                        <a href="/people" class="mt-2 inline-block text-xs font-medium text-primary hover:underline">Open People directory →</a>
-                    </div>
-                    <Button
-                        size="sm"
-                        variant="secondary"
-                        onclick={handleExportPeople}
-                        disabled={Boolean(error)}
-                    >
-                        Export CSV
-                    </Button>
+            <div class="card-base space-y-6">
+                <div>
+                    <label for="csv-type" class="mb-2 block text-sm font-medium">Records to download</label>
+                    <select id="csv-type" class="w-full max-w-md rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" value={exportType} onchange={(event) => chooseExportType(event.currentTarget.value)}>
+                        {#each Object.entries(reportExportTypes) as [type, config]}
+                            <option value={type}>{config.label}</option>
+                        {/each}
+                    </select>
+                    <p class="mt-2 text-sm text-muted-foreground">{exportConfig.description}</p>
                 </div>
 
-                <div class="card-base flex items-center justify-between">
-                    <div>
-                        <h4 class="text-sm font-medium text-foreground">
-                            Evangelism Contacts
-                        </h4>
-                        <p class="text-xs text-muted-foreground">
-                            {filteredContacts().length} records
-                        </p>
-                        <a href="/evangelism" class="mt-2 inline-block text-xs font-medium text-primary hover:underline">Open Evangelism dashboard →</a>
-                    </div>
-                    <Button
-                        size="sm"
-                        variant="secondary"
-                        onclick={handleExportContacts}
-                        disabled={Boolean(error)}
-                    >
-                        Export CSV
-                    </Button>
+                <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {#if exportType === 'people'}
+                        <div>
+                            <label for="csv-people-date" class="mb-2 block text-sm font-medium">Directory date filter</label>
+                            <select id="csv-people-date" class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" bind:value={peopleDateField}>
+                                <option value="">No date filter (current directory)</option>
+                                {#each exportConfig.dateFields as field}
+                                    <option value={field.key}>{field.label} in {$dateRange.label}</option>
+                                {/each}
+                            </select>
+                        </div>
+                    {:else}
+                        <div>
+                            <label for="csv-date-mode" class="mb-2 block text-sm font-medium">{exportConfig.dateLabel}</label>
+                            <select id="csv-date-mode" class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" bind:value={exportDateMode}>
+                                <option value="period">{$dateRange.label}{exportConfig.actualOnly ? ' · completed / held only' : ''}</option>
+                                <option value="all">All dates and records</option>
+                            </select>
+                        </div>
+                    {/if}
+                    {#each exportConfig.filters as filter}
+                        <div>
+                            <label for={`csv-filter-${filter.key}`} class="mb-2 block text-sm font-medium">{filter.label}</label>
+                            <select id={`csv-filter-${filter.key}`} class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" bind:value={exportValues[filter.key]}>
+                                <option value="">All</option>
+                                {#each filter.options || reportExportOptions(exportSources[exportType], filter.key) as option}
+                                    <option value={option.value}>{option.label}</option>
+                                {/each}
+                            </select>
+                        </div>
+                    {/each}
                 </div>
 
-                <div class="card-base flex items-center justify-between">
+                <div class="grid gap-4 sm:grid-cols-2">
                     <div>
-                        <h4 class="text-sm font-medium text-foreground">
-                            Services
-                        </h4>
-                        <p class="text-xs text-muted-foreground">
-                            {filteredServices().length} records
-                        </p>
-                        <a href="/services" class="mt-2 inline-block text-xs font-medium text-primary hover:underline">Open Services dashboard →</a>
+                        <label for="csv-person" class="mb-2 block text-sm font-medium">Person</label>
+                        <select id="csv-person" class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" bind:value={exportPersonId}>
+                            <option value="">All people</option>
+                            {#each sortedPeople as person}
+                                <option value={person.id || person._id}>{person.first_name} {person.last_name} ({person.member_status})</option>
+                            {/each}
+                        </select>
                     </div>
-                    <Button
-                        size="sm"
-                        variant="secondary"
-                        onclick={handleExportServices}
-                        disabled={Boolean(error)}
-                    >
-                        Export CSV
-                    </Button>
+                    {#if exportPersonId && exportConfig.personRelations.length > 1}
+                        <div>
+                            <label for="csv-person-relation" class="mb-2 block text-sm font-medium">Person's connection to record</label>
+                            <select id="csv-person-relation" class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" bind:value={exportPersonRelation}>
+                                {#each exportConfig.personRelations as relation}
+                                    <option value={relation.key}>{relation.label}</option>
+                                {/each}
+                            </select>
+                        </div>
+                    {/if}
                 </div>
 
-                <div class="card-base flex items-center justify-between">
-                    <div>
-                        <h4 class="text-sm font-medium text-foreground">
-                            Meetings
-                        </h4>
-                        <p class="text-xs text-muted-foreground">
-                            {filteredMeetings().length} records
-                        </p>
-                        <a href="/meetings" class="mt-2 inline-block text-xs font-medium text-primary hover:underline">Open Meetings dashboard →</a>
+                <fieldset>
+                    <legend class="text-sm font-medium">Data fields to include</legend>
+                    <p class="mt-1 text-xs text-muted-foreground">Only checked fields appear as columns. Some records have no value for a chosen field.</p>
+                    <div class="mt-3 grid max-h-60 gap-2 overflow-y-auto rounded-lg border border-border p-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {#each exportConfig.columns as column}
+                            <label class="flex items-start gap-2 text-sm">
+                                <input type="checkbox" class="mt-0.5" checked={chosenColumns[column.key] !== false} onchange={(event) => chosenColumns[column.key] = event.currentTarget.checked} />
+                                <span>{column.label}</span>
+                            </label>
+                        {/each}
                     </div>
-                    <Button
-                        size="sm"
-                        variant="secondary"
-                        onclick={handleExportMeetings}
-                        disabled={Boolean(error)}
-                    >
-                        Export CSV
-                    </Button>
-                </div>
+                    <div class="mt-2 flex gap-4 text-xs">
+                        <button type="button" class="text-primary underline" onclick={() => chosenColumns = {}}>Select all fields</button>
+                        <button type="button" class="text-primary underline" onclick={() => chosenColumns = Object.fromEntries(exportConfig.columns.map((column) => [column.key, false]))}>Clear fields</button>
+                    </div>
+                </fieldset>
 
-                <div class="card-base flex items-center justify-between">
-                    <div>
-                        <h4 class="text-sm font-medium text-foreground">
-                            Pastoral Care
-                        </h4>
-                        <p class="text-xs text-muted-foreground">
-                            {filteredVisitations().length} records
-                        </p>
-                        <a href="/visitation" class="mt-2 inline-block text-xs font-medium text-primary hover:underline">Open Pastoral Care dashboard →</a>
-                    </div>
-                    <Button
-                        size="sm"
-                        variant="secondary"
-                        onclick={handleExportVisitations}
-                        disabled={Boolean(error)}
-                    >
-                        Export CSV
-                    </Button>
+                <div class="flex flex-wrap items-center gap-3 border-t border-border pt-4">
+                    <Button onclick={downloadSelected} disabled={loading || Boolean(error) || exporting || selectedColumns.length === 0 || exportRows.length === 0}>Download {exportRows.length} {exportRows.length === 1 ? 'record' : 'records'} · {selectedColumns.length} {selectedColumns.length === 1 ? 'field' : 'fields'}</Button>
+                    {#if exportRows.length === 0}<span class="text-sm text-muted-foreground">No records match these filters.</span>{/if}
+                    {#if selectedColumns.length === 0}<span class="text-sm text-muted-foreground">Choose at least one field.</span>{/if}
                 </div>
             </div>
         </section>
@@ -482,7 +450,7 @@
                     <h3 class="text-lg font-semibold text-foreground">
                         People
                     </h3>
-                    <Button size="sm" onclick={handleExportPeople} disabled={Boolean(error)}>
+                    <Button size="sm" onclick={() => openExport('people')} disabled={Boolean(error)}>
                         <svg
                             class="w-4 h-4 mr-2"
                             fill="none"
@@ -496,7 +464,7 @@
                                 d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                             />
                         </svg>
-                        Export CSV
+                        Set up CSV
                     </Button>
                 </div>
                 <p class="text-sm text-muted-foreground mb-4">
@@ -553,7 +521,7 @@
                     <h3 class="text-lg font-semibold text-foreground">
                         Evangelism Contacts
                     </h3>
-                    <Button size="sm" onclick={handleExportContacts} disabled={Boolean(error)}>
+                    <Button size="sm" onclick={() => openExport('contacts')} disabled={Boolean(error)}>
                         <svg
                             class="w-4 h-4 mr-2"
                             fill="none"
@@ -567,7 +535,7 @@
                                 d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                             />
                         </svg>
-                        Export CSV
+                        Set up CSV
                     </Button>
                 </div>
                 <p class="text-sm text-muted-foreground mb-4">
@@ -625,7 +593,7 @@
                     <h3 class="text-lg font-semibold text-foreground">
                         Services
                     </h3>
-                    <Button size="sm" onclick={handleExportServices} disabled={Boolean(error)}>
+                    <Button size="sm" onclick={() => openExport('services')} disabled={Boolean(error)}>
                         <svg
                             class="w-4 h-4 mr-2"
                             fill="none"
@@ -639,7 +607,7 @@
                                 d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                             />
                         </svg>
-                        Export CSV
+                        Set up CSV
                     </Button>
                 </div>
                 <p class="text-sm text-muted-foreground mb-4">
@@ -709,7 +677,7 @@
                     <h3 class="text-lg font-semibold text-foreground">
                         Meetings
                     </h3>
-                    <Button size="sm" onclick={handleExportMeetings} disabled={Boolean(error)}>
+                    <Button size="sm" onclick={() => openExport('meetings')} disabled={Boolean(error)}>
                         <svg
                             class="w-4 h-4 mr-2"
                             fill="none"
@@ -723,7 +691,7 @@
                                 d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                             />
                         </svg>
-                        Export CSV
+                        Set up CSV
                     </Button>
                 </div>
                 <p class="text-sm text-muted-foreground mb-4">
@@ -787,7 +755,7 @@
                     <h3 class="text-lg font-semibold text-foreground">
                         Pastoral Care
                     </h3>
-                    <Button size="sm" onclick={handleExportVisitations} disabled={Boolean(error)}>
+                    <Button size="sm" onclick={() => openExport('care')} disabled={Boolean(error)}>
                         <svg
                             class="w-4 h-4 mr-2"
                             fill="none"
@@ -801,7 +769,7 @@
                                 d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                             />
                         </svg>
-                        Export CSV
+                        Set up CSV
                     </Button>
                 </div>
                 <p class="text-sm text-muted-foreground mb-4">
