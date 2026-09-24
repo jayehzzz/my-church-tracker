@@ -1,5 +1,6 @@
 import { getConvexHttpClient, isDemoMode } from '$lib/convex.js';
 import { api } from '../../../convex/_generated/api.js';
+import { formatJourneyStatus } from '$lib/services/peopleService.js';
 
 /**
  * Export Utilities
@@ -141,7 +142,7 @@ export const exportColumns = {
         { key: 'last_name', label: 'Last Name' },
         { key: 'email', label: 'Email' },
         { key: 'phone', label: 'Phone', type: 'text' },
-        { key: 'member_status', label: 'Journey Status' },
+        { key: 'member_status', label: 'Church Status', format: (value) => formatJourneyStatus(value) },
         { key: 'membership_date', label: 'Membership Date', format: formatDateForExport }
     ],
 
@@ -185,7 +186,7 @@ export const exportColumns = {
         { key: 'sermon_topic', label: 'Topic' },
         { key: 'sermon_speaker', label: 'Speaker' },
         { key: 'total_attendance', label: 'Total Attendance' },
-        { key: 'guests_count', label: 'Guest Attendance (Includes First Timers)' },
+        { key: 'guests_count', label: 'Non-member Attendance (First Timers + Returning Guests)' },
         { key: 'salvation_decisions', label: 'Salvation Decisions' }
     ],
 

@@ -132,11 +132,11 @@ export async function getDashboardKPIs(dateRange) {
       },
       {
         id: "guests",
-        title: "Guest attendances",
+        title: "Non-member visits",
         value: guests,
         trend: percentChange(guests, previousGuests),
         format: "number",
-        description: "Includes first-timer visits",
+        description: "First timers + returning guests",
         href: "/services",
         icon: "user-plus",
         variant: "default",

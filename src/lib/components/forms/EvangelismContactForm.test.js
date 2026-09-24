@@ -122,7 +122,7 @@ describe("Evangelism contact capture", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Who reached them" })).not.toBeDisabled());
     expect(await screen.findByText(/Ama · Leader/)).toBeInTheDocument();
     await fireEvent.click(screen.getByRole("button", { name: "Who reached them" }));
-    await fireEvent.click(screen.getByRole("button", { name: "Include outreach contacts and guests" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Include outreach contacts and non-members" }));
     await fireEvent.click(screen.getByRole("button", { name: "Esi · Outreach contact" }));
     const payload = await saveEdit();
     expect(payload).toMatchObject({ collector_ids: ["leader-1", "member-1", "contact-2"], collected_by_id: "leader-1", invited_by_id: "member-1" });

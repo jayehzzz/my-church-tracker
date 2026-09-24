@@ -9,7 +9,7 @@ const peopleGroups = [
     { value: 'church_members', label: 'Church members (including leaders)' },
     { value: 'member', label: 'Members without leader status' },
     { value: 'leader', label: 'Leaders only' },
-    { value: 'guest', label: 'Guests' },
+    { value: 'guest', label: 'Non-members' },
     { value: 'contact', label: 'Outreach contacts' },
     { value: 'archived', label: 'Archived people' },
 ];
@@ -22,7 +22,7 @@ function matchesPeopleGroup(row, group) {
 export const reportExportTypes = {
     people: {
         label: 'People directory',
-        description: 'One row per person, including contacts, guests, members, leaders and archived records. Current profile snapshot.',
+        description: 'One row per person, including contacts, non-members, members, leaders and archived records. Current profile snapshot.',
         dateFields: [date('contact_date', 'First contact date'), date('first_visit_date', 'First visit date'), date('membership_date', 'Membership date')],
         filters: [{ key: 'people_group', label: 'People group', allLabel: 'All people', options: peopleGroups }, { key: 'role', label: 'Leadership role' }, { key: 'activity_status', label: 'Activity status' }],
         personRelations: [{ key: 'self', label: 'This person' }],
@@ -64,14 +64,14 @@ export const reportExportTypes = {
             ...exportColumns.services,
             { key: 'service_time', label: 'Time' }, { key: 'location', label: 'Location' },
             { key: 'tithers_count', label: 'Tithers' }, { key: 'unnamed_attendance_count', label: 'Unnamed Attendance' },
-            { key: 'unnamed_guests_count', label: 'Unnamed Guests' }, { key: 'unnamed_decisions_count', label: 'Unnamed Decisions' },
+            { key: 'unnamed_guests_count', label: 'Unnamed Non-members (Visit Type Unknown)' }, { key: 'unnamed_decisions_count', label: 'Unnamed Decisions' },
             { key: 'named_attendees', label: 'Named Attendees', format: (_, row) => (row.individuals || []).map(name).filter(Boolean).join(', ') },
             { key: 'notes', label: 'Notes' },
         ],
     },
     meetings: {
         label: 'Meetings',
-        description: 'One row per meeting; attendance is the whole meeting total, including unnamed guests.',
+        description: 'One row per meeting; attendance is the whole meeting total, including unnamed non-members whose visit type is unknown.',
         dateField: 'meeting_date', dateLabel: 'Meeting date', actualOnly: isHeldMeeting,
         filters: [{ key: 'meeting_type', label: 'Meeting type' }, { key: 'status', label: 'Recorded status' }, { key: 'format', label: 'Format' }],
         personRelations: [{ key: 'attendee', label: 'Named attendee' }, { key: 'leader', label: 'Programme leader' }],
@@ -80,7 +80,7 @@ export const reportExportTypes = {
             { key: 'attendance_count', label: 'Total Attendance', format: (_, row) => meetingAttendance(row) },
             { key: 'title', label: 'Title' }, { key: 'program_name', label: 'Programme', format: (_, row) => row.program?.name || '' },
             { key: 'start_time', label: 'Start Time' }, { key: 'end_time', label: 'End Time' }, { key: 'format', label: 'Format' },
-            { key: 'status', label: 'Recorded Status' }, { key: 'unnamed_guests_count', label: 'Unnamed Guests' },
+            { key: 'status', label: 'Recorded Status' }, { key: 'unnamed_guests_count', label: 'Unnamed Non-members (Visit Type Unknown)' },
             { key: 'named_attendees', label: 'Named Attendees', format: (_, row) => (row.attendees || []).map((entry) => name(entry.person)).filter(Boolean).join(', ') },
             { key: 'notes', label: 'Notes' },
         ],

@@ -58,7 +58,7 @@
     { value: "all", label: "All Statuses" },
     { value: "church_family", label: "Church Members (Members + Leaders)" },
     { value: "contact", label: "Outreach Contacts" },
-    { value: "guest", label: "Guests" },
+    { value: "guest", label: "Non-members" },
     { value: "member", label: "Members" },
     { value: "leader", label: "Leaders" },
     { value: "archived", label: "Archived" },

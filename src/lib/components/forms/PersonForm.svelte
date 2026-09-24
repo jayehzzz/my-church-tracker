@@ -97,7 +97,7 @@
   // Status options
   const statusOptions = [
     { value: "contact", label: "Outreach Contact" },
-    { value: "guest", label: "Guest" },
+    { value: "guest", label: "Non-member" },
     { value: "member", label: "Member" },
     { value: "leader", label: "Leader" },
     { value: "archived", label: "Archived" },
@@ -726,7 +726,7 @@
       </div>
 
       <p class="text-xs text-muted-foreground">
-        Outreach Contact = collected through evangelism but has not attended yet. Guest = has attended but is not yet a member. Choose Member only when membership is confirmed. First timer is recorded on the person's first attendance, not as a permanent status.
+        Outreach contact = collected through evangelism but has not attended yet. Non-member = has attended but has not joined. Choose Member only when membership is confirmed. Attendance records mark the first visit as First timer and later visits before membership as Returning guest; these are visit types, not permanent profile statuses.
       </p>
 
       {#if showMoreDetails}

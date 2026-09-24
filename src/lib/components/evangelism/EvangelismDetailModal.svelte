@@ -64,7 +64,7 @@
   function journeyLabel(person) {
     if (person?.member_status === "leader") return "Leader";
     if (person?.member_status === "member") return "Member";
-    if (person?.member_status === "guest" || person?.first_visit_date || person?.attended_church) return "Guest";
+    if (person?.member_status === "guest" || person?.first_visit_date || person?.attended_church) return "Non-member";
     return "Outreach Contact";
   }
 

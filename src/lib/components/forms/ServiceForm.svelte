@@ -140,7 +140,7 @@
 
   function journeyLabel(person) {
     if (isOutreachContact(person)) return "Outreach Contact";
-    if (isGuest(person)) return "Guest";
+    if (isGuest(person)) return "Non-member profile";
     if (!person?.member_status) return "Unknown status";
     return String(person.member_status).replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
   }
@@ -266,7 +266,7 @@
       showQuickAdd = false;
       attendeeFilter = "guests";
     } catch (quickAddFailure) {
-      quickAddError = quickAddFailure?.message || "The guest could not be added";
+      quickAddError = quickAddFailure?.message || "The first timer could not be added";
     } finally {
       quickAddSaving = false;
     }
@@ -412,7 +412,7 @@
     {:else if activeStep === 2}
       <section class="space-y-4" aria-labelledby="service-attendance-title">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div><h3 id="service-attendance-title" class="text-base font-semibold text-foreground">Record named attendance</h3><p class="mt-1 text-sm text-muted-foreground">Check in the people you know. The final headcount can include unnamed attendees.</p></div>
+          <div><h3 id="service-attendance-title" class="text-base font-semibold text-foreground">Record named attendance</h3><p class="mt-1 text-sm text-muted-foreground">Check in the people you know. A first timer is on their first recorded visit; a returning guest has attended before. The final headcount can include unnamed attendees.</p></div>
           <div class="flex gap-4 rounded-lg bg-secondary/25 px-4 py-2 text-center">
             <div><p class="text-lg font-semibold text-foreground">{namedSummary.named}</p><p class="text-[11px] text-muted-foreground">Checked in</p></div>
             <div><p class="text-lg font-semibold text-info">{namedSummary.returningGuests}</p><p class="text-[11px] text-muted-foreground">Returning guests</p></div>
@@ -423,7 +423,7 @@
         {#if errors.attendance}<div class="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">{errors.attendance}</div>{/if}
 
         <div class="grid grid-cols-2 gap-1 rounded-lg bg-secondary/30 p-1 sm:grid-cols-4" aria-label="Attendance directory filters">
-          {#each [["members", "Members"], ["guests", "Guests"], ["contacts", "Outreach contacts"], ["all", "Everyone"]] as option}
+          {#each [["members", "Members"], ["guests", "Non-member profiles"], ["contacts", "Outreach contacts"], ["all", "Everyone"]] as option}
             <button type="button" class="rounded-md px-3 py-2 text-xs font-medium transition-colors {attendeeFilter === option[0] ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}" onclick={() => attendeeFilter = option[0]}>{option[1]}</button>
           {/each}
         </div>
@@ -485,7 +485,7 @@
         </div>
 
         <div class="rounded-xl border border-border bg-card p-4">
-          <div class="mb-4"><h4 class="text-sm font-semibold text-foreground">Service totals</h4><p class="mt-1 text-xs text-muted-foreground">Blank fields use the named records as their starting value. The saved non-member total includes both returning guests and first timers; the dashboard separates them so they are not shown twice.</p></div>
+          <div class="mb-4"><h4 class="text-sm font-semibold text-foreground">Service totals</h4><p class="mt-1 text-xs text-muted-foreground">Blank fields use the named records as their starting value. Non-member attendance combines first-timer and returning-guest visits. Unnamed visits cannot be classified by visit history.</p></div>
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Input label="Total Attendance" type="number" min="0" step="1" bind:value={formData.total_attendance} error={errors.total_attendance} placeholder={String(namedSummary.named)} disabled={saving} />
             <Input label="Total non-member attendance" type="number" min="0" step="1" bind:value={formData.guests_count} error={errors.guests_count} placeholder={String(namedSummary.guests)} disabled={saving} />

@@ -582,7 +582,7 @@
               type="button"
               onclick={() => (attendeeFilter = "guests")}
               class="rounded-full px-3 py-1.5 text-xs font-medium {attendeeFilter === 'guests' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}"
-            >Guests &amp; outreach contacts</button>
+            >Non-members &amp; outreach contacts</button>
             <button
               type="button"
               onclick={() => (attendeeFilter = "all")}
@@ -657,7 +657,7 @@
                       {person.first_name} {person.last_name}
                     </p>
                     <p class="text-xs capitalize text-muted-foreground">
-                      {person.member_status === "contact" ? "Outreach Contact" : isGuest(person) ? "Guest" : person.member_status || "Guest"}
+                      {person.member_status === "contact" ? "Outreach Contact" : isGuest(person) ? "Non-member profile" : person.member_status || "Status unknown"}
                       {#if recordingMode === "programme" && rosterIds.has(String(person.id))} · Regularly expected{/if}
                     </p>
                   </div>
@@ -689,11 +689,11 @@
           <div>
             <p class="font-semibold text-foreground">{selectedTotal} total attendance</p>
             <p class="text-xs text-muted-foreground">
-              {selectedPersonIds.size} named people + {Math.max(0, Number(formData.unnamed_guests_count) || 0)} unnamed guests
+              {selectedPersonIds.size} named people + {Math.max(0, Number(formData.unnamed_guests_count) || 0)} unnamed non-members (visit type unknown)
             </p>
           </div>
           <Input
-            label="Unnamed guests"
+            label="Unnamed non-members"
             type="number"
             min="0"
             bind:value={formData.unnamed_guests_count}

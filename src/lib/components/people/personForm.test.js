@@ -48,7 +48,7 @@ it('keeps first timer out of persistent journey status and separates leadership 
   const { getByLabelText, getByText, queryByText } = render(PersonForm, { isOpen: true, person });
   expect(getByLabelText('Church status')).toBeTruthy();
   expect(getByLabelText('Basonta Membership')).toBeTruthy();
-  expect(getByText(/First timer is recorded on the person's first attendance/i)).toBeTruthy();
+  expect(getByText(/Attendance records mark the first visit as First timer/i)).toBeTruthy();
   expect(getByText(/Bacenta Leader and Basonta Leader are leadership roles/i)).toBeTruthy();
   expect(queryByText(/^First Timer$/i)).toBeNull();
 });

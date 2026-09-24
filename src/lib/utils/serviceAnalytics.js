@@ -57,10 +57,10 @@ export function serviceAttendanceMetrics(service, attendanceRecords = [], people
     totalAttendance,
     Math.max(countValue(service?.guests_count), firstTimers, namedGuests),
   );
-  // A first timer is a guest visit, but reporting them again as a returning
-  // guest makes the visible categories look double-counted. Keep the stored
-  // guest aggregate for compatibility, then split it into two exclusive groups.
-  const returningGuestAttendance = Math.max(0, guestAttendance - firstTimers);
+  // The stored guest aggregate means all non-member visits, including first
+  // visits. Display first timers and returning guests as exclusive groups.
+  const returningGuestAttendance = Math.max(0, Math.min(guestAttendance - firstTimers, namedGuests - firstTimers));
+  const unclassifiedNonMemberAttendance = Math.max(0, guestAttendance - firstTimers - returningGuestAttendance);
   const tithers = Math.min(
     totalAttendance,
     Math.max(countValue(service?.tithers_count), namedTithers),
@@ -74,6 +74,7 @@ export function serviceAttendanceMetrics(service, attendanceRecords = [], people
     totalAttendance,
     guestAttendance,
     returningGuestAttendance,
+    unclassifiedNonMemberAttendance,
     memberAttendance: Math.max(0, totalAttendance - guestAttendance),
     firstTimers,
     tithers,
@@ -91,6 +92,7 @@ export function summarizeServicePeriod(services = [], attendanceRecords = [], pe
     summary.totalAttendance += metrics.totalAttendance;
     summary.guestAttendance += metrics.guestAttendance;
     summary.returningGuestAttendance += metrics.returningGuestAttendance;
+    summary.unclassifiedNonMemberAttendance += metrics.unclassifiedNonMemberAttendance;
     summary.memberAttendance += metrics.memberAttendance;
     summary.firstTimers += metrics.firstTimers;
     summary.tithers += metrics.tithers;
@@ -101,6 +103,7 @@ export function summarizeServicePeriod(services = [], attendanceRecords = [], pe
     totalAttendance: 0,
     guestAttendance: 0,
     returningGuestAttendance: 0,
+    unclassifiedNonMemberAttendance: 0,
     memberAttendance: 0,
     firstTimers: 0,
     tithers: 0,
@@ -127,11 +130,13 @@ export function summarizeAverageAttendanceMix(services = [], attendanceRecords =
       averageMembers: 0,
       averageGuests: 0,
       averageReturningGuests: 0,
+      averageUnclassifiedNonMembers: 0,
       averageFirstTimers: 0,
       averageTithers: 0,
       memberPct: 0,
       guestPct: 0,
       returningGuestPct: 0,
+      unclassifiedNonMemberPct: 0,
       firstTimerPct: 0,
       titherRate: 0,
       serviceCount: 0,
@@ -145,7 +150,12 @@ export function summarizeAverageAttendanceMix(services = [], attendanceRecords =
   const firstTimerPct = period.totalAttendance > 0
     ? Math.round((period.firstTimers / period.totalAttendance) * 100)
     : 0;
-  const returningGuestPct = Math.max(0, guestPct - firstTimerPct);
+  const returningGuestPct = period.totalAttendance > 0
+    ? Math.round((period.returningGuestAttendance / period.totalAttendance) * 100)
+    : 0;
+  const unclassifiedNonMemberPct = period.totalAttendance > 0
+    ? Math.round((period.unclassifiedNonMemberAttendance / period.totalAttendance) * 100)
+    : 0;
   const titherRate = period.memberAttendance > 0
     ? Math.min(100, Math.round((period.tithers / period.memberAttendance) * 100))
     : 0;
@@ -155,11 +165,13 @@ export function summarizeAverageAttendanceMix(services = [], attendanceRecords =
     averageMembers: roundToOneDecimal(period.memberAttendance / period.serviceCount),
     averageGuests: roundToOneDecimal(period.guestAttendance / period.serviceCount),
     averageReturningGuests: roundToOneDecimal(period.returningGuestAttendance / period.serviceCount),
+    averageUnclassifiedNonMembers: roundToOneDecimal(period.unclassifiedNonMemberAttendance / period.serviceCount),
     averageFirstTimers: roundToOneDecimal(period.firstTimers / period.serviceCount),
     averageTithers: roundToOneDecimal(period.tithers / period.serviceCount),
     memberPct,
     guestPct,
     returningGuestPct,
+    unclassifiedNonMemberPct,
     firstTimerPct,
     titherRate,
     serviceCount: period.serviceCount,

@@ -68,7 +68,7 @@
       },
       byId.guests && {
         ...byId.guests,
-        title: "Guest attendances",
+        title: "Non-member visits",
       },
       {
         id: "followups",
@@ -203,17 +203,17 @@
         {#if loading && !attendanceChart.data.length}
           <div class="min-h-[430px] animate-pulse rounded-2xl border border-border bg-card"></div>
         {:else}
-          <FullscreenWrapper title="Attendance & guest attendance">
+          <FullscreenWrapper title="Attendance & non-member visits">
             {#snippet filters()}
               <FilterBar compact />
             {/snippet}
             <AttendanceTrend
               data={attendanceTrendData}
-              title="Attendance & guest attendance"
+              title="Attendance & non-member visits"
               itemLabel={attendanceChart.isFallback ? "recent Sundays" : "periods"}
               periodLabel={attendanceChart.contextLabel}
               comparisonOptions={[
-                { key: "guests", label: "Guest attendances", color: "warning" },
+                { key: "guests", label: "Non-member visits (both groups)", color: "warning" },
                 { key: "firstTimers", label: "First-timer visits", color: "info" },
                 { key: "decisions", label: "Salvation decisions", color: "success" },
                 { key: "tithers", label: "Tithers", color: "warning" },

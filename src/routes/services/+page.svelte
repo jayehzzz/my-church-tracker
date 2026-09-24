@@ -31,6 +31,7 @@
     FullscreenWrapper,
   } from "$lib/components/ui";
   import ServiceForm from "$lib/components/forms/ServiceForm.svelte";
+  import { formatJourneyStatus } from "$lib/services/peopleService.js";
 
   // Import filter store for reactive date range
   import { dateRange } from "$lib/stores/filterStore";
@@ -72,7 +73,7 @@
 
   // Filter state
   let serviceTypeFilter = $state("all");
-  let attendanceRingVisibility = $state({ members: true, guests: true, firstTimers: true, tithers: true });
+  let attendanceRingVisibility = $state({ members: true, guests: true, firstTimers: true, unclassified: true, tithers: true });
 
   function toggleAttendanceRing(key) {
     attendanceRingVisibility = {
@@ -256,6 +257,7 @@
     const totalAttendance = period.totalAttendance;
     const totalGuests = period.guestAttendance;
     const totalReturningGuests = period.returningGuestAttendance;
+    const totalUnclassifiedNonMembers = period.unclassifiedNonMemberAttendance;
     const totalFirstTimers = period.firstTimers;
     const totalDecisions = period.decisions;
     const totalTithers = period.tithers;
@@ -275,6 +277,7 @@
       totalAttendance,
       totalGuests,
       totalReturningGuests,
+      totalUnclassifiedNonMembers,
       totalFirstTimers,
       totalDecisions,
       totalTithers,
@@ -307,6 +310,7 @@
           total: metrics.totalAttendance,
           guests: metrics.guestAttendance,
           returningGuests: metrics.returningGuestAttendance,
+          unclassifiedNonMembers: metrics.unclassifiedNonMemberAttendance,
           decisions: metrics.decisions,
           firstTimers: metrics.firstTimers,
           tithers: metrics.tithers,
@@ -367,11 +371,13 @@
     return {
       members: mix.averageMembers,
       returningGuests: mix.averageReturningGuests,
+      unclassifiedNonMembers: mix.averageUnclassifiedNonMembers,
       firstTimers: mix.averageFirstTimers,
       tithers: mix.averageTithers,
       total: mix.averageAttendance,
       memberPct: mix.memberPct,
       returningGuestPct: mix.returningGuestPct,
+      unclassifiedNonMemberPct: mix.unclassifiedNonMemberPct,
       firstTimerPct: mix.firstTimerPct,
       titherRate: mix.titherRate,
     };
@@ -608,6 +614,7 @@
       attendance: serviceMetrics(service).totalAttendance,
       returningGuests: serviceMetrics(service).returningGuestAttendance,
       firstTimers: serviceMetrics(service).firstTimers,
+      unclassifiedNonMembers: serviceMetrics(service).unclassifiedNonMemberAttendance,
       decisions: serviceMetrics(service).decisions,
       individuals: Array.isArray(service.individuals)
         ? service.individuals.length
@@ -866,10 +873,10 @@
                     <button
                       type="button"
                       class="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                      aria-label="Sort services by returning guest count"
+                      aria-label="Sort visit types by returning guest count"
                       onclick={() => handleSort("returning_guests")}
                     >
-                      Returning Guests
+                      Visit types
                     </button>
                   </th>
                 {/if}
@@ -950,9 +957,11 @@
                       >
                     {/if}
                     {#if columnVisibility.guests}
-                      <td class="px-4 py-3 text-sm text-info"
-                        >{serviceMetrics(service).returningGuestAttendance || "—"}</td
-                      >
+                      <td class="px-4 py-3 text-sm text-foreground">
+                        <span class="block">{serviceMetrics(service).firstTimers} first timers</span>
+                        <span class="block">{serviceMetrics(service).returningGuestAttendance} returning guests</span>
+                        {#if serviceMetrics(service).unclassifiedNonMemberAttendance}<span class="block text-xs text-muted-foreground">{serviceMetrics(service).unclassifiedNonMemberAttendance} visit type unknown</span>{/if}
+                      </td>
                     {/if}
                     {#if columnVisibility.decisions}
                       <td class="px-4 py-3 text-sm text-success"
@@ -1109,6 +1118,7 @@
                   onPointClick={handleChartPointClick}
                   comparisonOptions={[
                     { key: "returningGuests", label: "Returning guests", color: "warning" },
+                    { key: "unclassifiedNonMembers", label: "Visit type unknown", color: "secondary" },
                     { key: "decisions", label: "Salvation decisions", color: "success" },
                     { key: "firstTimers", label: "First-timer visits", color: "warning" },
                     { key: "tithers", label: "Tithers", color: "warning" },
@@ -1174,7 +1184,7 @@
             <section class="card-base p-5" aria-labelledby="attendance-mix-title">
               <div>
                 <h2 id="attendance-mix-title" class="pr-12 text-base font-semibold text-foreground">Attendance &amp; outcomes</h2>
-                <p class="mt-1 text-xs text-muted-foreground">Average attendance per gathering. Members, returning guests and first timers are shown as separate groups.</p>
+                <p class="mt-1 text-xs text-muted-foreground">Average attendance per gathering. First timers and returning guests are separate; non-member visits without a recorded visit type are shown as unknown.</p>
               </div>
 
 
@@ -1182,16 +1192,18 @@
                 {key:'attendance',label:'Attendance',total:kpis().totalAttendance},
                 {key:'returning',label:'Returning guest visits',total:kpis().totalReturningGuests},
                 {key:'first',label:'First timers',total:kpis().totalFirstTimers},
+                {key:'unknown',label:'Non-member visit type unknown',total:kpis().totalUnclassifiedNonMembers},
                 {key:'decisions',label:'Salvation decisions',total:kpis().totalDecisions},
                 {key:'tithers',label:'Tither attendances',total:kpis().totalTithers},
               ].map(metric=>({...metric,denominator:kpis().serviceCount,averageLabel:'Average per service'}))} periodLabel={$dateRange.label} /></div>
               <div class="mt-5 flex flex-col items-center gap-6 sm:flex-row">
-                <button type="button" onclick={() => chartDetail = {title: 'Attendance mix', subtitle: $dateRange.label, metrics: [{label:'Average members per gathering',value:wholePerson(donutData().members)},{label:'Average returning guests per gathering',value:wholePerson(donutData().returningGuests)},{label:'Average first timers per gathering',value:wholePerson(donutData().firstTimers)},{label:'Average tithers per gathering (subset of members)',value:wholePerson(donutData().tithers)}]}} class="relative h-36 w-36 shrink-0 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="View average attendance mix details: {donutData().memberPct}% members, {donutData().returningGuestPct}% returning guests, {donutData().firstTimerPct}% first timers, and {donutData().titherRate}% tither attendances among members">
+                <div role="img" class="relative h-36 w-36 shrink-0" aria-label="Average attendance mix: {donutData().memberPct}% members, {donutData().returningGuestPct}% returning guests, {donutData().firstTimerPct}% first timers, {donutData().unclassifiedNonMemberPct}% non-member visits with unknown type, and {donutData().titherRate}% tither attendances among members">
                   <svg viewBox="0 0 36 36" class="h-full w-full -rotate-90">
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-secondary" />
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-primary" style="opacity: {attendanceRingVisibility.members ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.members ? `${donutData().memberPct} ${100 - donutData().memberPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-linecap="round" />
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-info" style="opacity: {attendanceRingVisibility.guests ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.guests ? `${donutData().returningGuestPct} ${100 - donutData().returningGuestPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-dashoffset="-{donutData().memberPct}" stroke-linecap="round" />
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-success" style="opacity: {attendanceRingVisibility.firstTimers ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.firstTimers ? `${donutData().firstTimerPct} ${100 - donutData().firstTimerPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-dashoffset="-{donutData().memberPct + donutData().returningGuestPct}" stroke-linecap="round" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-muted-foreground" style="opacity: {attendanceRingVisibility.unclassified ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.unclassified ? `${donutData().unclassifiedNonMemberPct} ${100 - donutData().unclassifiedNonMemberPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-dashoffset="-{donutData().memberPct + donutData().returningGuestPct + donutData().firstTimerPct}" stroke-linecap="round" />
                     <circle cx="18" cy="18" r="11.5" fill="none" stroke="currentColor" stroke-width="2.5" class="text-secondary" pathLength="100" />
                     <circle cx="18" cy="18" r="11.5" fill="none" stroke="currentColor" stroke-width="2.5" class="text-warning" pathLength="100" style="opacity: {attendanceRingVisibility.tithers ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.tithers ? `${donutData().titherRate} ${100 - donutData().titherRate}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-linecap="round" />
                   </svg>
@@ -1199,7 +1211,7 @@
                     <span class="text-xl font-semibold text-foreground">{wholePerson(donutData().total)}</span>
                     <span class="text-center text-[9px] uppercase leading-tight tracking-wide text-muted-foreground">avg / gathering</span>
                   </div>
-                </button>
+                </div>
                 <div class="w-full space-y-2">
                   <button type="button" aria-pressed={attendanceRingVisibility.members} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.members ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('members')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-primary"></span>Avg members / gathering</span>
@@ -1212,6 +1224,10 @@
                   <button type="button" aria-pressed={attendanceRingVisibility.firstTimers} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.firstTimers ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('firstTimers')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-success"></span>Avg first timers / gathering</span>
                     <span class="text-sm font-semibold text-foreground">{wholePerson(donutData().firstTimers)} <span class="font-normal text-muted-foreground">({donutData().firstTimerPct}%)</span></span>
+                  </button>
+                  <button type="button" aria-pressed={attendanceRingVisibility.unclassified} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.unclassified ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('unclassified')}>
+                    <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-muted-foreground"></span>Avg non-member visit type unknown / gathering</span>
+                    <span class="text-sm font-semibold text-foreground">{wholePerson(donutData().unclassifiedNonMembers)} <span class="font-normal text-muted-foreground">({donutData().unclassifiedNonMemberPct}%)</span></span>
                   </button>
                   <button type="button" aria-pressed={attendanceRingVisibility.tithers} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.tithers ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('tithers')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-warning"></span>Avg tithers / gathering <span class="text-[10px] text-muted-foreground">inner ring</span></span>
@@ -1380,7 +1396,7 @@
       {/if}
 
       <!-- Stats Grid -->
-      <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div class="p-3 bg-secondary/20 rounded-lg text-center">
           <div class="text-2xl font-bold text-foreground">
             {serviceMetrics(selectedService).totalAttendance}
@@ -1398,6 +1414,12 @@
             {serviceFirstTimerCount(selectedService)}
           </div>
           <div class="text-xs text-muted-foreground">First-timer visits</div>
+        </div>
+        <div class="p-3 bg-secondary/20 rounded-lg text-center">
+          <div class="text-2xl font-bold text-muted-foreground">
+            {serviceMetrics(selectedService).unclassifiedNonMemberAttendance}
+          </div>
+          <div class="text-xs text-muted-foreground">Visit type unknown</div>
         </div>
         <div class="p-3 bg-secondary/20 rounded-lg text-center">
           <div class="text-2xl font-bold text-success">
@@ -1560,7 +1582,7 @@
                       {person.last_name}
                     </div>
                     <div class="text-xs text-muted-foreground">
-                      {person.member_status}
+                      {formatJourneyStatus(person.member_status)}
                     </div>
                     {#if person.first_timer}<span class="text-xs font-medium text-success">First-timer visit</span>{/if}
                   </div>

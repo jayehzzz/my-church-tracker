@@ -54,7 +54,7 @@ describe("evangelism view model", () => {
     expect(rows.find((row) => row.id === "c1")).toMatchObject({
       invited_by_name: "Samuel Owusu",
       journey_key: "guest",
-      journey_label: "Guest",
+      journey_label: "Non-member",
       outreach_salvation_decision: true,
       follow_up_key: "scheduled",
       sunday_reliability_label: "4 expected · 2 attended · 1 missed · 1 cancelled",

@@ -58,6 +58,16 @@ describe('CSV report selection', () => {
         expect(dataToCSV([sources.services[0]], reportExportTypes.services.columns.filter((column) => column.key === 'total_attendance'))).toContain('20');
     });
 
+    it('exports profile status separately from the combined non-member service headcount', () => {
+        const statusColumn = reportExportTypes.people.columns.filter((column) => column.key === 'member_status');
+        expect(dataToCSV([{ member_status: 'guest' }, { member_status: 'visitor' }], statusColumn))
+            .toBe('Church Status\nNon-member\nNon-member');
+
+        const attendanceColumn = reportExportTypes.services.columns.filter((column) => column.key === 'guests_count');
+        expect(dataToCSV([{ guests_count: 3 }], attendanceColumn))
+            .toBe('Non-member Attendance (First Timers + Returning Guests)\n3');
+    });
+
     it('filters care by provider, type, status and follow-up flag', () => {
         const sources = { care: [
             { id: 'v1', visit_date: '2026-09-05', person_id: 'p1', visited_by_id: 'leader', interaction_type: 'phone_call', status: 'completed', follow_up_required: true },

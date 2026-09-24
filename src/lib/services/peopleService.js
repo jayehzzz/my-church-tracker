@@ -35,7 +35,7 @@ export function normalizeJourneyStatus(status) {
 export function formatJourneyStatus(status, fallback = "Not recorded") {
   const labels = {
     contact: "Outreach Contact",
-    guest: "Guest",
+    guest: "Non-member",
     member: "Member",
     leader: "Leader",
     archived: "Archived",

@@ -3,7 +3,7 @@
   import Button from '$lib/components/ui/Button.svelte';
 
   /**
-   * Sunday view. Three visually distinct groups: outreach contacts/guests who said yes
+   * Sunday view. Three visually distinct groups: outreach contacts/non-members who said yes
    * (owned by follow-up), regular members (expected unless marked away) and
    * members who are away. A summary strip at the top gives the counts and
    * lets the leader focus on one group. Before the service the lists are about
@@ -91,7 +91,7 @@
   }
 
   function nonMemberJourney(person) {
-    if (person?.member_status === 'guest' || person?.first_visit_date || (person?.attended_meetings || person?.promises_kept || 0) > 0) return 'Guest';
+    if (person?.member_status === 'guest' || person?.first_visit_date || (person?.attended_meetings || person?.promises_kept || 0) > 0) return 'Non-member';
     return 'Outreach contact';
   }
 
@@ -154,7 +154,7 @@
   const tiles = $derived([
     {
       id: 'newcomer',
-      label: 'Contacts & guests who said yes',
+      label: 'Contacts & non-members who said yes',
       count: newcomerActive,
       accent: 'bg-primary',
       detail: afterService
@@ -272,11 +272,11 @@
 
   {#if showSection('newcomer')}
   <section aria-labelledby="newcomers-title" class="overflow-hidden rounded-xl border border-border bg-card">
-    {@render sectionHeader('newcomers-title', 'Outreach contacts & guests who said yes', afterService ? 'Record whether each person came.' : 'Outreach contacts and returning guests appear here after a worker logs a clear yes.', newcomerActive, 'newcomer')}
+    {@render sectionHeader('newcomers-title', 'Outreach contacts & non-members who said yes', afterService ? 'Record whether each person came.' : 'Outreach contacts and non-members appear here after a worker logs a clear yes. Their visit type is recorded when attendance is marked.', newcomerActive, 'newcomer')}
     {#if newcomers.length === 0}
-      <p class="px-5 py-10 text-center text-sm text-muted-foreground">No outreach contact or guest has said yes for this Sunday yet.</p>
+      <p class="px-5 py-10 text-center text-sm text-muted-foreground">No outreach contact or non-member has said yes for this Sunday yet.</p>
     {:else}
-      <div class="divide-y divide-border" role="list" aria-label="Outreach contacts and guests expected this Sunday">
+      <div class="divide-y divide-border" role="list" aria-label="Outreach contacts and non-members expected this Sunday">
         {#each newcomers as row (row.commitment._id || row.commitment.id)}
           <div class="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between {row.status === 'Cancelled' ? 'opacity-60' : ''}" role="listitem">
             <div class="flex min-w-0 items-center gap-3">

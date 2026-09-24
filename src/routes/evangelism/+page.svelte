@@ -73,7 +73,7 @@
 
   const journeyOptions = [
     { value: "outreach", label: "Outreach Contact" },
-    { value: "guest", label: "Guest" },
+    { value: "guest", label: "Non-member" },
     { value: "joined", label: "Joined church" },
   ];
 

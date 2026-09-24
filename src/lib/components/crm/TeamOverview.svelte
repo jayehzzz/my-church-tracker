@@ -59,7 +59,7 @@
   <div>
     <h2 id="team-overview-title" class="text-lg font-semibold text-foreground">Team Overview</h2>
     <p class="mt-1 text-sm text-muted-foreground">
-      See ownership, overdue work, fresh-contact coverage and Sunday yeses from outreach contacts and guests.
+      See ownership, overdue work, fresh-contact coverage and Sunday yeses from outreach contacts and non-members.
     </p>
   </div>
 
@@ -113,7 +113,7 @@
               <dt class="text-xs text-muted-foreground">Non-member yeses</dt>
               <dd class="mt-1 text-xl font-semibold text-foreground">{number(stat.confirmed_non_members ?? stat.confirmed_guests ?? stat.confirmed_this_sunday)}</dd>
               {#if stat.confirmed_outreach_contacts !== undefined || stat.confirmed_returning_guests !== undefined}
-                <dd class="mt-0.5 text-[11px] text-muted-foreground">{number(stat.confirmed_outreach_contacts)} outreach · {number(stat.confirmed_returning_guests)} guests</dd>
+                <dd class="mt-0.5 text-[11px] text-muted-foreground">{number(stat.confirmed_outreach_contacts)} outreach · {number(stat.confirmed_returning_guests)} non-members</dd>
               {/if}
             </div>
           </dl>

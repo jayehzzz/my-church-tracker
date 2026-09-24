@@ -51,7 +51,7 @@
   function journeyLabel(target) {
     if (target?.member_status === 'leader') return 'Leader';
     if (target?.member_status === 'member') return 'Member';
-    if (target?.member_status === 'guest' || target?.first_visit_date || (target?.attended_meetings || target?.promises_kept || 0) > 0) return 'Guest';
+    if (target?.member_status === 'guest' || target?.first_visit_date || (target?.attended_meetings || target?.promises_kept || 0) > 0) return 'Non-member';
     return 'Outreach Contact';
   }
 

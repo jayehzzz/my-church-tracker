@@ -249,7 +249,7 @@
       </aside>
     </div>
     <footer aria-label="Map legend">
-      <span><i class="leader"></i>Leader</span><span><i class="member"></i>Member</span><span><i class="contact"></i>Outreach Contact</span><span><i class="guest"></i>Guest</span><span><i class="archived"></i>Archived</span>
+      <span><i class="leader"></i>Leader</span><span><i class="member"></i>Member</span><span><i class="contact"></i>Outreach Contact</span><span><i class="guest"></i>Non-member</span><span><i class="archived"></i>Archived</span>
       {#if churchLocation}<span><i class="church"></i>{churchLocation.name}</span>{/if}<span class="map-hint">Select a pin to view a profile. Use + / − to zoom.</span>
     </footer>
   {/if}

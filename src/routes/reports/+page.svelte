@@ -24,6 +24,7 @@
     import { dateRange } from "$lib/stores/filterStore";
     import { exportToCSV } from "$lib/utils/exportUtils";
     import { reportExportTypes, reportExportRows, reportExportOptions } from "$lib/utils/reportExports";
+    import { formatJourneyStatus } from "$lib/services/peopleService.js";
     import {
         buildPeopleJourneySummary,
         buildReportSummary,
@@ -119,7 +120,7 @@
         const contacts = filteredContacts(), services = filteredServices(), meetings = filteredMeetings(), care = filteredVisitations();
         const monthly = (dates) => ({ denominator: reportingMonths($dateRange, dates), averageLabel: 'Average per calendar month' });
         const groups = {
-            people: Object.entries(peopleJourney).map(([key,total]) => ({key,label:({outreachContacts:'Outreach contacts',guests:'Guests',members:'Members',bacentaLeaders:'Bacenta leaders',basontaLeaders:'Basonta leaders',basontaMembers:'Basonta members'})[key],total,periodLabel:'Current people snapshot'})),
+            people: Object.entries(peopleJourney).map(([key,total]) => ({key,label:({outreachContacts:'Outreach contacts',guests:'Non-members',members:'Members',bacentaLeaders:'Bacenta leaders',basontaLeaders:'Basonta leaders',basontaMembers:'Basonta members'})[key],total,periodLabel:'Current people snapshot'})),
             evangelism: [
                 {key:'newContacts',label:'People reached',total:summary.newContacts},
                 {key:'joinedChurch',label:'Reached people who joined',total:summary.joinedChurch},
@@ -360,7 +361,7 @@
                         <select id="csv-person" class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" bind:value={exportPersonId}>
                             <option value="">All people</option>
                             {#each sortedPeople as person}
-                                <option value={person.id || person._id}>{person.first_name} {person.last_name} ({person.member_status})</option>
+                                <option value={person.id || person._id}>{person.first_name} {person.last_name} ({formatJourneyStatus(person.member_status)})</option>
                             {/each}
                         </select>
                     </div>
@@ -481,7 +482,7 @@
                         </p>
                     </div>
                     <div class="p-3 bg-secondary/30 rounded-lg">
-                        <p class="text-xs text-muted-foreground">Current Guests</p>
+                        <p class="text-xs text-muted-foreground">Current Non-members</p>
                         <p class="text-xl font-semibold text-foreground">
                             {peopleJourney.guests}
                         </p>
@@ -627,7 +628,7 @@
                     </div>
                     <div class="p-3 bg-secondary/30 rounded-lg">
                         <p class="text-xs text-muted-foreground">
-                            Guest Attendance
+                            Non-member Attendance
                         </p>
                         <p class="text-xl font-semibold text-info">
                             {filteredServices().reduce(
@@ -636,7 +637,7 @@
                             )}
                         </p>
                         <p class="mt-1 text-[11px] text-muted-foreground">
-                            Includes first timers; they are already part of total attendance.
+                            Includes first-timer and returning-guest visits; already part of total attendance.
                         </p>
                     </div>
                     <div class="p-3 bg-secondary/30 rounded-lg">

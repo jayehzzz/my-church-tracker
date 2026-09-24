@@ -24,7 +24,8 @@ describe("serviceAttendanceMetrics", () => {
     expect(serviceAttendanceMetrics(service, [])).toMatchObject({
       totalAttendance: 10,
       guestAttendance: 4,
-      returningGuestAttendance: 4,
+      returningGuestAttendance: 0,
+      unclassifiedNonMemberAttendance: 4,
       memberAttendance: 6,
       tithers: 3,
       decisions: 2,
@@ -40,7 +41,8 @@ describe("serviceAttendanceMetrics", () => {
     expect(summarizeServicePeriod(services, attendance)).toMatchObject({
       totalAttendance: 14,
       guestAttendance: 3,
-      returningGuestAttendance: 2,
+      returningGuestAttendance: 0,
+      unclassifiedNonMemberAttendance: 2,
       memberAttendance: 11,
       firstTimers: 1,
       serviceCount: 2,
@@ -57,12 +59,14 @@ describe("serviceAttendanceMetrics", () => {
       averageAttendance: 12,
       averageMembers: 9,
       averageGuests: 3,
-      averageReturningGuests: 3,
+      averageReturningGuests: 0,
+      averageUnclassifiedNonMembers: 3,
       averageFirstTimers: 0,
       averageTithers: 5,
       memberPct: 75,
       guestPct: 25,
-      returningGuestPct: 25,
+      returningGuestPct: 0,
+      unclassifiedNonMemberPct: 25,
       firstTimerPct: 0,
       titherRate: 56,
       serviceCount: 2,
@@ -82,15 +86,18 @@ describe("serviceAttendanceMetrics", () => {
 
     expect(serviceAttendanceMetrics(services[0], attendance, people)).toMatchObject({
       guestAttendance: 4,
-      returningGuestAttendance: 3,
+      returningGuestAttendance: 1,
+      unclassifiedNonMemberAttendance: 2,
       firstTimers: 1,
     });
     expect(summarizeAverageAttendanceMix(services, attendance, people)).toMatchObject({
       averageMembers: 6,
-      averageReturningGuests: 3,
+      averageReturningGuests: 1,
+      averageUnclassifiedNonMembers: 2,
       averageFirstTimers: 1,
       memberPct: 60,
-      returningGuestPct: 30,
+      returningGuestPct: 10,
+      unclassifiedNonMemberPct: 20,
       firstTimerPct: 10,
     });
   });

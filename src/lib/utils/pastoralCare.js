@@ -293,7 +293,7 @@ export function formatInteraction(value) {
 
 export function formatPurpose(value) {
   const labels = {
-    new_guest: "New guest care",
+    new_guest: "First-timer care",
     attendance_concern: "Attendance concern",
     welfare: "Welfare",
     prayer: "Prayer",

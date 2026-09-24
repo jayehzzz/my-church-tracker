@@ -146,7 +146,7 @@
   const personStatusOptions = [
     { value: "all", label: "All person statuses" },
     { value: "contact", label: "Outreach Contacts" },
-    { value: "guest", label: "Guests" },
+    { value: "guest", label: "Non-member profiles" },
     { value: "member", label: "Members" },
     { value: "leader", label: "Leaders" },
   ];
@@ -157,11 +157,11 @@
     { value: "returning", label: "Has established attendees" },
   ];
   const guestRecordingOptions = [
-    { value: "all", label: "Any guest recording" },
-    { value: "named", label: "Named guests" },
-    { value: "unnamed", label: "Unnamed guests" },
+    { value: "all", label: "Any non-member recording" },
+    { value: "named", label: "Named non-members" },
+    { value: "unnamed", label: "Unnamed non-members" },
     { value: "both", label: "Named and unnamed" },
-    { value: "none", label: "No guests recorded" },
+    { value: "none", label: "No non-members recorded" },
   ];
   const personOptions = $derived([
     { value: "all", label: "All people" },
@@ -485,7 +485,7 @@
       { key: "status", label: "Status" },
       { key: "location", label: "Location" },
       { key: "named_attendance", label: "Named Attendance" },
-      { key: "unnamed_guests", label: "Unnamed Guests" },
+      { key: "unnamed_guests", label: "Unnamed Non-members" },
       { key: "total_attendance", label: "Total Attendance" },
       { key: "first_timers", label: "First Timers" },
       { key: "programme_firsts", label: "Programme Firsts" },
@@ -884,7 +884,7 @@
                   <div>
                     <p class="text-2xl font-semibold text-foreground">{attendanceCount(meeting)}</p>
                     <p class="text-xs text-muted-foreground">
-                      {namedAttendanceCount(meeting)} named{meeting.unnamed_guests_count ? ` + ${meeting.unnamed_guests_count} guests` : ""}
+                      {namedAttendanceCount(meeting)} named{meeting.unnamed_guests_count ? ` + ${meeting.unnamed_guests_count} unnamed non-members` : ""}
                     </p>
                   </div>
                   <div class="flex gap-2">
@@ -1025,7 +1025,7 @@
         <SearchableSelect label="Attendance status" bind:value={analyticsFilters.status} options={statusOptions} />
         <SearchableSelect label="Person status" bind:value={analyticsFilters.personStatus} options={personStatusOptions} />
         <SearchableSelect label="Attendance journey" bind:value={analyticsFilters.milestone} options={milestoneOptions} />
-        <SearchableSelect label="Guest recording" bind:value={analyticsFilters.guestRecording} options={guestRecordingOptions} />
+        <SearchableSelect label="Non-member recording" bind:value={analyticsFilters.guestRecording} options={guestRecordingOptions} />
         <Input label="Minimum attendance" type="number" min="0" bind:value={analyticsFilters.minAttendance} />
         <Input label="Maximum attendance" type="number" min="0" bind:value={analyticsFilters.maxAttendance} />
         <label class="flex min-h-10 cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2">
@@ -1079,7 +1079,7 @@
                 {person.first_name} {person.last_name}
               </span>
               <span class="block text-xs capitalize text-muted-foreground">
-                {person.member_status === "contact" ? "Outreach Contact" : person.member_status === "visitor" ? "Guest" : person.member_status || "Guest"}
+                {person.member_status === "contact" ? "Outreach Contact" : ["guest", "visitor"].includes(person.member_status) ? "Non-member profile" : person.member_status || "Status unknown"}
                 {person.last_attended ? ` · Last attended ${formatDate(person.last_attended)}` : ""}
               </span>
             </span>
@@ -1093,7 +1093,7 @@
     {:else}
       <div class="rounded-xl border border-dashed border-border p-8 text-center">
         <p class="text-sm text-muted-foreground">
-          No named people are available for this data point. Its total may include unnamed guests.
+          No named people are available for this data point. Its total may include unnamed non-members.
         </p>
       </div>
     {/if}

@@ -154,7 +154,7 @@
           </div>
           <div class="px-3 py-4 text-center">
             <p class="text-xl font-semibold text-info">{service.guests_count || 0}</p>
-            <p class="mt-1 text-[11px] text-muted-foreground">Guests</p>
+            <p class="mt-1 text-[11px] text-muted-foreground">Non-member visits</p>
           </div>
           <div class="px-3 py-4 text-center">
             <p class="text-xl font-semibold text-success">{service.salvation_decisions || 0}</p>
