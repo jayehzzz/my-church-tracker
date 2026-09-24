@@ -101,4 +101,17 @@ describe("serviceAttendanceMetrics", () => {
       firstTimerPct: 10,
     });
   });
+
+  it("keeps displayed visit percentages at 100 after rounding", () => {
+    const service = { id: "s1", total_attendance: 125, guests_count: 125 };
+    const attendance = Array.from({ length: 84 }, (_, index) => ({
+      service_id: "s1", person_id: `p${index}`, first_timer: index < 42,
+      people: { member_status: "guest" },
+    }));
+    const mix = summarizeAverageAttendanceMix([service], attendance);
+    expect(mix.firstTimerPct).toBe(33);
+    expect(mix.returningGuestPct).toBe(34);
+    expect(mix.unclassifiedNonMemberPct).toBe(33);
+    expect(mix.memberPct + mix.returningGuestPct + mix.firstTimerPct + mix.unclassifiedNonMemberPct).toBe(100);
+  });
 });

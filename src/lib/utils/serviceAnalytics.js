@@ -116,6 +116,17 @@ function roundToOneDecimal(value) {
   return Math.round((Number(value) || 0) * 10) / 10;
 }
 
+function wholePercentages(counts, total) {
+  if (!total) return counts.map(() => 0);
+  const exact = counts.map((count) => (count / total) * 100);
+  const percentages = exact.map(Math.floor);
+  const remainder = 100 - percentages.reduce((sum, value) => sum + value, 0);
+  const order = exact.map((value, index) => ({ index, fraction: value - percentages[index] }))
+    .sort((a, b) => b.fraction - a.fraction || a.index - b.index);
+  for (let i = 0; i < remainder; i++) percentages[order[i % order.length].index] += 1;
+  return percentages;
+}
+
 /**
  * Attendance is a per-gathering measure. Summing it across a long period makes
  * a church look larger simply because more services were recorded. This view
@@ -143,19 +154,13 @@ export function summarizeAverageAttendanceMix(services = [], attendanceRecords =
     };
   }
 
-  const memberPct = period.totalAttendance > 0
-    ? Math.round((period.memberAttendance / period.totalAttendance) * 100)
-    : 0;
+  const [memberPct, returningGuestPct, firstTimerPct, unclassifiedNonMemberPct] = wholePercentages([
+    period.memberAttendance,
+    period.returningGuestAttendance,
+    period.firstTimers,
+    period.unclassifiedNonMemberAttendance,
+  ], period.totalAttendance);
   const guestPct = period.totalAttendance > 0 ? 100 - memberPct : 0;
-  const firstTimerPct = period.totalAttendance > 0
-    ? Math.round((period.firstTimers / period.totalAttendance) * 100)
-    : 0;
-  const returningGuestPct = period.totalAttendance > 0
-    ? Math.round((period.returningGuestAttendance / period.totalAttendance) * 100)
-    : 0;
-  const unclassifiedNonMemberPct = period.totalAttendance > 0
-    ? Math.round((period.unclassifiedNonMemberAttendance / period.totalAttendance) * 100)
-    : 0;
   const titherRate = period.memberAttendance > 0
     ? Math.min(100, Math.round((period.tithers / period.memberAttendance) * 100))
     : 0;
