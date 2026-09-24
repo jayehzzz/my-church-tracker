@@ -1620,7 +1620,7 @@
 />
 
 <!-- Delete Confirmation Modal -->
-<Modal bind:isOpen={isDeleteModalOpen} title="Delete Service" size="sm">
+<Modal bind:isOpen={isDeleteModalOpen} title="Delete Service" size="sm" tone="destructive">
   <div class="text-center">
     <div
       class="w-12 h-12 mx-auto mb-4 bg-destructive/10 rounded-full flex items-center justify-center"

@@ -237,7 +237,7 @@
   {#key editingAlbum?.id || "new"}<MemoryAlbumForm album={editingAlbum} {services} {meetings} onsaved={albumSaved} oncancel={() => { formOpen = false; editingAlbum = null; }} />{/key}
 </Modal>
 
-<Modal bind:isOpen={deletingAlbum} title="Delete this album?" size="sm" onclose={() => deletingAlbum = null}>
+<Modal bind:isOpen={deletingAlbum} title="Delete this album?" size="sm" tone="destructive" onclose={() => deletingAlbum = null}>
   <p class="text-sm leading-6 text-muted-foreground">This removes the album and its uploaded photos and videos. Service albums must be managed from their service record.</p>
   {#snippet footer()}<Button variant="secondary" onclick={() => deletingAlbum = null}>Keep album</Button><Button variant="danger" loading={deleting} onclick={confirmDelete}>Delete album</Button>{/snippet}
 </Modal>

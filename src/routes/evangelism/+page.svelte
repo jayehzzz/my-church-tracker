@@ -466,7 +466,7 @@
 
 <EvangelismContactForm bind:isOpen={isFormOpen} contact={selectedContact} onsave={handleSave} />
 
-<Modal bind:isOpen={isDeleteModalOpen} title="Delete contact" size="sm" zIndex={60}>
+<Modal bind:isOpen={isDeleteModalOpen} title="Delete contact" size="sm" zIndex={60} tone="destructive">
   <div class="text-center">
     <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
       <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 9v2m0 4h.01M10.3 3.8L2.6 17.1A2 2 0 004.3 20h15.4a2 2 0 001.7-2.9L13.7 3.8a2 2 0 00-3.4 0z" /></svg>

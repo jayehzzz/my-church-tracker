@@ -129,7 +129,7 @@
     {#key personId}<div hidden={activeTab!=='review'} class="review-panel"><DiscipleshipReview person={selected.person} bind:dirty={dirtyReview} onsave={()=>loadSummary()}/></div><div hidden={activeTab!=='plan'}><GrowthPlan {personId} {people} {allowed} agreements={selected.agreements} reviews={selected.agreementReviews} bind:dirty={dirtyPlan} onsave={()=>loadSummary()}/></div>{/key}
   {/if}
 </div>
-<Modal bind:isOpen={discardOpen} title="Leave this unsaved draft?" size="sm">
+<Modal bind:isOpen={discardOpen} title="Leave this unsaved draft?" size="sm" tone="warning">
   <p class="text-sm text-muted-foreground">Your agreement or review has not been saved. Stay here to finish it, or discard it and continue.</p>
   {#snippet footer()}<button class="rounded-lg px-4 py-2 text-sm" onclick={()=>discardOpen=false}>Keep editing</button><button class="rounded-lg bg-destructive px-4 py-2 text-sm text-destructive-foreground" onclick={discardDraft}>Discard and continue</button>{/snippet}
 </Modal>

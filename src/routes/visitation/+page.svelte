@@ -536,7 +536,7 @@
   onsave={handleCareSaved}
 />
 
-<Modal bind:isOpen={isDeleteModalOpen} title="Delete Care Record" size="sm">
+<Modal bind:isOpen={isDeleteModalOpen} title="Delete Care Record" size="sm" tone="destructive">
   <div class="text-center">
     <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive" aria-hidden="true">!</div>
     <p class="text-foreground">Delete the care record for <strong>{selectedVisitation?.person_visited_name || "this person"}</strong>?</p>

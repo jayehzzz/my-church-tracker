@@ -89,7 +89,7 @@
     }
 </script>
 
-<Modal bind:isOpen onclose={onClose} title="Connection impact" size="md">
+<Modal bind:isOpen onclose={onClose} title="Connection impact" size="md" tone="success">
     {#snippet children()}
         {#if person}
             <div class="space-y-4">

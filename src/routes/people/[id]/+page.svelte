@@ -320,7 +320,7 @@
                 onsave={handleEditSave}
             />
 
-            <Modal bind:isOpen={showMergeModal} title="Review duplicate merge" size="lg">
+            <Modal bind:isOpen={showMergeModal} title="Review duplicate merge" size="lg" tone="warning">
                 <div class="space-y-4">
                     <p class="text-sm text-muted-foreground">
                         Keep one record and archive this profile as its duplicate. The preview lists every linked record that would move; it refuses ambiguous attendance, programme, commitment, plan, leader, or account relationships.

@@ -1086,7 +1086,7 @@
   {/snippet}
 </Modal>
 
-<Modal bind:isOpen={isDeleteModalOpen} title="Delete meeting" size="sm">
+<Modal bind:isOpen={isDeleteModalOpen} title="Delete meeting" size="sm" tone="destructive">
   <div class="space-y-3 text-center">
     <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
       <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
