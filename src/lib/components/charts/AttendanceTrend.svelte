@@ -250,6 +250,9 @@
         </button>
       {/if}
     </div>
+    {#if granularity !== "day" && primaryAggregationMode === "average"}
+      <p class="text-[11px] text-muted-foreground">Grouped points are averages across the services in that period, so decimal values such as 7.5 are expected.</p>
+    {/if}
   </div>
 
   {#if selectedComparison || primaryKey !== "total"}

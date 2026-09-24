@@ -10,7 +10,7 @@ export const metricKeys = {
 export const metricLabels = {
   total: 'Attendance', attendance: 'Attendance', guests: 'Non-member visits', returningGuests: 'Returning guest visits',
   returning: 'Returning guest visits', firstTimers: 'First-timer visits', first: 'First-timer visits',
-  unclassifiedNonMembers: 'Visit type unknown', unknown: 'Visit type unknown', members: 'Member attendances',
+  unclassifiedNonMembers: 'Unclassified non-member visits', unknown: 'Unclassified non-member visits', members: 'Member attendances',
   decisions: 'Salvation decisions', tithers: 'Tither attendances'
 };
 

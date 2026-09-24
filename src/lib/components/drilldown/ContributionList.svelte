@@ -1,7 +1,8 @@
 <script>
   import { serviceHref, personHref } from './recordHrefs.js';
   let { domain, records = [], totalCount = records.length, status = 'ready', error = '',
-    onretry = null, onselect = null, hasMore = false, onmore = null } = $props();
+    onretry = null, onselect = null, hasMore = false, onmore = null,
+    countLabel = '', contributionLabel = 'Contribution' } = $props();
   const hrefFor = { service: serviceHref, person: personHref };
   const actionFor = { service: 'View service', meeting: 'View meeting', person: 'View profile', care: 'View care record', contact: 'View contact' };
 </script>
@@ -12,7 +13,7 @@
     <p role="status">{error || (status === 'restricted' ? 'These records are restricted.' : 'Records are unavailable.')}</p>
     {#if onretry}<button type="button" onclick={onretry}>Retry</button>{/if}
   {:else}
-    <p class="text-sm text-muted-foreground">{totalCount} matching record{totalCount === 1 ? '' : 's'}{hasMore ? ` · ${records.length} shown` : ''}</p>
+    <p class="text-sm text-muted-foreground">{countLabel || `${totalCount} matching record${totalCount === 1 ? '' : 's'}`}{hasMore ? ` · ${records.length} shown` : ''}</p>
     {#if !records.length}<p>No matching records.</p>{/if}
     <ul class="space-y-2">
       {#each records as record, index (`${record.id ?? record._id ?? 'missing'}-${index}`)}
@@ -23,7 +24,7 @@
             <div>
               <p class="font-medium">{record.title || record.name || record.date || 'Recorded item'}</p>
               {#if record.date}<p class="text-xs text-muted-foreground">{record.date}</p>{/if}
-              {#if record.contribution != null}<p class="text-sm">Contribution: {record.contribution}</p>{/if}
+              {#if record.contribution != null}<p class="text-sm">{contributionLabel}: {record.contribution}</p>{/if}
               {#if record.note}<p class="text-sm text-muted-foreground">{record.note}</p>{/if}
             </div>
             {#if recordId && onselect}

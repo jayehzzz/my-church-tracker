@@ -40,5 +40,6 @@ it('opens the dashboard average from its exact Sunday sources and restores it af
   await fireEvent.click(returned.getByRole('button', { name: 'View Sept 2026 details' }));
   await fireEvent.click(returned.getByRole('button', { name: /Series B · Non-member visits/ }));
   expect(returned.getByRole('dialog')).toHaveTextContent('3 across 2 services');
-  expect(returned.getByRole('dialog')).toHaveTextContent('2 matching records');
+  expect(returned.getByRole('dialog')).toHaveTextContent('2 services included');
+  expect(returned.getByRole('dialog')).toHaveTextContent('Non-member visits: 1');
 }, 15000);

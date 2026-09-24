@@ -18,8 +18,8 @@
   import MetricComparison from "$lib/components/charts/MetricComparison.svelte";
   import ServiceDrilldown from "$lib/components/drilldown/ServiceDrilldown.svelte";
   import { saveDomainReturn, takeDomainReturn } from "$lib/components/drilldown/domainReturnState.js";
-  import { openDrilldown, pushDrilldown, createChoice, createSelection } from "$lib/components/drilldown/selection.js";
-  import { serviceId } from "$lib/components/drilldown/serviceAdapter.js";
+  import { openDrilldown, createChoice, createSelection } from "$lib/components/drilldown/selection.js";
+  import { metricLabels, serviceId } from "$lib/components/drilldown/serviceAdapter.js";
   import { periodServiceSelection, bindServiceSources } from "$lib/components/drilldown/serviceSelection.js";
   import { goto } from "$app/navigation";
   import { onMount } from "svelte";
@@ -44,17 +44,16 @@
 
   // Import chart components
   let drilldown = $state(null);
-  export const snapshot = { capture: () => { const token = `services-${crypto.randomUUID()}`; saveDomainReturn(token, { drilldown, activeView, serviceTypeFilter, searchQuery, range: [$dateRange.startDate, $dateRange.endDate] }); return { token }; }, restore: value => { const frame = value?.token ? takeDomainReturn(value.token) : null; if (!frame || frame.range[0] !== $dateRange.startDate || frame.range[1] !== $dateRange.endDate) return; drilldown = frame.drilldown; activeView = frame.activeView; serviceTypeFilter = frame.serviceTypeFilter; searchQuery = frame.searchQuery; previousDrilldownFilters = JSON.stringify([$dateRange.startDate, $dateRange.endDate, serviceTypeFilter, searchQuery]); } };
-  function openSelection(selection) { drilldown = openDrilldown({ kind: "selection", title: "Service contributions", selection }); }
+  export const snapshot = { capture: () => { const token = `services-${crypto.randomUUID()}`; saveDomainReturn(token, { drilldown, activeView, serviceTypeFilter, serviceMetricFilter, searchQuery, range: [$dateRange.startDate, $dateRange.endDate] }); return { token }; }, restore: value => { const frame = value?.token ? takeDomainReturn(value.token) : null; if (!frame || frame.range[0] !== $dateRange.startDate || frame.range[1] !== $dateRange.endDate) return; drilldown = frame.drilldown; activeView = frame.activeView; serviceTypeFilter = frame.serviceTypeFilter; serviceMetricFilter = frame.serviceMetricFilter || "all"; searchQuery = frame.searchQuery; previousDrilldownFilters = JSON.stringify([$dateRange.startDate, $dateRange.endDate, serviceTypeFilter, serviceMetricFilter, searchQuery]); } };
+  function openSelection(selection) {
+    const choice = selection.choices.find((item) => item.role === selection.selectedRole) || selection.choices[0];
+    drilldown = openDrilldown({ kind: "selection", title: metricLabels[choice?.metricKey] || choice?.metricKey || "Service breakdown", selection });
+  }
   function openMetric(metricKey, source = analyticsServices(), mode = "total") {
     openSelection(periodServiceSelection(metricKey, source, { mode, range: $dateRange, filters: { serviceType: serviceTypeFilter } }));
   }
   function openPersonHistoryService(service, person, statuses) {
-    const base = openDrilldown({ kind: "history", title: `Sunday history · ${[person.first_name, person.last_name].filter(Boolean).join(" ")}`, personId: serviceId(person), statuses });
-    drilldown = pushDrilldown(base, { kind: "service", title: service.sermon_topic || "Service", id: serviceId(service), metricKey: "total", personId: serviceId(person) });
-  }
-  function openReadOnlyService(service, metricKey = "total") {
-    drilldown = openDrilldown({ kind: "service", title: service.sermon_topic || "Service", id: serviceId(service), metricKey });
+    handleServiceClick(service);
   }
   import AttendanceTrend from "$lib/components/charts/AttendanceTrend.svelte";
   import WeeklyAttendanceMatrix from "$lib/components/charts/WeeklyAttendanceMatrix.svelte";
@@ -90,6 +89,7 @@
 
   // Filter state
   let serviceTypeFilter = $state("all");
+  let serviceMetricFilter = $state("all");
   let attendanceRingVisibility = $state({ members: true, guests: true, firstTimers: true, unclassified: true, tithers: true });
 
   function toggleAttendanceRing(key) {
@@ -129,7 +129,7 @@
   let searchQuery = $state("");
   let previousDrilldownFilters = null;
   $effect(() => {
-    const signature = JSON.stringify([$dateRange.startDate, $dateRange.endDate, serviceTypeFilter, searchQuery]);
+    const signature = JSON.stringify([$dateRange.startDate, $dateRange.endDate, serviceTypeFilter, serviceMetricFilter, searchQuery]);
     if (previousDrilldownFilters !== null && signature !== previousDrilldownFilters) drilldown = null;
     previousDrilldownFilters = signature;
   });
@@ -144,6 +144,15 @@
     { value: "sunday_service", label: "Sunday Service" },
     { value: "midweek_service", label: "Midweek Service" },
     { value: "special_service", label: "Special Service" },
+  ];
+  const serviceMetricOptions = [
+    { value: "all", label: "All attendance & outcomes" },
+    { value: "nonMemberVisits", label: "Has non-member visits" },
+    { value: "firstTimers", label: "Has first timers" },
+    { value: "returningGuests", label: "Has returning guests" },
+    { value: "unclassifiedNonMembers", label: "Has unclassified non-member visits" },
+    { value: "decisions", label: "Has salvation decisions" },
+    { value: "photos", label: "Has photos" },
   ];
 
   // Get person by ID - use centralized function
@@ -164,10 +173,15 @@
 
   function getServiceIndividuals(service) {
     if (!Array.isArray(service?.individuals)) return [];
-    return service.individuals.map(getPersonById).filter(Boolean).map(person => ({
-      ...person,
-      first_timer: attendanceRecords.some(row => recordId(row.service_id) === recordId(service) && recordId(row.person_id) === recordId(person) && row.first_timer === true),
-    }));
+    return service.individuals.map(getPersonById).filter(Boolean).map(person => {
+      const row = attendanceRecords.find(item => recordId(item.service_id) === recordId(service) && recordId(item.person_id) === recordId(person));
+      const firstTimer = row?.first_timer === true;
+      return {
+        ...person,
+        first_timer: firstTimer,
+        returning_guest: !firstTimer && ["contact", "guest", "visitor"].includes(person.member_status),
+      };
+    });
   }
 
   function serviceFirstTimerCount(service) {
@@ -232,6 +246,10 @@
       filtered = filtered.filter((s) => s.service_type === serviceTypeFilter);
     }
 
+    if (serviceMetricFilter !== "all") {
+      filtered = filtered.filter(matchesServiceMetricFilter);
+    }
+
     // Search filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -270,6 +288,19 @@
 
   function serviceMetrics(service) {
     return serviceAttendanceMetrics(service, attendanceRecords, people);
+  }
+
+  function matchesServiceMetricFilter(service) {
+    const metrics = serviceMetrics(service);
+    switch (serviceMetricFilter) {
+      case "nonMemberVisits": return metrics.guestAttendance > 0;
+      case "firstTimers": return metrics.firstTimers > 0;
+      case "returningGuests": return metrics.returningGuestAttendance > 0;
+      case "unclassifiedNonMembers": return metrics.unclassifiedNonMemberAttendance > 0;
+      case "decisions": return metrics.decisions > 0;
+      case "photos": return Array.isArray(service.photos) && service.photos.length > 0;
+      default: return true;
+    }
   }
 
   // Calculate KPIs based on filtered data
@@ -406,6 +437,7 @@
     const query = searchQuery.trim().toLowerCase();
     const servicesInScope = services.filter((service) => {
       if (!isWithinDateRange(service.service_date, range)) return false;
+      if (serviceMetricFilter !== "all" && !matchesServiceMetricFilter(service)) return false;
       return !query || service.sermon_topic?.toLowerCase().includes(query) ||
         service.sermon_speaker?.toLowerCase().includes(query) ||
         service.location?.toLowerCase().includes(query);
@@ -537,10 +569,6 @@
 
   // Open service details modal
   function handleServiceClick(service) {
-    openReadOnlyService(service);
-  }
-
-  function handleLegacyServiceClick(service) {
     selectedService = service;
     isDetailsModalOpen = true;
   }
@@ -751,6 +779,16 @@
         class="min-w-40 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
       >
         {#each serviceTypeOptions as option}
+          <option value={option.value}>{option.label}</option>
+        {/each}
+      </select>
+      <label for="shared-metric-filter" class="sr-only">Filter by attendance or outcome</label>
+      <select
+        id="shared-metric-filter"
+        bind:value={serviceMetricFilter}
+        class="min-w-52 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+      >
+        {#each serviceMetricOptions as option}
           <option value={option.value}>{option.label}</option>
         {/each}
       </select>
@@ -1105,7 +1143,7 @@
             <div class="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
               <div class="px-5 py-5">
                 <p class="text-xs font-medium text-muted-foreground">Latest attendance</p>
-                <button type="button" class="mt-3 text-3xl font-semibold tracking-tight text-foreground" onclick={() => openReadOnlyService(latestService())}>{serviceMetrics(latestService()).totalAttendance}</button>
+                <button type="button" class="mt-3 text-3xl font-semibold tracking-tight text-foreground" onclick={() => handleServiceClick(latestService())}>{serviceMetrics(latestService()).totalAttendance}</button>
                 <p class="mt-1 text-xs text-muted-foreground">{formatShortDate(latestService().service_date)}</p>
               </div>
               <div class="px-5 py-5">
@@ -1132,12 +1170,11 @@
                   title="Attendance trend"
                   itemLabel="services"
                   periodLabel={$dateRange.label}
-                  wholeNumberValues={true}
                   showSummaryFooter={false}
-                  onDrilldown={openSelection}
+                  onPointClick={handleChartPointClick}
                   comparisonOptions={[
                     { key: "returningGuests", label: "Returning guests", color: "warning" },
-                    { key: "unclassifiedNonMembers", label: "Visit type unknown", color: "secondary" },
+                    { key: "unclassifiedNonMembers", label: "Unclassified non-member visits", color: "secondary" },
                     { key: "decisions", label: "Salvation decisions", color: "success" },
                     { key: "firstTimers", label: "First-timer visits", color: "warning" },
                     { key: "tithers", label: "Tithers", color: "warning" },
@@ -1252,7 +1289,7 @@
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-warning"></span>Avg tithers / gathering <span class="text-[10px] text-muted-foreground">inner ring</span></span>
                     <span class="text-sm font-semibold text-foreground">{wholePerson(donutData().tithers)} <span class="font-normal text-muted-foreground">({donutData().titherRate}% of member attendance)</span></span>
                   </button>
-                  <div class="flex flex-wrap gap-2 text-xs">{#each [{ key: "members", label: "Members" }, { key: "returningGuests", label: "Returning guests" }, { key: "firstTimers", label: "First timers" }, { key: "unclassifiedNonMembers", label: "Unknown visit type" }, { key: "tithers", label: "Tithers" }] as category}<button type="button" class="rounded border border-border px-2 py-1 text-primary" onclick={() => openMetric(category.key)}>View {category.label} breakdown</button>{/each}</div>
+                  <div class="flex flex-wrap gap-2 text-xs">{#each [{ key: "members", label: "Members" }, { key: "returningGuests", label: "Returning guests" }, { key: "firstTimers", label: "First timers" }, { key: "unclassifiedNonMembers", label: "Unclassified non-member visits" }, { key: "tithers", label: "Tithers" }] as category}<button type="button" class="rounded border border-border px-2 py-1 text-primary" onclick={() => openMetric(category.key)}>View {category.label} breakdown</button>{/each}</div>
                   <p class="px-2 text-[11px] text-muted-foreground">Attendance averages are rounded to the nearest whole person for display; recorded totals remain exact. Tithers remain a subset of member attendance.</p>
                 </div>
               </div>
@@ -1404,7 +1441,7 @@
           <div class="text-2xl font-bold text-muted-foreground">
             {serviceMetrics(selectedService).unclassifiedNonMemberAttendance}
           </div>
-          <div class="text-xs text-muted-foreground">Visit type unknown</div>
+          <div class="text-xs text-muted-foreground">Unclassified non-member visits</div>
         </div>
         <div class="p-3 bg-secondary/20 rounded-lg text-center">
           <div class="text-2xl font-bold text-success">
@@ -1421,6 +1458,7 @@
           <div class="text-xs text-muted-foreground">Individuals</div>
         </div>
       </div>
+      <p class="text-xs text-muted-foreground">An unclassified non-member visit is attendance recorded as a non-member visit without enough information to tell whether it was a first visit or a returning visit.</p>
 
       <!-- Individuals List -->
       {#if Array.isArray(selectedService.individuals) && selectedService.individuals.length > 0}
@@ -1432,7 +1470,7 @@
             {#each getServiceIndividuals(selectedService) as person}
               <a
                 href="/people/{person.id}"
-                class="flex items-center gap-2 px-3 py-1.5 {person.first_timer ? 'bg-success/10 border border-success/40' : 'bg-secondary/30'} rounded-full hover:bg-secondary/50 transition-colors group"
+                class="flex items-center gap-2 px-3 py-1.5 {person.first_timer ? 'bg-success/10 border border-success/40' : person.returning_guest ? 'bg-warning/10 border border-warning/40' : 'bg-secondary/30'} rounded-full hover:bg-secondary/50 transition-colors group"
                 onclick={(e) => e.stopPropagation()}
               >
                 <div
@@ -1445,6 +1483,7 @@
                   >{person.first_name} {person.last_name}</span
                 >
                 {#if person.first_timer}<span class="text-xs font-medium text-success">First-timer visit</span>{/if}
+                {#if person.returning_guest}<span class="text-xs font-medium text-warning">Returning guest</span>{/if}
               </a>
             {/each}
           </div>
@@ -1551,7 +1590,7 @@
             {#each getServiceIndividuals(selectedService) as person}
               <a
                 href="/people/{person.id}"
-                class="flex items-center justify-between p-3 {person.first_timer ? 'bg-success/10 border border-success/40' : 'bg-secondary/20'} rounded-lg hover:bg-secondary/40 transition-colors group"
+                class="flex items-center justify-between p-3 {person.first_timer ? 'bg-success/10 border border-success/40' : person.returning_guest ? 'bg-warning/10 border border-warning/40' : 'bg-secondary/20'} rounded-lg hover:bg-secondary/40 transition-colors group"
               >
                 <div class="flex items-center gap-3">
                   <div
@@ -1570,6 +1609,7 @@
                       {formatJourneyStatus(person.member_status)}
                     </div>
                     {#if person.first_timer}<span class="text-xs font-medium text-success">First-timer visit</span>{/if}
+                    {#if person.returning_guest}<span class="text-xs font-medium text-warning">Returning guest</span>{/if}
                   </div>
                 </div>
               </a>
@@ -1661,4 +1701,4 @@
   {/snippet}
 </Modal>
 
-<ServiceDrilldown bind:state={drilldown} {services} attendance={attendanceRecords} {people} status={loading ? "loading" : error ? "unavailable" : "ready"} error={error || ""} onretry={loadServices} wholeNumberAverages={true} onedit={service => { drilldown = null; handleLegacyServiceClick(service); }} onprofile={(id) => goto(`/people/${encodeURIComponent(id)}`)} />
+<ServiceDrilldown bind:state={drilldown} {services} attendance={attendanceRecords} {people} status={loading ? "loading" : error ? "unavailable" : "ready"} error={error || ""} onretry={loadServices} wholeNumberAverages={true} onedit={service => { drilldown = null; handleServiceClick(service); }} onprofile={(id) => goto(`/people/${encodeURIComponent(id)}`)} />

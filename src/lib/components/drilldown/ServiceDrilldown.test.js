@@ -18,11 +18,12 @@ describe('service dialog interaction', () => {
     const state = openDrilldown({ kind: 'selection', title: 'Average attendance', selection });
     const ui = render(ServiceDrilldown, { state, services, attendance: [], people: [], wholeNumberAverages: true });
     expect(ui.getByText(/83 across 2 services = 42 per service/)).toBeDefined();
-    expect(ui.getByText('2 matching records')).toBeDefined();
+    expect(ui.getByText('2 services included')).toBeDefined();
+    expect(ui.getByText('Attendance: 41')).toBeDefined();
     await fireEvent.click(ui.getAllByRole('button', { name: 'View service' })[0]);
     await waitFor(() => expect(ui.getByText('Linked names available')).toBeDefined());
     await fireEvent.click(ui.getByRole('button', { name: 'Back to previous details' }));
-    expect(ui.getByText('2 matching records')).toBeDefined();
+    expect(ui.getByText('2 services included')).toBeDefined();
   });
   it('keeps a missed Sunday in matrix history and restores focus at the root', async () => {
     const state = openDrilldown({ kind: 'history', title: 'Sunday history', personId: 'p1', statuses: [

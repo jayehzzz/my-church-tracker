@@ -403,7 +403,7 @@
   <div class="mb-6 flex flex-wrap items-center gap-4">
     <div class="flex items-center gap-2">
       <label for="status-filter" class="text-sm text-muted-foreground"
-        >Journey:</label
+        >Church Journey:</label
       >
       <select
         id="status-filter"

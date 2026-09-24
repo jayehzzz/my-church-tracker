@@ -2,7 +2,7 @@
   import { goto } from "$app/navigation";
   import ServiceDrilldown from "$lib/components/drilldown/ServiceDrilldown.svelte";
   import { openDrilldown, createChoice, createSelection } from "$lib/components/drilldown/selection.js";
-  import { serviceId } from "$lib/components/drilldown/serviceAdapter.js";
+  import { metricLabels, serviceId } from "$lib/components/drilldown/serviceAdapter.js";
   import { periodServiceSelection } from "$lib/components/drilldown/serviceSelection.js";
   import ContributionList from "$lib/components/drilldown/ContributionList.svelte";
   import { saveDomainReturn, takeDomainReturn } from "$lib/components/drilldown/domainReturnState.js";
@@ -34,11 +34,12 @@
   function openDashboardMetric(metricKey, services, mode = "total", label = $dateRange.label) {
     const selection = periodServiceSelection(metricKey, services, { mode, range: $dateRange });
     if (mode === "average") selection.choices[0].displayPrecision = 0;
-    drilldown = openDrilldown({ kind: "selection", title: `${label} · service contributions`, selection });
+    drilldown = openDrilldown({ kind: "selection", title: `${label} · ${metricLabels[metricKey] || metricKey}`, selection });
   }
   function openChartSelection(selection) {
     for (const choice of selection.choices) choice.contextLabel = attendanceChart.contextLabel;
-    drilldown = openDrilldown({ kind: "selection", title: `${attendanceChart.contextLabel} · service contributions`, selection });
+    const choice = selection.choices.find((item) => item.role === selection.selectedRole) || selection.choices[0];
+    drilldown = openDrilldown({ kind: "selection", title: `${attendanceChart.contextLabel} · ${metricLabels[choice?.metricKey] || choice?.metricKey || "Service breakdown"}`, selection });
   }
   function inspectKpi(id) {
     if (id === "family") { memberDrilldown = true; return; }
