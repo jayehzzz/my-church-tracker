@@ -23,6 +23,35 @@ async function fixture() {
 }
 
 describe("operational CRM behaviour", () => {
+  it("attributes period evidence to the recording worker while enforcing the current reader scope", async () => {
+    const { t, ids, owner } = await fixture();
+    const workers = await t.run(async (ctx) => {
+      const oldWorker = await ctx.db.insert("people", { first_name: "Old", last_name: "Worker", member_status: "leader", created_at: stamp, updated_at: stamp });
+      const newWorker = await ctx.db.insert("people", { first_name: "New", last_name: "Worker", member_status: "leader", created_at: stamp, updated_at: stamp });
+      await ctx.db.insert("crm_users", { external_auth_id: "https://fixture.example|old", person_id: oldWorker, role: "leader", status: "active", can_view_confidential: false, created_at: stamp, updated_at: stamp });
+      await ctx.db.insert("crm_users", { external_auth_id: "https://fixture.example|new", person_id: newWorker, role: "leader", status: "active", can_view_confidential: false, created_at: stamp, updated_at: stamp });
+      const former = await ctx.db.query("follow_up_assignments").withIndex("by_person", q => q.eq("person_id", ids.contact)).unique();
+      await ctx.db.patch(former!._id, { status: "ended" });
+      await ctx.db.insert("follow_up_assignments", { person_id: ids.contact, assigned_leader_id: newWorker, status: "active", assigned_at: "2026-09-06T00:00:00.000Z", created_at: stamp, updated_at: stamp });
+      await ctx.db.insert("follow_ups", { contact_id: ids.contact, leader_id: oldWorker, follow_up_date: "2026-09-03", method: "call", outcome: "positive_conversation", notes: "private note", created_at: stamp });
+      await ctx.db.insert("gathering_commitments", { person_id: ids.contact, leader_id: oldWorker, gathering_type: "sunday_service", gathering_date: "2026-09-06", response: "yes", resolution: "attended", confirmation_note: "private note", created_at: "2026-09-03T10:00:00.000Z", updated_at: stamp });
+      return { oldWorker, newWorker };
+    });
+    const args = { periodStart: "2026-09-01", periodEnd: "2026-09-05", serviceDate: "2026-09-06" };
+    const dashboard = await owner.query(api.crm.getDashboard, args);
+    const old = dashboard.team_stats.find((row) => row.leader_id === workers.oldWorker)!;
+    const newer = dashboard.team_stats.find((row) => row.leader_id === workers.newWorker)!;
+    expect(old.period_unique_contacts).toBe(1);
+    expect(old.evidence.period_unique_contacts.map((row) => row.person_id)).toEqual([ids.contact]);
+    expect(old.evidence.meaningful_conversations).toEqual([expect.objectContaining({ person_id: ids.contact, outcome: "positive_conversation" })]);
+    expect(old.evidence.sunday_promises).toHaveLength(1);
+    expect(old.evidence.promises_attended).toHaveLength(1);
+    expect(newer.period_unique_contacts).toBe(0);
+    expect(JSON.stringify(old.evidence)).not.toContain("private note");
+    const formerSession = t.withIdentity({ tokenIdentifier: "https://fixture.example|old", issuer: "https://fixture.example", subject: "old" });
+    const formerView = await formerSession.query(api.crm.getDashboard, args);
+    expect(formerView.team_stats.flatMap((row) => row.evidence.period_unique_contacts)).toEqual([]);
+  });
   it("keeps dashboard reads side-effect free and makes the daily reconciliation idempotent", async () => {
     const { t, owner } = await fixture();
     await owner.query(api.crm.getDashboard, { serviceDate: "2026-09-06" });

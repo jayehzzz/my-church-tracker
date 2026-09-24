@@ -23,6 +23,7 @@
         onClose = null,
         onViewProfile = null,
         onViewContact = null,
+        onViewAll = null,
     } = $props();
 
     // Calculate inviter stats
@@ -116,7 +117,7 @@
                         <div class="text-xs text-muted-foreground">Membership rate</div>
                     </div>
                 </div>
-                <p class="text-center text-xs text-muted-foreground">Results for {periodLabel}</p>
+                <p class="text-center text-xs text-muted-foreground">Results for {periodLabel}. Contacts with multiple inviters give shared credit to each.</p>
 
                 <!-- Recent Contacts -->
                 {#if stats().recentContacts.length > 0}
@@ -154,6 +155,9 @@
                             {/each}
                         </div>
                     </div>
+                {/if}
+                {#if stats().totalInvited > 0 && onViewAll}
+                    <Button variant="secondary" onclick={onViewAll}>View all {stats().totalInvited} matching contacts</Button>
                 {/if}
             </div>
         {/if}

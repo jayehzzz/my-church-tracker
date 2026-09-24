@@ -58,7 +58,7 @@
     }
 
     function canOpenRecord(record) {
-        return Boolean(!record.meeting && onRecordClick);
+        return Boolean(onRecordClick && (record.meeting || record.services));
     }
 
     function openRecord(record) {

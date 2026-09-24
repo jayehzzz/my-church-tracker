@@ -6,7 +6,7 @@
    * to judge a worker: how many people they worked and whether their Sunday
    * promises turned into attendance. Activity detail sits behind an expand.
    */
-  let { stats = [], period = 'week', onPeriodChange = () => {}, onViewLeader = () => {} } = $props();
+  let { stats = [], period = 'week', onPeriodChange = () => {}, onViewLeader = () => {}, onMetric = () => {} } = $props();
 
   let expandedId = $state('');
 
@@ -69,16 +69,16 @@
                 <span class="font-semibold text-foreground">{leaderName(stat)}</span>
               </div>
             </td>
-            <td class="px-3 py-3 text-foreground">{number(stat.period_unique_contacts)}</td>
-            <td class="px-3 py-3 text-foreground">{number(stat.sunday_promises)}</td>
+            <td class="px-3 py-3 text-foreground"><button type="button" class="font-semibold underline decoration-dotted underline-offset-4" onclick={() => onMetric(stat, 'period_unique_contacts')}>{number(stat.period_unique_contacts)}<span class="sr-only"> {number(stat.period_unique_contacts) === 1 ? 'person' : 'people'} worked by {leaderName(stat)}</span></button></td>
+            <td class="px-3 py-3 text-foreground"><button type="button" class="font-semibold underline decoration-dotted underline-offset-4" onclick={() => onMetric(stat, 'sunday_promises')}>{number(stat.sunday_promises)}<span class="sr-only"> Sunday promises for {leaderName(stat)}</span></button></td>
             <td class="px-3 py-3">
-              <span class="font-semibold text-success">{number(stat.promises_attended)}</span>
+              <button type="button" class="font-semibold text-success underline decoration-dotted underline-offset-4" onclick={() => onMetric(stat, 'promises_attended')}>{number(stat.promises_attended)}<span class="sr-only"> attended promises for {leaderName(stat)}</span></button>
               {#if conversionRate(stat) !== null}
                 <span class="ml-1 text-xs text-muted-foreground font-normal">({conversionRate(stat)}%)</span>
               {/if}
             </td>
-            <td class="px-3 py-3 {number(stat.promises_missed) ? 'font-semibold text-destructive' : 'text-foreground'}">{number(stat.promises_missed)}</td>
-            <td class="px-3 py-3 {attentionCount(stat) ? 'font-semibold text-warning-foreground' : 'text-muted-foreground'}">{attentionCount(stat) ? `${attentionCount(stat)} ${attentionCount(stat) === 1 ? 'person' : 'people'}` : 'None'}</td>
+            <td class="px-3 py-3 {number(stat.promises_missed) ? 'font-semibold text-destructive' : 'text-foreground'}"><button type="button" class="underline decoration-dotted underline-offset-4" onclick={() => onMetric(stat, 'promises_missed')}>{number(stat.promises_missed)}<span class="sr-only"> missed promises for {leaderName(stat)}</span></button></td>
+            <td class="px-3 py-3 {attentionCount(stat) ? 'font-semibold text-warning-foreground' : 'text-muted-foreground'}"><button type="button" class="underline decoration-dotted underline-offset-4" onclick={() => onMetric(stat, 'attention')}>{attentionCount(stat) ? `${attentionCount(stat)} ${attentionCount(stat) === 1 ? 'item' : 'items'}` : 'None'}<span class="sr-only"> needing attention for {leaderName(stat)}</span></button></td>
             <td class="px-3 py-3 text-right">
               <div class="flex justify-end gap-1">
                 <Button size="sm" variant="ghost" onclick={() => onViewLeader(leaderId(stat))}>View list</Button>
@@ -90,10 +90,9 @@
             <tr class="bg-secondary/10">
               <td colspan="7" class="px-4 py-3">
                 <dl class="grid gap-3 text-sm sm:grid-cols-4">
-                  <div><dt class="text-xs text-muted-foreground">Real conversations</dt><dd class="font-medium text-foreground">{number(stat.meaningful_conversations)}</dd></div>
-                  <div><dt class="text-xs text-muted-foreground">Serious now</dt><dd class="font-medium text-foreground">{number(stat.serious_candidates)}</dd></div>
-                  <div><dt class="text-xs text-muted-foreground">Overdue calls</dt><dd class="font-medium {number(stat.overdue_tasks) ? 'text-destructive' : 'text-foreground'}">{number(stat.overdue_tasks)}</dd></div>
-                  <div><dt class="text-xs text-muted-foreground">People with no next call</dt><dd class="font-medium {number(stat.people_without_next_action) ? 'text-warning-foreground' : 'text-foreground'}">{number(stat.people_without_next_action)}</dd></div>
+                  {#each [['meaningful_conversations', 'Real conversations'], ['serious_candidates', 'Serious now'], ['overdue_tasks', 'Overdue calls'], ['people_without_next_action', 'People with no next call']] as [key, label]}
+                    <div><dt class="text-xs text-muted-foreground">{label}</dt><dd><button type="button" class="font-medium text-foreground underline decoration-dotted underline-offset-4" onclick={() => onMetric(stat, key)}>{number(stat[key])}<span class="sr-only"> {label.toLowerCase()} for {leaderName(stat)}</span></button></dd></div>
+                  {/each}
                 </dl>
               </td>
             </tr>

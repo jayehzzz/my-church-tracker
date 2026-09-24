@@ -174,11 +174,21 @@ describe('WorkerAssessment', () => {
     expect(getByText('Ama Leader')).toBeDefined();
     expect(getByText('People worked')).toBeDefined();
     expect(getByText('Said yes to Sunday')).toBeDefined();
-    expect(getByText('1 person')).toBeDefined();
+    expect(getByRole('button', { name: '1 item needing attention for Ama Leader' })).toBeDefined();
     expect(queryByText('Real conversations')).toBeNull();
     await fireEvent.click(getByRole('button', { name: 'Details' }));
     expect(getByText('Real conversations')).toBeDefined();
     expect(queryByText(/score/i)).toBeNull();
+  });
+
+  it('routes a rendered worker number to its exact evidence key and source rows', async () => {
+    const onMetric = vi.fn();
+    const evidence = { period_unique_contacts: [{ person_id: 'historical', person_name: 'Historical Person' }], sunday_promises: [] };
+    const stat = { leader_id: 'old-worker', leader_name: 'Old Worker', period_unique_contacts: 1, sunday_promises: 0, evidence };
+    const { getByRole } = render(WorkerAssessment, { props: { stats: [stat], onMetric } });
+    await fireEvent.click(getByRole('button', { name: '1 person worked by Old Worker' }));
+    expect(onMetric).toHaveBeenCalledWith(stat, 'period_unique_contacts');
+    expect(onMetric.mock.calls[0][0].evidence.period_unique_contacts).toEqual([{ person_id: 'historical', person_name: 'Historical Person' }]);
   });
 });
 

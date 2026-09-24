@@ -5,6 +5,7 @@
 -->
 
 <script>
+  import { createChoice, createSelection } from "$lib/components/drilldown/selection.js";
   import { roundedAverage } from "$lib/utils/comparisonMetrics.js";
   import { pointInsight } from "$lib/utils/chartInsights.js";
   import ComparisonControls from "./ComparisonControls.svelte";
@@ -29,6 +30,9 @@
     itemLabel = "meetings",
     periodLabel = "Selected period",
     onPointClick = null,
+    onDrilldown = null,
+    domain = "service",
+    filters = {},
     onFilterClick = null,
     activeFilterCount = 0,
     comparisonOptions = [],
@@ -100,6 +104,7 @@
 
       return {
         ...d,
+        comparisonPoint,
         x,
         y,
         primary: primaryValue,
@@ -193,7 +198,13 @@
   function handlePointClick(point, event) {
     event.preventDefault();
     event.stopPropagation();
-    if (onPointClick && point.id && granularity === "day") onPointClick(point);
+    const choices = [
+      createChoice({ domain, metricKey: selectedPrimary.key, mode: primaryAggregationMode, role: 'A', point, value: point.primary, filters }),
+      selectedComparison && createChoice({ domain, metricKey: selectedComparison.key, mode: comparisonAggregationMode, role: 'B', point: point.comparisonPoint || point, value: point.comparison, filters }),
+    ];
+    const selection = createSelection(choices);
+    if (onDrilldown) onDrilldown(selection);
+    else if (onPointClick && point.id && granularity === "day") onPointClick(point, selection);
     else detail = {
       title: point.label || point.date,
       subtitle: `${title} · ${periodLabel}`,

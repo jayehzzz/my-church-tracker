@@ -692,7 +692,7 @@
                       type="button"
                       onclick={(event) => {
                         event.stopPropagation();
-                        onServiceClick?.(status.service);
+                        onServiceClick?.(status.service, row.person, row.statuses);
                       }}
                       class="mx-auto flex h-9 w-9 items-center justify-center rounded-lg text-sm font-semibold transition-all {onServiceClick ? 'cursor-pointer hover:scale-105' : 'cursor-default'} {status.state === 'present' ? 'bg-success/10 text-success hover:bg-success/20' : status.state === 'missed' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20' : 'bg-secondary/40 text-muted-foreground'}"
                       aria-label={statusLabel(status, row.person)}
@@ -821,7 +821,7 @@
               class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-secondary/30"
               onclick={() => {
                 showAttendanceSummary = false;
-                onServiceClick?.(status.service);
+                onServiceClick?.(status.service, selectedAttendanceRow.person, modalStatuses());
               }}
             >
               <span class="text-sm text-foreground">{formatFullDate(status.service.service_date)}</span>

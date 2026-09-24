@@ -708,17 +708,17 @@ export const getDevelopmentSummary = queryFor("people:getDevelopmentSummary")({
                 // response explicitly; never present partial scope as church totals.
                 outreachComplete: user.role === "owner" || user.role === "admin",
                 collectedContacts: [...new Map([
-                    ...collected.filter(c => c.member_status !== "archived").map(c => [String(c._id), { id: c._id, contact_date: c.contact_date }] as const),
+                    ...collected.filter(c => c.member_status !== "archived").map(c => [String(c._id), { id: c._id, contact_date: c.contact_date, first_name: c.first_name, last_name: c.last_name }] as const),
                     ...(await Promise.all(sharedCollectorRows.map(async row => {
                         const contact = await ctx.db.get(row.person_id);
-                        return contact && contact.member_status !== "archived" ? [String(contact._id), { id: contact._id, contact_date: contact.contact_date }] as const : null;
-                    }))).filter(Boolean) as Array<readonly [string, { id: any; contact_date: string | undefined }]>,
+                        return contact && contact.member_status !== "archived" ? [String(contact._id), { id: contact._id, contact_date: contact.contact_date, first_name: contact.first_name, last_name: contact.last_name }] as const : null;
+                    }))).filter(Boolean) as Array<readonly [string, { id: any; contact_date: string | undefined; first_name: string; last_name: string | undefined }]>,
                 ]).values()],
                 invitedPeople: await Promise.all(invited.filter(c => c.member_status !== "archived").map(async contact => {
                     const rows = await ctx.db.query("attendance").withIndex("by_person", q => q.eq("person_id", contact._id)).collect();
                     const gatherings = await Promise.all(rows.map(async r => services.get(String(r.service_id)) || developmentGatherings([await ctx.db.get(r.service_id)].filter(Boolean))[0]));
-                    const dates = gatherings.filter(g => g && g.category === "sunday").map(g => g!.date).sort();
-                    return { id: contact._id, service_dates: [...new Set(dates)] };
+                    const serviceEvidence = gatherings.filter(g => g && g.category === "sunday").map(g => ({ id: g!.id, date: g!.date })).sort((a,b) => a.date.localeCompare(b.date));
+                    return { id: contact._id, first_name: contact.first_name, last_name: contact.last_name, service_dates: [...new Set(serviceEvidence.map(g => g.date))], services: serviceEvidence };
                 })),
                 agreements, agreementReviews,
             };

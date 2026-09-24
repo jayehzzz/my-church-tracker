@@ -141,7 +141,7 @@
                         {activity.type === 'service' || activity.type === 'meeting' ? 'Category / Type' : 'Status / Outcome'}
                     </span>
                     <p class="text-sm font-semibold text-foreground capitalize">
-                        {activity.statusOrOutcome ? String(activity.statusOrOutcome).replace(/_/g, " ") : (activity.action || "Completed")}
+                        {activity.statusOrOutcome ? String(activity.statusOrOutcome).replace(/_/g, " ") : (activity.action || "Not recorded")}
                     </p>
                 </div>
 
@@ -151,7 +151,7 @@
                         {activity.type === 'service' ? 'Preacher / Minister' : activity.type === 'meeting' ? 'Leader / Host' : 'Facilitated By'}
                     </span>
                     <p class="text-sm font-semibold text-foreground">
-                        {activity.recordedBy || activity.person || "Pastoral Team"}
+                        {activity.recordedBy || "Not recorded"}
                     </p>
                 </div>
             </div>
@@ -167,9 +167,7 @@
                             {activity.attendeeCount} {activity.attendeeCount === 1 ? 'Person' : 'People'}
                         </p>
                     </div>
-                    <Badge variant="primary" size="md">
-                        Confirmed
-                    </Badge>
+
                 </div>
             {/if}
 

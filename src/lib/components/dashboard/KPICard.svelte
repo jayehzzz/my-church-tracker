@@ -1,6 +1,7 @@
 <script>
   let {
     title = "",
+    onclick = null,
     value = 0,
     trend = null,
     format = "number",
@@ -56,7 +57,9 @@
 >
   <div class="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r {palette.edge} via-transparent to-transparent"></div>
 
-  {#if href}
+  {#if onclick}
+    <button type="button" class="absolute inset-0 z-10 rounded-2xl" aria-label={`Inspect ${title}`} {onclick}></button>
+  {:else if href}
     <a class="absolute inset-0 z-10 rounded-2xl" {href} aria-label={`Open ${title}`}>
       <span class="sr-only">Open {title}</span>
     </a>

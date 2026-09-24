@@ -75,6 +75,28 @@ describe('discipleship conversations', () => {
 });
 
 describe('development evidence and agreement safety', () => {
+  it('returns named authorized outreach evidence with exact Sunday IDs and redacts giving', async () => {
+    const { t, ids, as } = await fixture();
+    const seeded = await t.run(async ctx => {
+      const contact = await ctx.db.insert('people', { first_name:'Invited',last_name:'Visitor',member_status:'contact',contact_date:'2026-01-02',invited_by_id:ids.person,collected_by_id:ids.person,created_at:date,updated_at:date });
+      const first = await ctx.db.insert('services',{service_date:'2026-01-04',service_type:'sunday_service',created_at:date});
+      const returned = await ctx.db.insert('services',{service_date:'2026-01-11',service_type:'sunday_service',created_at:date});
+      await ctx.db.insert('attendance',{person_id:contact,service_id:first,created_at:date});
+      await ctx.db.insert('attendance',{person_id:contact,service_id:returned,created_at:date});
+      const own = await ctx.db.insert('meeting_programs',{code:'p',name:'Prayer',meeting_type:'prayer',category:'prayer',default_format:'in_person',active:true,created_at:date,updated_at:date});
+      const meeting = await ctx.db.insert('meetings',{program_id:own,meeting_date:'2026-01-03',meeting_type:'prayer',status:'completed',created_at:date});
+      await ctx.db.insert('meeting_attendance',{person_id:ids.person,meeting_id:meeting,attended:false,gave_tithe:true,created_at:date});
+      return {contact,first,returned};
+    });
+    const [admin] = await as('admin').query(api.people.getDevelopmentSummary,{ids:[ids.person],from:'2026-01-01',to:'2026-01-31'});
+    expect(admin.collectedContacts).toMatchObject([{id:seeded.contact,first_name:'Invited',contact_date:'2026-01-02'}]);
+    expect(admin.invitedPeople).toMatchObject([{id:seeded.contact,first_name:'Invited',services:[{id:seeded.first,date:'2026-01-04'},{id:seeded.returned,date:'2026-01-11'}]}]);
+    expect(admin.givingAvailable).toBe(false);
+    expect(admin.attendance.find((row: any) => row.gave_tithe !== undefined)).toBeUndefined();
+    const [leader] = await as('leader').query(api.people.getDevelopmentSummary,{ids:[ids.person],from:'2026-01-01',to:'2026-01-31'});
+    expect(leader.collectedContacts).toEqual([]);
+    expect(leader.invitedPeople).toEqual([]);
+  });
   it('returns exact event IDs and programme denominators without exposing programme private fields', async () => {
     const { t, ids, as } = await fixture();
     const events = await t.run(async ctx => {

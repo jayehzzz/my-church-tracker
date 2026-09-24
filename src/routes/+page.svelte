@@ -1,5 +1,12 @@
 <script>
   import { goto } from "$app/navigation";
+  import ServiceDrilldown from "$lib/components/drilldown/ServiceDrilldown.svelte";
+  import { openDrilldown, createChoice, createSelection } from "$lib/components/drilldown/selection.js";
+  import { serviceId } from "$lib/components/drilldown/serviceAdapter.js";
+  import { periodServiceSelection } from "$lib/components/drilldown/serviceSelection.js";
+  import ContributionList from "$lib/components/drilldown/ContributionList.svelte";
+  import { saveDomainReturn, takeDomainReturn } from "$lib/components/drilldown/domainReturnState.js";
+  import Modal from "$lib/components/ui/Modal.svelte";
   import DashboardLayout from "$lib/components/layout/DashboardLayout.svelte";
   import FilterBar from "$lib/components/filters/FilterBar.svelte";
   import KPICard from "$lib/components/dashboard/KPICard.svelte";
@@ -12,11 +19,38 @@
   import { getDashboard as getCrmDashboard, getDemoDashboard } from "$lib/services/followUpCrmService.js";
 
   let kpiData = $state([]);
+  let kpiSources = $state(null);
+  let drilldown = $state(null);
+  let memberDrilldown = $state(false);
+  let pendingSnapshot = null;
+  export const snapshot = { capture: () => { const token = `dashboard-${crypto.randomUUID()}`; saveDomainReturn(token, { drilldown, memberDrilldown, range: [$dateRange.startDate, $dateRange.endDate] }); return { token }; }, restore: value => { pendingSnapshot = value?.token ? takeDomainReturn(value.token) : null; if (pendingSnapshot && !loading) restoreSnapshot(); } };
+  function restoreSnapshot() {
+    const frame = pendingSnapshot;
+    pendingSnapshot = null;
+    if (!frame || frame.range[0] !== $dateRange.startDate || frame.range[1] !== $dateRange.endDate) return;
+    drilldown = frame.drilldown;
+    memberDrilldown = Boolean(frame.memberDrilldown);
+  }
+  function openDashboardMetric(metricKey, services, mode = "total", label = $dateRange.label) {
+    const selection = periodServiceSelection(metricKey, services, { mode, range: $dateRange });
+    if (mode === "average") selection.choices[0].displayPrecision = 0;
+    drilldown = openDrilldown({ kind: "selection", title: `${label} · service contributions`, selection });
+  }
+  function openChartSelection(selection) {
+    for (const choice of selection.choices) choice.contextLabel = attendanceChart.contextLabel;
+    drilldown = openDrilldown({ kind: "selection", title: `${attendanceChart.contextLabel} · service contributions`, selection });
+  }
+  function inspectKpi(id) {
+    if (id === "family") { memberDrilldown = true; return; }
+    if (id === "attendance") openDashboardMetric("total", kpiSources?.currentSundays || [], "average");
+    if (id === "guests") openDashboardMetric("guests", kpiSources?.currentServices || []);
+  }
   let attendanceChart = $state({ data: [], contextLabel: "Selected period" });
   let recentActivities = $state([]);
   let workspace = $state(getDemoDashboard());
   let loading = $state(true);
   let error = $state("");
+  let dashboardRequest = 0;
 
   const attendanceTrendData = $derived(
     attendanceChart.data.map((point) => ({
@@ -27,6 +61,7 @@
       decisions: Number(point.decisions) || 0,
       tithers: Number(point.tithers) || 0,
       id: point.id || point.service_id || "",
+      topic: point.service?.sermon_topic,
     })),
   );
 
@@ -79,7 +114,7 @@
         description: overdueTasks.length
           ? `${overdueTasks.length} overdue`
           : "Nothing overdue",
-        href: "/pipeline",
+        href: "/pipeline?filter=due",
         icon: "clock",
         variant: overdueTasks.length ? "danger" : "success",
       },
@@ -110,8 +145,10 @@
   }
 
   async function loadDashboardData(range) {
+    const request = ++dashboardRequest;
     loading = true;
     error = "";
+    if (!pendingSnapshot) { drilldown = null; memberDrilldown = false; }
     try {
       const [kpiResult, chartResult, activities, crmResult] = await Promise.all([
         dashboardService.getDashboardKPIs(range),
@@ -120,16 +157,19 @@
         getCrmDashboard(),
       ]);
 
+      if (request !== dashboardRequest) return;
       kpiData = kpiResult.kpis || [];
+      kpiSources = kpiResult.sources || null;
       attendanceChart = chartResult || { data: [], contextLabel: range?.label || "Selected period" };
       recentActivities = activities || [];
       if (crmResult?.data) workspace = crmResult.data;
       if (crmResult?.error) error = crmResult.error.message || "The live follow-up workspace could not be loaded.";
     } catch (loadError) {
+      if (request !== dashboardRequest) return;
       console.error("Failed to load dashboard:", loadError);
       error = loadError?.message || "The dashboard could not be refreshed.";
     } finally {
-      loading = false;
+      if (request === dashboardRequest) { loading = false; restoreSnapshot(); }
     }
   }
 </script>
@@ -164,7 +204,7 @@
       <section class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4" aria-label="Dashboard metrics">
         {#each compactKpis as kpi, index (kpi.id)}
           <Motion delay={70 + index * 35}>
-            <KPICard {...kpi} />
+            <KPICard {...kpi} onclick={kpi.id === "followups" ? null : () => inspectKpi(kpi.id)} />
           </Motion>
         {/each}
       </section>
@@ -177,12 +217,12 @@
           <a href="/pipeline" class="text-xs font-semibold text-primary hover:underline">Open workspace</a>
         </div>
         <div class="grid grid-cols-2 divide-x divide-y divide-border sm:grid-cols-4 sm:divide-y-0">
-          <a href="/pipeline" class="group px-3 py-3 no-underline transition-colors hover:bg-destructive/5 sm:px-4">
+          <a href="/pipeline?filter=overdue" class="group px-3 py-3 no-underline transition-colors hover:bg-destructive/5 sm:px-4">
             <p class="text-xs font-semibold text-foreground">Overdue follow-ups</p>
             <p class="mt-1 text-lg font-semibold {overdueTasks.length ? 'text-destructive' : 'text-success'}">{overdueTasks.length}</p>
             <p class="mt-0.5 text-[11px] text-muted-foreground">{dueTodayTasks.length ? `${dueTodayTasks.length} also due today` : 'Nothing else due today'}</p>
           </a>
-          <a href="/pipeline" class="group px-3 py-3 no-underline transition-colors hover:bg-secondary/25 sm:px-4">
+          <a href="/pipeline?filter=unassigned" class="group px-3 py-3 no-underline transition-colors hover:bg-secondary/25 sm:px-4">
             <p class="text-xs text-muted-foreground">Fresh handoffs</p>
             <p class="mt-1 text-lg font-semibold {freshUnassigned.length ? 'text-warning' : 'text-success'}">{freshUnassigned.length}</p>
           </a>
@@ -190,7 +230,7 @@
             <p class="text-xs text-muted-foreground">Pastoral care</p>
             <p class="mt-1 text-lg font-semibold text-foreground">{visitationCount}</p>
           </a>
-          <a href="/pipeline" class="group px-3 py-3 no-underline transition-colors hover:bg-secondary/25 sm:px-4">
+          <a href="/pipeline?filter=expected-sunday" class="group px-3 py-3 no-underline transition-colors hover:bg-secondary/25 sm:px-4">
             <p class="text-xs text-muted-foreground">Sunday ready</p>
             <p class="mt-1 text-lg font-semibold text-foreground">{confirmedCount}<span class="text-xs font-normal text-muted-foreground">/{expectedCount}</span></p>
           </a>
@@ -218,7 +258,7 @@
                 { key: "decisions", label: "Salvation decisions", color: "success" },
                 { key: "tithers", label: "Tithers", color: "warning" },
               ]}
-              onPointClick={openAttendanceService}
+              onDrilldown={openChartSelection}
             />
           </FullscreenWrapper>
         {/if}
@@ -234,3 +274,10 @@
     </section>
   </div>
 </DashboardLayout>
+
+<ServiceDrilldown bind:state={drilldown} services={[...(kpiSources?.currentServices || []), ...attendanceChart.data.map(point => point.service).filter(Boolean)].filter((service, index, all) => all.findIndex(item => serviceId(item) === serviceId(service)) === index)} attendance={kpiSources?.attendanceRows || []} people={kpiSources?.people || []} status={loading ? "loading" : error ? "unavailable" : "ready"} {error} onretry={() => loadDashboardData($dateRange)} onprofile={id => goto(`/people/${encodeURIComponent(id)}`)} />
+
+<Modal bind:isOpen={memberDrilldown} title="Current members and leaders" size="xl">
+  <p class="mb-4 text-sm text-muted-foreground">Current directory snapshot · {kpiSources?.members?.length || 0} members including leaders</p>
+  <ContributionList domain="person" records={(kpiSources?.members || []).map(person => ({ id: person._id || person.id, title: [person.first_name, person.last_name].filter(Boolean).join(' ') || person.name || 'Member', note: person.member_status }))} status={loading ? 'loading' : error ? 'unavailable' : 'ready'} {error} onretry={() => loadDashboardData($dateRange)} />
+</Modal>

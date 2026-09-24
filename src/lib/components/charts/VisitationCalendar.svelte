@@ -11,20 +11,16 @@
     import MetricComparison from './MetricComparison.svelte';
     import { todayDate } from '$lib/utils/reportingMetrics.js';
     import { reportingDays } from '$lib/utils/comparisonMetrics.js';
-    import Modal from "$lib/components/ui/Modal.svelte";
-    let dayOpen = $state(false);
-    import {
-        formatInteraction,
-        formatOutcome as formatCareOutcome,
-        formatPurpose,
-    } from "$lib/utils/pastoralCare.js";
+    import { recordId } from '$lib/utils/pastoralCare.js';
+    import { formatOutcome as formatCareOutcome } from "$lib/utils/pastoralCare.js";
 
     /** @type {{ visit_date: string, person_visited_name: string, outcome: string }[]} */
     let {
         data = [],
         periodRange = {},
         title = "Visitation Calendar",
-        onVisitSelect = () => {},
+        onDaySelect = null,
+        onDrilldown = null,
     } = $props();
 
     // Current viewing month
@@ -129,14 +125,10 @@
         const denominator = reportingDays({startDate,endDate});
         const visits = data.filter(row=>row.visit_date>=startDate&&row.visit_date<=endDate);
         return [
-            {key:'interactions',label:'Care interactions',total:visits.length},
-            {key:'followUp',label:'Interactions requiring follow-up',total:visits.filter(row=>row.follow_up_required).length},
-        ].map(metric=>({...metric,denominator,averageLabel:'Average per elapsed calendar day'}));
+            {key:'interactions',label:'Care interactions',rows:visits},
+            {key:'followUp',label:'Interactions requiring follow-up',rows:visits.filter(row=>row.follow_up_required)},
+        ].map(metric=>({...metric,total:metric.rows.length,sourceIds:metric.rows.map(recordId),startDate,endDate,denominator,averageLabel:'Average per elapsed calendar day'}));
     });
-
-    const selectedVisits = $derived(
-        selectedDate ? data.filter((visit) => visit.visit_date === selectedDate) : [],
-    );
 
     function fullDate(dateStr) {
         if (!dateStr) return "";
@@ -245,7 +237,7 @@
                         {selectedDate === dateStr ? 'ring-2 ring-primary border-primary bg-primary/10' : ''}"
                     aria-label={dayLabel(dateStr, visits)}
                     aria-pressed={selectedDate === dateStr}
-                    onclick={() => { selectedDate = dateStr; dayOpen = true; }}
+                    onclick={() => { selectedDate = dateStr; onDaySelect?.(dateStr); }}
                 >
                     <div class="text-xs font-medium text-foreground mb-1">
                         {day}
@@ -276,36 +268,8 @@
         {/each}
     </div>
 
-    <Modal bind:isOpen={dayOpen} title={selectedDate ? fullDate(selectedDate) : "Care activity"} size="2xl">
-    {#if selectedDate}
-        <section class="mt-4 rounded-xl border border-border bg-background/70 p-3 sm:p-4" aria-live="polite" aria-label={`Care on ${fullDate(selectedDate)}`}>
-            <p class="text-xs text-muted-foreground">{selectedVisits.length} care interaction{selectedVisits.length === 1 ? "" : "s"}</p>
-
-            {#if selectedVisits.length === 0}
-                <p class="mt-3 rounded-lg border border-dashed border-border px-4 py-5 text-center text-xs text-muted-foreground">No pastoral care was recorded on this day.</p>
-            {:else}
-                <div class="mt-3 grid gap-2 sm:grid-cols-2">
-                    {#each selectedVisits as visit}
-                        <button type="button" class="rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5" onclick={() => onVisitSelect(visit)}>
-                            <div class="flex items-start justify-between gap-2">
-                                <span class="text-sm font-semibold text-foreground">{visit.person_visited_name || "Unknown person"}</span>
-                                <span class="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-foreground">{formatCareOutcome(visit.outcome)}</span>
-                            </div>
-                            <p class="mt-1 text-xs text-muted-foreground">{formatInteraction(visit.interaction_type)} · {formatPurpose(visit.purpose)}</p>
-                            {#if visit.visited_by_name}<p class="mt-1 text-xs text-muted-foreground">Led by {visit.visited_by_name}</p>{/if}
-                            {#if visit.notes}<p class="mt-2 line-clamp-2 text-xs leading-5 text-foreground/80">{visit.notes}</p>{/if}
-                            {#if visit.follow_up_required}<p class="mt-2 text-[11px] font-medium text-warning">Follow-up required{visit.follow_up_date ? ` · ${visit.follow_up_date}` : ""}</p>{/if}
-                        </button>
-                    {/each}
-                </div>
-            {/if}
-        </section>
-    {/if}
-
-    </Modal>
-
     <div class="mt-4 border-t border-border pt-4">
-        <MetricComparison metrics={comparisonMetrics} periodLabel={`${monthLabel()} · selected reporting dates`} />
+        <MetricComparison metrics={comparisonMetrics} periodLabel={`${monthLabel()} · selected reporting dates`} domain="care" {onDrilldown} />
         <p class="mt-2 text-xs text-muted-foreground">Daily averages include days without care interactions, up to today, within the selected period and displayed month.</p>
     </div>
     <!-- Month stats -->

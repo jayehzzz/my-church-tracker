@@ -1,6 +1,8 @@
 <script>
+  import { createChoice, createSelection } from "$lib/components/drilldown/selection.js";
   import ComparisonControls from "./ComparisonControls.svelte";
   import { completeMonthlySeries, roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import { todayDate } from "$lib/utils/reportingMetrics.js";
   import { pointInsight } from "$lib/utils/chartInsights.js";
   import ChartPointDetails from "./ChartPointDetails.svelte";
   let detail = $state(null);
@@ -17,11 +19,14 @@
 
   let {
     data = [],
+    rows = [],
     title = "Outreach over time",
     subtitle = "Track outreach and the outcomes recorded each month.",
     periodLabel = "Selected period",
     comparisonOptions = [],
     onPointClick = null,
+    onDrilldown = null,
+    filters = {},
     periodRange = {},
   } = $props();
 
@@ -29,7 +34,10 @@
   let primaryMode = $state('total');
   let comparisonMode = $state('average');
   const metricOptions = $derived([{key:'count',label:'Contacts reached'}, ...comparisonOptions]);
-  const monthlyRows = $derived(completeMonthlySeries(data, periodRange));
+  const monthlyRows = $derived(completeMonthlySeries(data, periodRange).map(month => ({
+    ...month,
+    sourcePoints: rows.length ? rows.filter(row => String(row.contact_date || '').startsWith(`${month.year}-${String(month.month).padStart(2, '0')}`)) : month.sourcePoints || [],
+  })));
   const primaryMetric = $derived(metricOptions.find(option => option.key === primaryKey) || metricOptions[0]);
   const totalFor = key => monthlyRows.reduce((sum,row) => sum + (Number(row[key]) || 0),0);
   const averageFor = key => roundedAverage(totalFor(key), monthlyRows.length) ?? 0;
@@ -107,7 +115,28 @@
   function selectPoint(point, event) {
     event?.stopPropagation();
     event?.preventDefault();
-    if (onPointClick) onPointClick({...point.raw, label: point.label});
+    const firstMonth = monthlyRows[0];
+    const lastMonth = monthlyRows.at(-1);
+    const lastMonthEnd = lastMonth && `${lastMonth.year}-${String(lastMonth.month).padStart(2, '0')}-${new Date(lastMonth.year, Number(lastMonth.month), 0).getDate()}`;
+    const scopeBounds = {
+      startDate: periodRange.startDate || (firstMonth && `${firstMonth.year}-${String(firstMonth.month).padStart(2, '0')}-01`) || null,
+      endDate: [periodRange.endDate, lastMonthEnd, todayDate()].filter(Boolean).sort()[0] || null,
+    };
+    const monthPoint = { ...point.raw, date: `${point.year}-${String(point.month).padStart(2, '0')}-01`,
+      bucketStart: `${point.year}-${String(point.month).padStart(2, '0')}-01`,
+      bucketEnd: `${point.year}-${String(point.month).padStart(2, '0')}-${new Date(point.year, Number(point.month), 0).getDate()}` };
+    const periodSources = monthlyRows;
+    const choice = (key, mode, role, value) => createChoice({ domain: 'contact', metricKey: key, mode,
+      role, point: mode === 'average'
+        ? { ...monthPoint, sourcePoints: periodSources, sourceIds: periodSources.flatMap(month => month.sourcePoints || []).map(row => row.id || row._id).filter(Boolean) }
+        : { ...monthPoint, sourceIds: (point.raw.sourcePoints || []).map(row => row.id || row._id).filter(Boolean) },
+      scopeBounds: mode === 'average' ? scopeBounds : null, value, filters });
+    const selection = createSelection([
+      choice(primaryKey, primaryMode, 'A', point.count),
+      chartData().selected && choice(comparisonKey, comparisonMode, 'B', point.comparison),
+    ]);
+    if (onDrilldown) onDrilldown(selection);
+    else if (onPointClick) onPointClick({...point.raw, label: point.label}, selection);
     else {
       const insight = pointInsight(monthlyRows, point.index, row => row[primaryKey], 'actual monthly count');
       detail = {

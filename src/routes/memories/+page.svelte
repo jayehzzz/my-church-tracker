@@ -9,6 +9,8 @@
   import * as meetingsService from "$lib/services/meetingsService.js";
   import { session } from "$lib/auth/session.js";
   import { isDemoMode } from "$lib/convex.js";
+  import { memoryRecordLink } from "$lib/utils/memoryRecordLink.js";
+  import { saveDomainReturn, takeDomainReturn } from "$lib/components/drilldown/domainReturnState.js";
 
   let albums = $state([]);
   let services = $state([]);
@@ -36,6 +38,34 @@
   }));
   const totalMedia = $derived(albums.reduce((sum, album) => sum + album.media.length, 0));
 
+  const identity = () => String($session.user?._id || $session.user?.id || ($session.status === 'demo' ? 'demo' : ''));
+  export const snapshot = {
+    capture: () => {
+      const token = `memories-${crypto.randomUUID()}`;
+      saveDomainReturn(token, { identity: identity(), role: $session.user?.role, confidential: $session.user?.canViewConfidential,
+        search, category, year, albumId: selectedAlbum?.id || null, mediaIndex, scrollY: window.scrollY });
+      return { token };
+    },
+    restore: value => {
+      const frame = value?.token ? takeDomainReturn(value.token) : null;
+      if (!frame || frame.identity !== identity() || frame.role !== $session.user?.role || frame.confidential !== $session.user?.canViewConfidential) return;
+      search = frame.search; category = frame.category; year = frame.year;
+      pendingReturn = { albumId: frame.albumId, mediaIndex: frame.mediaIndex, scrollY: frame.scrollY };
+      restoreAlbum();
+    },
+  };
+  let pendingReturn = null;
+  function restoreAlbum() {
+    if (!pendingReturn || loading || error) return;
+    const frame = pendingReturn;
+    selectedAlbum = albums.find(album => String(album.id) === String(frame.albumId)) || null;
+    const index = Number.isFinite(frame.mediaIndex) ? Math.floor(frame.mediaIndex) : 0;
+    mediaIndex = selectedAlbum ? Math.max(0, Math.min(index, selectedAlbum.media.length - 1)) : 0;
+    pendingReturn = null;
+    requestAnimationFrame(() => window.scrollTo(0, frame.scrollY || 0));
+  }
+
+
   onMount(load);
 
   async function load() {
@@ -50,6 +80,7 @@
       meetings = meetingResult.data || [];
     }
     loading = false;
+    restoreAlbum();
   }
 
   function formatDate(value, short = false) {
@@ -129,6 +160,8 @@
 
     {#if loading}
       <div class="loading" aria-live="polite"><span></span><p>Gathering church memories…</p></div>
+    {:else if error}
+      <section class="no-results" role="status"><h2>Memories unavailable</h2><p>Try again to load the library.</p></section>
     {:else if albums.length === 0}
       <section class="empty">
         <div class="empty-icon" aria-hidden="true">◇</div>
@@ -194,7 +227,7 @@
         {#if current?.caption}<p class="caption">{current.caption}</p>{/if}
         {#if selectedAlbum.reflection}<div class="reflection"><h3>Remembering the day</h3><p>{selectedAlbum.reflection}</p></div>{/if}
         {#if selectedAlbum.media.length > 1}<div class="filmstrip">{#each selectedAlbum.media as item, index}<button class:active={index === mediaIndex} onclick={() => mediaIndex = index} aria-label={`Show item ${index + 1}`}>{#if item.type === "video"}<video src={item.url} muted preload="metadata"></video><span aria-hidden="true">▶</span>{:else}<img src={item.url} alt="" />{/if}</button>{/each}</div>{/if}
-        <div class="viewer-actions">{#if selectedAlbum.recordHref}<a href={selectedAlbum.recordHref}>Open service record</a>{/if}{#if canManage && selectedAlbum.editable}<Button variant="secondary" size="sm" onclick={() => openEdit(selectedAlbum)}>Edit album</Button><Button variant="danger" size="sm" onclick={() => deletingAlbum = selectedAlbum}>Delete</Button>{/if}</div>
+        <div class="viewer-actions">{#if memoryRecordLink(selectedAlbum)}<a href={memoryRecordLink(selectedAlbum).href}>{memoryRecordLink(selectedAlbum).label}</a>{/if}{#if canManage && selectedAlbum.editable}<Button variant="secondary" size="sm" onclick={() => openEdit(selectedAlbum)}>Edit album</Button><Button variant="danger" size="sm" onclick={() => deletingAlbum = selectedAlbum}>Delete</Button>{/if}</div>
       </div>
     </div>
   {/if}

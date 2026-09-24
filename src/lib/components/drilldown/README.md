@@ -1,0 +1,22 @@
+# Drill-down API for page adapters
+
+The five shared charts accept optional `onDrilldown={(selection) => ...}`. Existing callbacks still receive their original first argument; a `selection` is now their second argument where used. Opting into `onDrilldown` bypasses the chart's generic detail and legacy callback. The page owns domain predicates, authorization, display names, loading and the source fetch; chart metadata is a pointer to the contributing rows, not a substitute for those rules.
+
+`selection` has `choices` and `selectedRole`. A shared A/B hit area sets `selectedRole: null`; show both choices and let the user choose which contribution list to inspect. A series-specific hit sets `A` or `B`. Each choice carries `domain`, `metricKey`, `mode`, `role`, `seriesId`, `personId`, `programmeId`, `value`, `pointBounds`, `scopeBounds`, `filters`, `sourceIds`, and `sourcePoints`. Attendance groups retain original service/meeting rows and IDs even for multiple events on one date. Outreach average choices retain the clicked month in `pointBounds` and the full calculation period in `scopeBounds`; `sourcePoints` contains all months, including empty months. The page must fetch cohort records and reconcile displayed arithmetic from authorized source data. Do not average already rounded bucket averages.
+
+Example:
+
+```svelte
+<AttendanceTrend {data} onDrilldown={(selection) => {
+  drilldown = openDrilldown({ title: 'Contributions', selection, filters: currentFilters });
+}} />
+<DrilldownDialog bind:state={drilldown} renderView={renderDrilldownView} />
+```
+
+Define `renderDrilldownView(current, navigate)` as a Svelte snippet in the page. Pass an exact record ID as `focusKey` when calling `navigate(nextView, focusKey)` from a list row. `DrilldownDialog` replaces the visible content in one Modal; Back restores the previous frame, its filters/search, scroll offset and focused row, or focuses the dialog content if no trigger exists. `openDrilldown`, `pushDrilldown`, `backDrilldown` and `selectedChoice` are also exported for page logic. The page owns full-page return state. Store an opaque token in a SvelteKit snapshot and keep the frame in `domainReturnState.js`, `meetingReturnState.js` or `peopleReturnState.js`. These in-memory stores clear on identity, role, confidential-permission or sign-in changes. Resolve saved IDs against freshly loaded authorized records before rendering; never serialize raw people, contacts, notes, attendance or source points to session storage.
+
+`ContributionList` expects authorized `{ id, title, date, contribution, note }` display rows plus `domain`, `totalCount`, `status`, `hasMore`, `onmore` and optional `onselect`. Map fields explicitly from real records; unnamed headcounts need separate page content and must never acquire person links. `EventDetail` takes `title`, `date`, `summary`, `facts` and a child snippet for authorized record-specific content. Both are read-only.
+
+`recordHrefs.js` encodes IDs for service, meeting, person, care and contact targets. Service and meeting query parameters, and person paths, now resolve exact read-only records. Care and contact query parameters remain for later page integrations; until then, use `onselect` to keep those records inside the dialog.
+
+Meeting adapters: `meetingAdapter.js` exports `meetingId`, `meetingName`, `meetingMetricLabel`, `selectMeetingContributions`, `meetingPeople`, and `resolveExactMeeting`. `MeetingDrilldown.svelte` accepts bindable `state`, the authorized `meetings` and `people` cohort, `status`, `error`, `onretry`, and optional `onprofile`. Canonical metric keys are `attendance`, `meetingCount`, `uniquePeople`, and `firstTimers`; composition also uses `first_timers`, `programme_firsts`, and `established`. Exact source IDs override date/programme fallback. Reports and Development use their own adapters; Memories links to `/services?service=<id>` or `/meetings?meeting=<id>` when an explicit record ID exists. `MeetingBarChart` takes source IDs from `programmeData.points`; grouped `MeetingAttendanceComparison` selections preserve original point IDs and selected series. `meetingReturnState.js` keeps Meetings tab, filters and dialog in memory for profile return. `ProfileAttendanceDrilldown.svelte` shows service and meeting history with event-specific actions. Meeting, people-directory and inviter list frames use their saved IDs to display fresh authorized rows on return. Contact and care exact query routes now resolve their records after loading and report unavailable/restricted reads.

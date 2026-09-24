@@ -1,6 +1,11 @@
 <script>
   import { browser } from "$app/environment";
   import { goto } from "$app/navigation";
+  import { onMount, tick } from 'svelte';
+  import OutreachDrilldown from '$lib/components/drilldown/OutreachDrilldown.svelte';
+  import { openDrilldown, pushDrilldown } from '$lib/components/drilldown/selection.js';
+  import { saveDomainReturn, takeDomainReturn } from '$lib/components/drilldown/domainReturnState.js';
+  import { inviterMatches } from '$lib/components/drilldown/outreachAdapter.js';
   import DashboardLayout from "$lib/components/layout/DashboardLayout.svelte";
   import PageHeader from "$lib/components/shared/PageHeader.svelte";
   import FilterBar from "$lib/components/filters/FilterBar.svelte";
@@ -46,8 +51,9 @@
   let journeyFilter = $state([]);
   let followUpFilter = $state([]);
   let selectedMonth = $state("");
-  let monthDetail = $state(null);
-  let monthDetailOpen = $state(false);
+  let outreachDrilldown = $state(null);
+  let requestedContactId = $state('');
+  let profileError = $state('');
 
   let isFormOpen = $state(false);
   let isDetailModalOpen = $state(false);
@@ -55,6 +61,8 @@
   let isInviterPopupOpen = $state(false);
   let selectedContact = $state(null);
   let selectedInviter = $state(null);
+  let returnedInviterId = null;
+  let returnedInviterOpen = false;
   let contactProfile = $state(null);
   let profileLoading = $state(false);
   let deleting = $state(false);
@@ -114,6 +122,41 @@
   const responsiveCount = $derived(outreachRows.filter((row) => row.response === "responsive").length);
   const needsFollowUpCount = $derived(outreachRows.filter((row) => ["unassigned", "overdue", "scheduled", "active", "later"].includes(row.follow_up_key)).length);
 
+  onMount(() => {
+    const returned = takeDomainReturn('evangelism');
+    if (returned) {
+      activeView = returned.activeView;
+      selectedMonth = returned.selectedMonth;
+      responseFilter = returned.responseFilter;
+      journeyFilter = returned.journeyFilter;
+      followUpFilter = returned.followUpFilter;
+      outreachDrilldown = returned.drilldown;
+      returnedInviterId = returned.inviterId;
+      returnedInviterOpen = returned.inviterOpen;
+      if (returned.drilldown?.current?.kind === 'contact') void loadContactContext(returned.drilldown.current.id);
+      void tick().then(() => window.scrollTo(0, returned.scrollY));
+    } else {
+      requestedContactId = new URLSearchParams(window.location.search).get('contact') || '';
+      if (requestedContactId) outreachDrilldown = openDrilldown({ kind: 'contact', id: requestedContactId, title: 'Contact details' });
+    }
+  });
+
+  $effect(() => {
+    if (!requestedContactId || loading || peopleLoading || workspaceLoading || error || peopleError || workspaceError) return;
+    const id = requestedContactId;
+    requestedContactId = '';
+    const row = outreachRows.find(item => String(contactId(item)) === id);
+    outreachDrilldown = openDrilldown({ kind: 'contact', id, title: row?.full_name || 'Contact details' });
+    if (row) void loadContactContext(id);
+  });
+
+  let previousRangeKey = null;
+  $effect(() => {
+    const key = `${$dateRange.startDate}|${$dateRange.endDate}`;
+    if (previousRangeKey !== null && key !== previousRangeKey) outreachDrilldown = null;
+    previousRangeKey = key;
+  });
+
   $effect(() => {
     if (hasLoadedClientData || !browser) return;
     hasLoadedClientData = true;
@@ -146,6 +189,11 @@
       const result = await peopleService.getAll();
       if (result.error) throw result.error;
       people = result.data || [];
+      if (returnedInviterId) {
+        selectedInviter = people.find(person => String(contactId(person)) === String(returnedInviterId)) || null;
+        isInviterPopupOpen = Boolean(returnedInviterOpen && selectedInviter);
+        returnedInviterId = null;
+      }
     } catch (loadError) {
       console.warn("Failed to load people:", loadError?.message);
       peopleError = "People could not be loaded. Outreach names are unavailable until you retry.";
@@ -190,6 +238,28 @@
       contactProfile = result.data;
     }
     profileLoading = false;
+  }
+
+  async function loadContactContext(id) {
+    contactProfile = null;
+    profileError = '';
+    profileLoading = true;
+    const result = await getContactProfile(id);
+    if (String(outreachDrilldown?.current?.id) === String(id)) {
+      if (result.error || !result.data) profileError = result.error?.message || 'Contact context could not be loaded.';
+      else contactProfile = result.data;
+      profileLoading = false;
+    }
+  }
+
+  function openContactProfile(id) {
+    saveOutreachReturn();
+    outreachDrilldown = null;
+    goto(`/people/${encodeURIComponent(id)}`);
+  }
+
+  function saveOutreachReturn() {
+    saveDomainReturn('evangelism', { activeView, selectedMonth, responseFilter, journeyFilter, followUpFilter, drilldown: outreachDrilldown, inviterId: selectedInviter ? contactId(selectedInviter) : null, inviterOpen: isInviterPopupOpen, scrollY: window.scrollY });
   }
 
   async function handleSave(savedContact) {
@@ -240,9 +310,14 @@
     isInviterPopupOpen = Boolean(selectedInviter);
   }
 
-  function showMonthContacts(point) {
-    monthDetail = { ...point, month: `${point.year}-${String(point.month).padStart(2, "0")}`, label: `${point.label} ${point.year}` };
-    monthDetailOpen = true;
+  function showMonthContacts(selection) {
+    outreachDrilldown = openDrilldown({ kind: 'selection', title: 'Outreach contributions', selection });
+  }
+
+  function showInviterContacts() {
+    const rows = inviterMatches(insightRows, contactId(selectedInviter));
+    isInviterPopupOpen = false;
+    outreachDrilldown = openDrilldown({ kind: 'inviter', title: `Contacts reached by ${personName(selectedInviter)}`, rows, periodLabel: $dateRange.label });
   }
 </script>
 
@@ -374,9 +449,20 @@
   contacts={insightRows}
   periodLabel={$dateRange.label}
   onClose={() => { isInviterPopupOpen = false; selectedInviter = null; }}
-  onViewProfile={(person) => { isInviterPopupOpen = false; goto(`/people/${contactId(person)}`); }}
-  onViewContact={(contact) => { isInviterPopupOpen = false; void handleViewContact(contact); }}
+  onViewProfile={(person) => { saveOutreachReturn(); isInviterPopupOpen = false; goto(`/people/${contactId(person)}`); }}
+  onViewContact={(contact) => { const rows = inviterMatches(insightRows, contactId(selectedInviter)); isInviterPopupOpen = false; outreachDrilldown = pushDrilldown(openDrilldown({ kind: 'inviter', title: `Contacts reached by ${personName(selectedInviter)}`, rows, periodLabel: $dateRange.label }), { kind: 'contact', id: contactId(contact), title: personName(contact) }); void loadContactContext(contactId(contact)); }}
+  onViewAll={showInviterContacts}
 />
+
+<OutreachDrilldown bind:state={outreachDrilldown} rows={outreachRows}
+  status={loading || peopleLoading || workspaceLoading ? 'loading' : error || peopleError || workspaceError ? 'unavailable' : 'ready'}
+  error={error || peopleError || workspaceError}
+  onretry={() => { void loadContacts(); void loadPeople(); void loadCrmWorkspace(); }}
+  profile={contactProfile} profileStatus={profileLoading ? 'loading' : profileError ? 'unavailable' : 'ready'}
+  {profileError} onretryprofile={() => outreachDrilldown?.current?.id && loadContactContext(outreachDrilldown.current.id)}
+  oncontact={loadContactContext} onprofile={openContactProfile}
+  onleave={saveOutreachReturn}
+  onedit={(contact) => { outreachDrilldown = null; handleEditContact(contact); }} />
 
 <EvangelismContactForm bind:isOpen={isFormOpen} contact={selectedContact} onsave={handleSave} />
 
@@ -401,24 +487,8 @@
   {profileLoading}
   leaders={crmWorkspace.leaders || []}
   onAssign={handleAssignContact}
+  onProfile={saveOutreachReturn}
   onOpenCrm={() => goto("/pipeline")}
   onEdit={handleEditContact}
   onDelete={(contact) => { selectedContact = contact; isDeleteModalOpen = true; }}
 />
-
-<Modal bind:isOpen={monthDetailOpen} title={monthDetail ? `Outreach · ${monthDetail.label}` : "Monthly outreach"} size="2xl">
-  {#if monthDetail}
-    <p class="mb-4 text-sm text-muted-foreground">{$dateRange.label} · Contacts reached in this month and their recorded outcomes.</p>
-    <dl class="grid grid-cols-2 gap-3 mb-4">
-      {#each [{label:'Contacts reached',value:monthDetail.count},{label:'Saved on outreach',value:monthDetail.saved},{label:'First timers',value:monthDetail.visited},{label:'Joined church',value:monthDetail.joined}] as metric}
-        <div class="rounded-lg border border-border p-3"><dt class="text-xs text-muted-foreground">{metric.label}</dt><dd class="mt-1 text-xl font-semibold">{metric.value ?? 0}</dd></div>
-      {/each}
-    </dl>
-    <div class="divide-y divide-border">
-      {#each insightRows.filter(row => String(row.contact_date || '').startsWith(monthDetail.month)) as row}
-        <button type="button" class="flex w-full items-center justify-between gap-3 py-3 text-left text-sm hover:text-primary" onclick={() => handleViewContact(row)}><span>{row.full_name || [row.first_name,row.last_name].filter(Boolean).join(' ')}</span><span class="text-xs text-muted-foreground">{row.contact_date}</span></button>
-      {:else}<p class="text-sm text-muted-foreground">No contacts recorded in this month.</p>{/each}
-    </div>
-    <Button variant="secondary" onclick={() => {selectedMonth = monthDetail.month; activeView = 'contacts'; monthDetailOpen = false;}}>Open contacts list</Button>
-  {/if}
-</Modal>

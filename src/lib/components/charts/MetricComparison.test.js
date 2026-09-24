@@ -38,7 +38,7 @@ describe('shared dashboard comparisons', () => {
   it('compares programme attendance average with its actual total without rounding source counts', async () => {
     const {getByLabelText,getByRole}=render(MeetingBarChart,{data:[{id:'a',label:'Prayer',total:31,meetingCount:3}],metricOptions:[{key:'uniquePeople',label:'Unique people'}]});
     await fireEvent.change(getByLabelText('Comparison metric'),{target:{value:'attendance'}});
-    const row=getByRole('button',{name:'Prayer. View people and comparison details.'});
+    const row=getByRole('button',{name:'Prayer. View meeting comparison details.'});
     expect(row).toHaveTextContent('10.3');
     expect(row).toHaveTextContent('31');
     await fireEvent.click(row);

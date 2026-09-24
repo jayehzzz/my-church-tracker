@@ -1,4 +1,5 @@
 <script>
+  import { createChoice, createSelection } from "$lib/components/drilldown/selection.js";
   import ChartPointDetails from "./ChartPointDetails.svelte";
   import { pointInsight } from "$lib/utils/chartInsights.js";
   let detail = $state(null);
@@ -7,7 +8,7 @@
   import ChartViewToggle from "./ChartViewToggle.svelte";
   import { getNiceYScale, groupChartPoints, getChartColor, DEFAULT_CHART_DIMENSIONS, makeSmoothCurve } from "$lib/utils/chartUtils.js";
 
-  let { series = [], title = "Attendance over time", periodLabel = "Selected period", onPointClick = null, onFilterClick = null, activeFilterCount = 0 } = $props();
+  let { series = [], title = "Attendance over time", periodLabel = "Selected period", onPointClick = null, onDrilldown = null, filters = {}, onFilterClick = null, activeFilterCount = 0 } = $props();
   const colors = ["primary", "warning", "info", "success", "destructive"].map(getChartColor);
   let primaryKey = $state('');
   let comparisonKey = $state('');
@@ -52,7 +53,10 @@
   }
   function inspect(point, item, event) {
     event.preventDefault();
-    if (granularity === 'day' && onPointClick && point.id) onPointClick(point);
+    const selection = createSelection([createChoice({ domain: 'meeting', metricKey: 'attendance', mode: item.mode, role: item.role,
+      seriesId: item.id, programmeId: item.id, point, value: point.total, filters })], item.role);
+    if (onDrilldown) onDrilldown(selection);
+    else if (granularity === 'day' && onPointClick && point.id) onPointClick(point, selection);
     else detail = { title: point.label || formatDate(point.date), subtitle: `${item.label} · ${periodLabel}`, ...pointInsight(item.points, item.points.findIndex(candidate => candidate.date === point.date), candidate => candidate.total, item.measureLabel), metrics: [{ label: item.measureLabel, value: point.total }] };
   }
 </script>

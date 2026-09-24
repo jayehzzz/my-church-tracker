@@ -82,7 +82,7 @@ export async function getDashboardKPIs(dateRange) {
   const prior = previousRange(dateRange);
   const hasRange = dateRange?.startDate && dateRange?.endDate;
 
-  const [membersResult, leadersResult, currentResult, previousResult, attendanceResult] = await Promise.all([
+  const [membersResult, leadersResult, currentResult, previousResult, attendanceResult, peopleResult] = await Promise.all([
     peopleService.getByStatus("member"),
     peopleService.getByStatus("leader"),
     hasRange
@@ -92,18 +92,20 @@ export async function getDashboardKPIs(dateRange) {
       ? servicesService.getByDateRange(prior.startDate, prior.endDate)
       : Promise.resolve({ data: [] }),
     attendanceService.getAll(),
+    peopleService.getAll(),
   ]);
 
+  for (const result of [membersResult, leadersResult, currentResult, previousResult, attendanceResult, peopleResult]) if (result.error) throw result.error;
   const currentServices = (currentResult.data || []).filter((service) => isCompleted(service, "service_date"));
   const previousServices = (previousResult.data || []).filter((service) => isCompleted(service, "service_date"));
   const currentSundays = currentServices.filter(isSundayService);
   const previousSundays = previousServices.filter(isSundayService);
   const attendanceRows = attendanceResult.data || [];
-
-  const currentSundaySummary = summarizeServicePeriod(currentSundays, attendanceRows);
-  const previousSundaySummary = summarizeServicePeriod(previousSundays, attendanceRows);
-  const currentSummary = summarizeServicePeriod(currentServices, attendanceRows);
-  const previousSummary = summarizeServicePeriod(previousServices, attendanceRows);
+  const allPeople = peopleResult.data || [];
+  const currentSundaySummary = summarizeServicePeriod(currentSundays, attendanceRows, allPeople);
+  const previousSundaySummary = summarizeServicePeriod(previousSundays, attendanceRows, allPeople);
+  const currentSummary = summarizeServicePeriod(currentServices, attendanceRows, allPeople);
+  const previousSummary = summarizeServicePeriod(previousServices, attendanceRows, allPeople);
   const attendance = currentSundaySummary.serviceCount
     ? roundedAverage(currentSundaySummary.totalAttendance, currentSundaySummary.serviceCount)
     : 0;
@@ -114,10 +116,11 @@ export async function getDashboardKPIs(dateRange) {
   const previousGuests = previousSummary.guestAttendance;
   const salvations = currentSummary.decisions;
   const previousSalvations = previousSummary.decisions;
-  const churchFamily = (membersResult.data?.length || 0) + (leadersResult.data?.length || 0);
+  const churchFamily = new Set([...(membersResult.data || []), ...(leadersResult.data || [])].map(person => String(person._id || person.id))).size;
 
   return {
     periodLabel: formatPeriodLabel(dateRange),
+    sources: { currentServices, currentSundays, attendanceRows, people: peopleResult.data || [], members: [...new Map([...(membersResult.data || []), ...(leadersResult.data || [])].map(person => [String(person._id || person.id), person])).values()] },
     kpis: [
       {
         id: "attendance",
@@ -173,12 +176,16 @@ export async function getDashboardKPIs(dateRange) {
  */
 export async function getAttendanceChartData(dateRange) {
   const hasRange = dateRange?.startDate && dateRange?.endDate;
-  const [result, attendanceResult] = await Promise.all([
+  const [result, attendanceResult, peopleResult] = await Promise.all([
     hasRange
       ? servicesService.getByDateRange(dateRange.startDate, dateRange.endDate)
       : servicesService.getAll(),
     attendanceService.getAll(),
+    peopleService.getAll(),
   ]);
+  if (result.error) throw result.error;
+  if (attendanceResult.error) throw attendanceResult.error;
+  if (peopleResult.error) throw peopleResult.error;
   const attendanceRows = attendanceResult.data || [];
   let services = (result.data || [])
     .filter(isSundayService)
@@ -190,6 +197,7 @@ export async function getAttendanceChartData(dateRange) {
 
   if (!services.length && hasRange) {
     const allResult = await servicesService.getAll();
+    if (allResult.error) throw allResult.error;
     services = (allResult.data || [])
       .filter(isSundayService)
       .filter((service) => isCompleted(service, "service_date"))
@@ -207,9 +215,10 @@ export async function getAttendanceChartData(dateRange) {
     contextLabel,
     isFallback,
     data: services.map((service) => {
-      const metrics = serviceAttendanceMetrics(service, attendanceRows);
+      const metrics = serviceAttendanceMetrics(service, attendanceRows, peopleResult.data || []);
       return {
         id: service._id || service.id || null,
+        service,
         date: service.service_date,
         label: parseDate(service.service_date)?.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) || service.service_date,
         attendance: metrics.totalAttendance,
@@ -258,8 +267,8 @@ export async function getRecentActivities(limit = 50) {
       email: person?.email || contact.email || null,
       address: person?.address || contact.address || null,
       recordedBy: contact.invited_by_name || null,
-      route: "/evangelism",
-      routeLabel: "Evangelism Hub",
+      route: `/evangelism?contact=${encodeURIComponent(contact._id || contact.id)}`,
+      routeLabel: "Contact",
     });
   }
 
@@ -281,8 +290,8 @@ export async function getRecentActivities(limit = 50) {
       recordedBy: visit.visited_by_name || null,
       followUpRequired: visit.follow_up_required || false,
       followUpDate: visit.follow_up_date || null,
-      route: "/visitation",
-      routeLabel: "Pastoral Care",
+      route: `/visitation?care=${encodeURIComponent(visit._id || visit.id)}`,
+      routeLabel: "Care record",
     });
   }
 
@@ -290,7 +299,7 @@ export async function getRecentActivities(limit = 50) {
     const serviceName = service.name || String(service.service_type || "Church service")
       .replace(/_/g, " ")
       .replace(/\b\w/g, (letter) => letter.toUpperCase());
-    const leader = service.preacher || service.sermon_speaker || service.speaker || service.leader_name || "Pastoral team";
+    const leader = service.preacher || service.sermon_speaker || service.speaker || service.leader_name || null;
     const count = attendanceCount(service);
     activities.push({
       id: `service-${service._id || service.id}`,
@@ -304,8 +313,8 @@ export async function getRecentActivities(limit = 50) {
       notes: service.notes || (service.sermon_topic ? `Theme: “${service.sermon_topic}”` : null),
       recordedBy: leader,
       attendeeCount: count,
-      route: "/services",
-      routeLabel: "Services",
+      route: `/services?service=${encodeURIComponent(service._id || service.id)}`,
+      routeLabel: "Service",
     });
   }
 
@@ -315,7 +324,7 @@ export async function getRecentActivities(limit = 50) {
       .replace(/\b\w/g, (letter) => letter.toUpperCase());
     const leader = meeting.leader_name || (meeting.leader
       ? `${meeting.leader.first_name} ${meeting.leader.last_name}`
-      : "Meeting facilitator");
+      : null);
     const count = Number(meeting.attendance_count) || meeting.attendees?.length || 0;
     activities.push({
       id: `meeting-${meeting._id || meeting.id}`,
@@ -329,8 +338,8 @@ export async function getRecentActivities(limit = 50) {
       notes: meeting.notes || (meeting.agenda ? `Agenda: ${meeting.agenda}` : null),
       recordedBy: leader,
       attendeeCount: count,
-      route: "/meetings",
-      routeLabel: "Meetings",
+      route: `/meetings?meeting=${encodeURIComponent(meeting._id || meeting.id)}`,
+      routeLabel: "Meeting",
     });
   }
 

@@ -69,6 +69,7 @@
       <FullscreenWrapper title="Outreach and outcomes over time">
         <OutreachTrend
           data={monthlyData}
+          {rows}
           title="Outreach and outcomes over time"
           subtitle="Compare contacts reached with the outcomes recorded each month."
           {periodLabel}
@@ -78,10 +79,10 @@
             { key: "visited", label: "First Timers", color: "info" },
             { key: "joined", label: "Joined church", color: "success" },
           ]}
-          onPointClick={onMonthClick}
+          onDrilldown={onMonthClick}
         />
       </FullscreenWrapper>
-      <FullscreenWrapper title="Outreach outcomes"><EvangelismOutcomes {metrics} {periodLabel} {periodRange} {rows} /></FullscreenWrapper>
+      <FullscreenWrapper title="Outreach outcomes"><EvangelismOutcomes {metrics} {periodLabel} {periodRange} {rows} onDrilldown={onMonthClick} /></FullscreenWrapper>
     </div>
 
     <section class="card-base overflow-hidden" aria-labelledby="top-inviters-title">

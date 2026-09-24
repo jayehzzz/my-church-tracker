@@ -16,6 +16,12 @@
 <script>
   import { roundedAverage } from "$lib/utils/comparisonMetrics.js";
   import MetricComparison from "$lib/components/charts/MetricComparison.svelte";
+  import ServiceDrilldown from "$lib/components/drilldown/ServiceDrilldown.svelte";
+  import { saveDomainReturn, takeDomainReturn } from "$lib/components/drilldown/domainReturnState.js";
+  import { openDrilldown, pushDrilldown, createChoice, createSelection } from "$lib/components/drilldown/selection.js";
+  import { serviceId } from "$lib/components/drilldown/serviceAdapter.js";
+  import { periodServiceSelection, bindServiceSources } from "$lib/components/drilldown/serviceSelection.js";
+  import { goto } from "$app/navigation";
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { page } from "$app/state";
@@ -37,8 +43,19 @@
   import { dateRange } from "$lib/stores/filterStore";
 
   // Import chart components
-  import ChartPointDetails from "$lib/components/charts/ChartPointDetails.svelte";
-  let chartDetail = $state(null);
+  let drilldown = $state(null);
+  export const snapshot = { capture: () => { const token = `services-${crypto.randomUUID()}`; saveDomainReturn(token, { drilldown, activeView, serviceTypeFilter, searchQuery, range: [$dateRange.startDate, $dateRange.endDate] }); return { token }; }, restore: value => { const frame = value?.token ? takeDomainReturn(value.token) : null; if (!frame || frame.range[0] !== $dateRange.startDate || frame.range[1] !== $dateRange.endDate) return; drilldown = frame.drilldown; activeView = frame.activeView; serviceTypeFilter = frame.serviceTypeFilter; searchQuery = frame.searchQuery; previousDrilldownFilters = JSON.stringify([$dateRange.startDate, $dateRange.endDate, serviceTypeFilter, searchQuery]); } };
+  function openSelection(selection) { drilldown = openDrilldown({ kind: "selection", title: "Service contributions", selection }); }
+  function openMetric(metricKey, source = analyticsServices(), mode = "total") {
+    openSelection(periodServiceSelection(metricKey, source, { mode, range: $dateRange, filters: { serviceType: serviceTypeFilter } }));
+  }
+  function openPersonHistoryService(service, person, statuses) {
+    const base = openDrilldown({ kind: "history", title: `Sunday history · ${[person.first_name, person.last_name].filter(Boolean).join(" ")}`, personId: serviceId(person), statuses });
+    drilldown = pushDrilldown(base, { kind: "service", title: service.sermon_topic || "Service", id: serviceId(service), metricKey: "total", personId: serviceId(person) });
+  }
+  function openReadOnlyService(service, metricKey = "total") {
+    drilldown = openDrilldown({ kind: "service", title: service.sermon_topic || "Service", id: serviceId(service), metricKey });
+  }
   import AttendanceTrend from "$lib/components/charts/AttendanceTrend.svelte";
   import WeeklyAttendanceMatrix from "$lib/components/charts/WeeklyAttendanceMatrix.svelte";
   import ServiceMemories from "$lib/components/services/ServiceMemories.svelte";
@@ -99,8 +116,7 @@
   let isDeleteModalOpen = $state(false);
   let isDetailsModalOpen = $state(false);
   let isIndividualsModalOpen = $state(false);
-  let isOutcomeModalOpen = $state(false);
-  let selectedOutcome = $state(null);
+
   let selectedService = $state(null);
   let deleting = $state(false);
 
@@ -111,6 +127,12 @@
 
   // Search state
   let searchQuery = $state("");
+  let previousDrilldownFilters = null;
+  $effect(() => {
+    const signature = JSON.stringify([$dateRange.startDate, $dateRange.endDate, serviceTypeFilter, searchQuery]);
+    if (previousDrilldownFilters !== null && signature !== previousDrilldownFilters) drilldown = null;
+    previousDrilldownFilters = signature;
+  });
 
   // Sort state
   let sortKey = $state("service_date");
@@ -330,47 +352,17 @@
     }
   }
 
-  function openOutcomeModal(key) {
-    selectedOutcome = key;
-    isOutcomeModalOpen = true;
-  }
-
   function openServiceTypeSummary(type) {
-    const matching = [...analyticsServices()]
+    const query = searchQuery.trim().toLowerCase();
+    const matching = services
+      .filter(service => isWithinDateRange(service.service_date, $dateRange))
+      .filter(service => !query || service.sermon_topic?.toLowerCase().includes(query) || service.sermon_speaker?.toLowerCase().includes(query) || service.location?.toLowerCase().includes(query))
       .filter(service => service.service_type === type)
       .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)));
     const attendance = matching.reduce((sum, service) => sum + serviceMetrics(service).totalAttendance, 0);
-    chartDetail = {
-      title: formatServiceType(type),
-      subtitle: $dateRange.label,
-      summary: `${matching.length} gathering${matching.length === 1 ? '' : 's'} of this type had a combined attendance of ${attendance} in the selected period.`,
-      context: [
-        { label: 'Average attendance', value: matching.length ? wholePerson(attendance / matching.length) : 0 },
-        { label: 'Share of services', value: `${Math.round(matching.length / Math.max(typeDistribution().total, 1) * 100)}%` },
-      ],
-      itemsTitle: 'Services in this period',
-      items: matching.map(service => ({
-        label: formatShortDate(service.service_date),
-        note: service.sermon_topic || formatServiceType(service.service_type),
-        value: `${serviceMetrics(service).totalAttendance} attended`,
-        onClick: () => { chartDetail = null; handleServiceClick(service); },
-      })),
-    };
-  }
+    openMetric("total", matching);
 
-  const outcomeModalData = $derived(() => {
-    const isTithers = selectedOutcome === "tithers";
-    return {
-      title: isTithers ? "Tithers by service" : "Salvation decisions by service",
-      total: isTithers ? kpis().totalTithers : kpis().totalDecisions,
-      rows: [...analyticsServices()]
-        .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)))
-        .map((service) => ({
-          service,
-          count: isTithers ? serviceMetrics(service).tithers : serviceMetrics(service).decisions,
-        })),
-    };
-  });
+  }
 
   // Dashboard insights - sorted services by attendance
   const sortedByAttendance = $derived(() => {
@@ -545,6 +537,10 @@
 
   // Open service details modal
   function handleServiceClick(service) {
+    openReadOnlyService(service);
+  }
+
+  function handleLegacyServiceClick(service) {
     selectedService = service;
     isDetailsModalOpen = true;
   }
@@ -1109,17 +1105,17 @@
             <div class="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
               <div class="px-5 py-5">
                 <p class="text-xs font-medium text-muted-foreground">Latest attendance</p>
-                <p class="mt-3 text-3xl font-semibold tracking-tight text-foreground">{serviceMetrics(latestService()).totalAttendance}</p>
+                <button type="button" class="mt-3 text-3xl font-semibold tracking-tight text-foreground" onclick={() => openReadOnlyService(latestService())}>{serviceMetrics(latestService()).totalAttendance}</button>
                 <p class="mt-1 text-xs text-muted-foreground">{formatShortDate(latestService().service_date)}</p>
               </div>
               <div class="px-5 py-5">
                 <p class="text-xs font-medium text-muted-foreground">First-timer visits</p>
-                <p class="mt-3 text-3xl font-semibold tracking-tight text-foreground">{kpis().totalFirstTimers}</p>
+                <button type="button" class="mt-3 text-3xl font-semibold tracking-tight text-foreground" onclick={() => openMetric("firstTimers")}>{kpis().totalFirstTimers}</button>
                 <p class="mt-1 text-xs text-muted-foreground">Period total</p>
               </div>
               <div class="px-5 py-5">
                 <p class="text-xs font-medium text-muted-foreground">Salvation decisions</p>
-                <p class="mt-3 text-3xl font-semibold tracking-tight text-foreground">{kpis().totalDecisions}</p>
+                <button type="button" class="mt-3 text-3xl font-semibold tracking-tight text-foreground" onclick={() => openMetric("decisions")}>{kpis().totalDecisions}</button>
                 <p class="mt-1 text-xs text-muted-foreground">Period total</p>
               </div>
             </div>
@@ -1138,7 +1134,7 @@
                   periodLabel={$dateRange.label}
                   wholeNumberValues={true}
                   showSummaryFooter={false}
-                  onPointClick={handleChartPointClick}
+                  onDrilldown={openSelection}
                   comparisonOptions={[
                     { key: "returningGuests", label: "Returning guests", color: "warning" },
                     { key: "unclassifiedNonMembers", label: "Visit type unknown", color: "secondary" },
@@ -1218,7 +1214,7 @@
                 {key:'unknown',label:'Non-member visit type unknown',total:kpis().totalUnclassifiedNonMembers},
                 {key:'decisions',label:'Salvation decisions',total:kpis().totalDecisions},
                 {key:'tithers',label:'Tither attendances',total:kpis().totalTithers},
-              ].map(metric=>({...metric,denominator:kpis().serviceCount,averageLabel:'Average per service'}))} periodLabel={$dateRange.label} /></div>
+              ].map(metric=>({...metric,denominator:kpis().serviceCount,averageLabel:'Average per service'}))} periodLabel={$dateRange.label} domain="service" onDrilldown={selection => openSelection(bindServiceSources(selection, analyticsServices()))} /></div>
               <div class="mt-5 flex flex-col items-center gap-6 sm:flex-row">
                 <div role="img" class="relative h-36 w-36 shrink-0" aria-label="Average attendance mix: {donutData().memberPct}% members, {donutData().returningGuestPct}% returning guests, {donutData().firstTimerPct}% first timers, {donutData().unclassifiedNonMemberPct}% non-member visits with unknown type, and {donutData().titherRate}% tither attendances among members">
                   <svg viewBox="0 0 36 36" class="h-full w-full -rotate-90">
@@ -1256,12 +1252,13 @@
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-warning"></span>Avg tithers / gathering <span class="text-[10px] text-muted-foreground">inner ring</span></span>
                     <span class="text-sm font-semibold text-foreground">{wholePerson(donutData().tithers)} <span class="font-normal text-muted-foreground">({donutData().titherRate}% of member attendance)</span></span>
                   </button>
+                  <div class="flex flex-wrap gap-2 text-xs">{#each [{ key: "members", label: "Members" }, { key: "returningGuests", label: "Returning guests" }, { key: "firstTimers", label: "First timers" }, { key: "unclassifiedNonMembers", label: "Unknown visit type" }, { key: "tithers", label: "Tithers" }] as category}<button type="button" class="rounded border border-border px-2 py-1 text-primary" onclick={() => openMetric(category.key)}>View {category.label} breakdown</button>{/each}</div>
                   <p class="px-2 text-[11px] text-muted-foreground">Attendance averages are rounded to the nearest whole person for display; recorded totals remain exact. Tithers remain a subset of member attendance.</p>
                 </div>
               </div>
 
               <div class="mt-6 grid grid-cols-2 gap-3 border-t border-border pt-4">
-                <button type="button" class="rounded-xl bg-secondary/25 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openOutcomeModal('decisions')}>
+                <button type="button" class="rounded-xl bg-secondary/25 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openMetric("decisions")}>
                   <div class="flex items-center justify-between gap-2">
                     <span class="text-xs text-muted-foreground">Salvation decisions</span>
                     <span class="h-2 w-2 rounded-full bg-success"></span>
@@ -1270,7 +1267,7 @@
                   <p class="mt-1 text-[11px] text-muted-foreground">{kpis().decisionRate}% of attendances</p>
                   <span class="mt-2 block text-[10px] font-semibold text-primary">View service breakdown →</span>
                 </button>
-                <button type="button" class="rounded-xl bg-secondary/25 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openOutcomeModal('tithers')}>
+                <button type="button" class="rounded-xl bg-secondary/25 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openMetric("tithers")}>
                   <div class="flex items-center justify-between gap-2">
                     <span class="text-xs text-muted-foreground">Tither attendances · period total</span>
                     <span class="h-2 w-2 rounded-full bg-warning"></span>
@@ -1319,7 +1316,7 @@
             </summary>
             <div class="border-t border-border p-4">
               <FullscreenWrapper title="Weekly attendance by person">
-                <WeeklyAttendanceMatrix services={services} {people} commitments={sundayCommitments} commitmentsUnavailable={sundayCommitmentsUnavailable} maxServices={24} initialServiceCount={16} onServiceClick={handleServiceClick} />
+                <WeeklyAttendanceMatrix services={services} {people} commitments={sundayCommitments} commitmentsUnavailable={sundayCommitmentsUnavailable} maxServices={24} initialServiceCount={16} onServiceClick={openPersonHistoryService} />
               </FullscreenWrapper>
             </div>
           </details>
@@ -1329,42 +1326,7 @@
   {/if}
 </DashboardLayout>
 
-<Modal bind:isOpen={isOutcomeModalOpen} title={outcomeModalData().title} size="md">
-  <div class="space-y-4">
-    <div class="rounded-xl border border-primary/20 bg-primary/10 p-4">
-      <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Selected period total</p>
-      <p class="mt-1 text-3xl font-semibold text-foreground">{outcomeModalData().total}</p>
-    </div>
-    <div>
-      <h3 class="mb-2 text-sm font-semibold text-foreground">Service breakdown</h3>
-      {#if outcomeModalData().rows.length}
-        <div class="max-h-[360px] divide-y divide-border overflow-y-auto rounded-xl border border-border">
-          {#each outcomeModalData().rows as row (row.service.id)}
-            <button
-              type="button"
-              class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-secondary/35"
-              onclick={() => {
-                isOutcomeModalOpen = false;
-                handleServiceClick(row.service);
-              }}
-            >
-              <span class="min-w-0">
-                <span class="block text-sm font-medium text-foreground">{formatShortDate(row.service.service_date)}</span>
-                <span class="mt-0.5 block truncate text-xs text-muted-foreground">{row.service.sermon_topic || formatServiceType(row.service.service_type)}</span>
-              </span>
-              <span class="flex items-center gap-2 text-lg font-semibold {selectedOutcome === 'tithers' ? 'text-warning' : 'text-success'}">
-                {row.count}
-                <svg class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 5 7 7-7 7" /></svg>
-              </span>
-            </button>
-          {/each}
-        </div>
-      {:else}
-        <p class="rounded-xl border border-border p-5 text-sm text-muted-foreground">No services match the selected period.</p>
-      {/if}
-    </div>
-  </div>
-</Modal>
+
 
 <!-- Service Details Modal -->
 <Modal bind:isOpen={isDetailsModalOpen} title="Service Details" size="lg">
@@ -1699,4 +1661,4 @@
   {/snippet}
 </Modal>
 
-<ChartPointDetails bind:detail={chartDetail} />
+<ServiceDrilldown bind:state={drilldown} {services} attendance={attendanceRecords} {people} status={loading ? "loading" : error ? "unavailable" : "ready"} error={error || ""} onretry={loadServices} wholeNumberAverages={true} onedit={service => { drilldown = null; handleLegacyServiceClick(service); }} onprofile={(id) => goto(`/people/${encodeURIComponent(id)}`)} />

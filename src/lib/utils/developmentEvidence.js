@@ -33,20 +33,33 @@ export function developmentEvidence(profile, range, selectedPrograms = null, now
   const presentIds = new Set(raw.filter(r => r.present === true).map(r => String(r.event_id)));
   function calculate(gatherings) {
     const known = gatherings.filter(g => g.register_known), attended = known.filter(g => presentIds.has(g.id));
-    return { meetings: { attended: attended.length, offered: known.length }, weeks: { attended: new Set(attended.map(g => monday(g.date))).size, offered: new Set(known.map(g => monday(g.date))).size }, unknown: gatherings.length - known.length };
+    const weekly = [...new Set(gatherings.map(g => monday(g.date)))].sort().map(week => ({
+      week, offered: known.filter(g => monday(g.date) === week), attended: attended.filter(g => monday(g.date) === week),
+      unknown: gatherings.filter(g => monday(g.date) === week && !g.register_known),
+    }));
+    return { meetings: { attended: attended.length, offered: known.length }, weeks: { attended: weekly.filter(w => w.attended.length).length, offered: weekly.filter(w => w.offered.length).length }, unknown: gatherings.length - known.length,
+      sources: { gatherings, known, attended, weekly } };
   }
   const axes = developmentCategories.map(axis => ({ ...axis, ...calculate(opportunities.filter(g => g.category === axis.key)) }));
   const programmes = [...new Map(all.filter(g => developmentCategories.some(a => a.key === g.category)).map(g => [g.program_id, { id: g.program_id, label: g.name, category: g.category }])).values()].sort((a,b) => a.label.localeCompare(b.label));
   const breakdown = programmes.filter(p => !selected || selected.has(p.id)).map(p => ({ ...p, ...calculate(opportunities.filter(g => g.program_id === p.id)) }));
   // Giving is independent of the selected attendance programmes and of attendance status.
   const gatheringById = new Map((profile.opportunities || []).map(g => [g.id, g]));
-  const titheDates = [...new Set(raw.filter(r => r.gave_tithe === true).map(r => gatheringById.get(String(r.event_id))).filter(g => g && g.status !== 'cancelled' && inRange(g.date, range) && g.date <= todayDate(now)).map(g => g.date))].sort();
-  const historyIds = new Set(raw.filter(r => r.present === true || r.gave_tithe === true).map(r => String(r.event_id)));
+  const givingAvailable = profile.givingAvailable === true;
+  const titheEvents = givingAvailable ? [...new Map(raw.filter(r => r.gave_tithe === true).map(r => gatheringById.get(String(r.event_id))).filter(g => g && g.status !== 'cancelled' && inRange(g.date, range) && g.date <= todayDate(now)).map(g => [g.id, g])).values()] : [];
+  const titheDates = [...new Set(titheEvents.map(g => g.date))].sort();
+  const historyIds = new Set(raw.filter(r => r.present === true || (givingAvailable && r.gave_tithe === true)).map(r => String(r.event_id)));
   const historyStart = (profile.opportunities || []).filter(g => historyIds.has(g.id) && g.status !== 'cancelled' && validDate(g.date) && g.date <= todayDate(now)).map(g => g.date).sort()[0] || '';
-  const months = monthsInRange(range, now, historyStart).map(m => ({ ...m, complete: m.complete && Boolean(historyStart), reason: historyStart ? m.reason : 'Recorded history unavailable', dates: titheDates.filter(d => d.startsWith(m.month)) }));
-  const eligible = months.filter(m => m.complete);
-  const invited = [...new Map((profile.invitedPeople || []).map(p => [p.id, p])).values()];
-  const cohort = invited.map(p => ({ ...p, dates: [...new Set(p.service_dates || [])].filter(d => validDate(d) && d <= todayDate(now)).sort() })).filter(p => p.dates.length && inRange(p.dates[0], range));
-  return { axes, programmes, breakdown, tithing: { months, recorded: eligible.filter(m => m.dates.length).length, eligible: eligible.length, available: profile.givingAvailable !== false },
-    outreach: { collected: new Set((profile.collectedContacts || []).filter(c => inRange(c.contact_date, range)).map(c => c.id)).size, brought: cohort.length, returned: cohort.filter(p => p.dates.some(d => d > p.dates[0] && inRange(d, range))).length, complete: profile.outreachComplete !== false } };
+  const months = monthsInRange(range, now, historyStart).map(m => ({ ...m, complete: m.complete && Boolean(historyStart), reason: historyStart ? m.reason : 'Recorded history unavailable', dates: titheDates.filter(d => d.startsWith(m.month)), events: titheEvents.filter(g => g.date.startsWith(m.month)) }));
+  const eligible = givingAvailable ? months.filter(m => m.complete) : [];
+  const invited = [...new Map((profile.invitedPeople || []).map(p => [String(p.id), p])).values()];
+  const cohort = invited.map(p => {
+    const services = [...new Map((p.services || []).filter(s => validDate(s.date) && s.date <= todayDate(now)).map(s => [String(s.id), s])).values()].sort((a,b) => a.date.localeCompare(b.date));
+    const dates = [...new Set([...(p.service_dates || []), ...services.map(s => s.date)])].filter(d => validDate(d) && d <= todayDate(now)).sort();
+    return { ...p, dates, services, first: services.find(s => s.date === dates[0]) || null, returns: services.filter(s => s.date > dates[0] && inRange(s.date, range)) };
+  }).filter(p => p.dates.length && inRange(p.dates[0], range));
+  const collected = [...new Map((profile.collectedContacts || []).filter(c => inRange(c.contact_date, range)).map(c => [String(c.id), c])).values()];
+  const returned = cohort.filter(p => p.dates.some(d => d > p.dates[0] && inRange(d, range)));
+  return { axes, programmes, breakdown, tithing: { months, recorded: eligible.filter(m => m.dates.length).length, eligible: eligible.length, available: givingAvailable },
+    outreach: { collected: collected.length, brought: cohort.length, returned: returned.length, sources: { collected, brought: cohort, returned }, complete: profile.outreachComplete !== false } };
 }

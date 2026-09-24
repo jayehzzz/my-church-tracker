@@ -72,6 +72,13 @@ function normalise(value) {
     .replace(/[\s-]+/g, '_');
 }
 
+function isEvangelismContact(person) {
+  const status = person?.member_status;
+  return ['contact', 'guest', 'visitor', 'new_believer'].includes(status)
+    || (!['member', 'leader', 'archived'].includes(status)
+      && (person?.entry_point === 'evangelism' || Boolean(person?.contact_date)));
+}
+
 function recordId(record) {
   return record?._id ?? record?.id ?? record?.person_id ?? record?.contact_id ?? null;
 }
@@ -662,6 +669,8 @@ export function deriveTeamStats({
   const monthStart = Date.UTC(current.year, current.month - 1, 1);
   const selectedStart = calendarDate(periodStart)?.timestamp ?? monday;
   const selectedEnd = calendarDate(periodEnd)?.timestamp ?? current.timestamp;
+  const selectedStartDate = new Date(selectedStart).toISOString().slice(0, 10);
+  const selectedEndDate = new Date(selectedEnd).toISOString().slice(0, 10);
 
   const peopleById = new Map();
   for (const person of people) {
@@ -696,11 +705,13 @@ export function deriveTeamStats({
     const leaderKey = String(leaderId ?? '');
     const assignedIds = assignmentsByLeader.get(leaderKey) ?? new Set();
     const assignedPeople = [...assignedIds].map((id) => peopleById.get(id)).filter(Boolean);
+    const assignedCrmPeople = assignedPeople.filter(isEvangelismContact);
     const freshPeople = assignedPeople.filter((person) => isFresh(person, currentDate));
     const leaderFollowUps = followUps.filter((followUp) => sameId(leaderIdFrom(followUp), leaderId));
     const followUpsInPeriod = leaderFollowUps.filter((followUp) => {
-      const date = calendarDate(followUp.follow_up_date ?? followUp.activity_date ?? followUp.created_at)?.timestamp;
-      return date != null && date >= selectedStart && date <= selectedEnd;
+      const date = followUp.follow_up_date;
+      const person = peopleById.get(String(personIdFrom(followUp)));
+      return Boolean(person && isEvangelismContact(person) && date && date >= selectedStartDate && date <= selectedEndDate);
     });
 
     const freshContactedPeople = freshPeople.filter((person) => {
@@ -723,7 +734,7 @@ export function deriveTeamStats({
     const overdueTasks = openTasks.filter((task) => taskUrgency(task, currentDate) === 'overdue');
     const dueTodayTasks = openTasks.filter((task) => taskUrgency(task, currentDate) === 'today');
     const openTaskPersonIds = new Set(openTasks.map(personIdFrom).filter((id) => id != null).map(String));
-    const withoutNextActionPeople = assignedPeople.filter(
+    const withoutNextActionPeople = assignedCrmPeople.filter(
       (person) => !openTaskPersonIds.has(String(recordId(person)))
     );
 
@@ -762,32 +773,32 @@ export function deriveTeamStats({
       ['came_to_church', 'showed_up', 'attended'].includes(normalise(followUp.outcome))
     ).length;
     const joinedChurch = assignedPeople.filter((person) => ['member', 'leader'].includes(normalise(person.member_status))).length;
-    const assignedSignals = assignedPeople.map((person) => deriveCandidateSignals({
-      contact: person,
-      followUps,
-      commitments
-    }));
-    const seriousCandidates = assignedSignals.filter((signal) => signal.is_serious).length;
-    const meaningfulConversations = followUpsInPeriod.filter((followUp) =>
+    const seriousPeople = assignedCrmPeople.filter((person) => deriveCandidateSignals({ contact: person, followUps, commitments }).is_serious);
+    const meaningfulFollowUps = followUpsInPeriod.filter((followUp) =>
       !['no_response', 'wrong_number'].includes(normalise(followUp?.outcome))
-    ).length;
+    );
     const periodCommitments = commitments.filter((commitment) => {
       if (!sameId(leaderIdFrom(commitment), leaderId)) return false;
-      const date = calendarDate(
-        commitment?.created_at ?? commitment?.gathering_date ?? commitment?.service_date
-      )?.timestamp;
-      return date != null && date >= selectedStart && date <= selectedEnd;
+      const date = commitment?.created_at?.slice(0, 10);
+      return Boolean(date && date >= selectedStartDate && date <= selectedEndDate);
     });
     const sundayPromises = periodCommitments.filter((commitment) =>
       normalise(commitment?.gathering_type ?? 'sunday_service') === 'sunday_service'
       && commitmentResponse(commitment) === 'yes'
+      && Boolean(peopleById.get(String(personIdFrom(commitment))))
+      && isEvangelismContact(peopleById.get(String(personIdFrom(commitment))))
     );
-    const promisesAttended = sundayPromises.filter(
+    const attendedPromises = sundayPromises.filter(
       (commitment) => commitmentResolution(commitment) === 'attended'
-    ).length;
-    const promisesMissed = sundayPromises.filter(
+    );
+    const missedPromises = sundayPromises.filter(
       (commitment) => commitmentResolution(commitment) === 'no_show'
-    ).length;
+    );
+    const evidencePerson = (id) => ({ person_id: id, person_name: personName(peopleById.get(String(id))) });
+    const followUpEvidence = (row) => ({ id: recordId(row), ...evidencePerson(personIdFrom(row)), date: row.follow_up_date, outcome: row.outcome });
+    const commitmentEvidence = (row) => ({ id: recordId(row), ...evidencePerson(personIdFrom(row)), date: serviceDateFrom(row), response: commitmentResponse(row), resolution: commitmentResolution(row) });
+    const taskEvidence = (row) => ({ id: recordId(row), ...evidencePerson(personIdFrom(row)), date: row.due_date, task_type: row.task_type });
+    const uniquePeriodPeople = [...new Set(followUpsInPeriod.map(personIdFrom).filter(Boolean).map(String))];
 
     return {
       leader_id: leaderId,
@@ -820,12 +831,22 @@ export function deriveTeamStats({
       follow_ups_this_month: followUpsThisMonth.length,
       unique_contacts_this_week: new Set(followUpsThisWeek.map(personIdFrom).filter(Boolean).map(String)).size,
       period_follow_ups: followUpsInPeriod.length,
-      period_unique_contacts: new Set(followUpsInPeriod.map(personIdFrom).filter(Boolean).map(String)).size,
-      meaningful_conversations: meaningfulConversations,
-      serious_candidates: seriousCandidates,
+      period_unique_contacts: uniquePeriodPeople.length,
+      meaningful_conversations: meaningfulFollowUps.length,
+      serious_candidates: seriousPeople.length,
       sunday_promises: sundayPromises.length,
-      promises_attended: promisesAttended,
-      promises_missed: promisesMissed,
+      promises_attended: attendedPromises.length,
+      promises_missed: missedPromises.length,
+      evidence: {
+        period_unique_contacts: uniquePeriodPeople.map(evidencePerson),
+        meaningful_conversations: meaningfulFollowUps.map(followUpEvidence),
+        serious_candidates: seriousPeople.map((person) => evidencePerson(recordId(person))),
+        sunday_promises: sundayPromises.map(commitmentEvidence),
+        promises_attended: attendedPromises.map(commitmentEvidence),
+        promises_missed: missedPromises.map(commitmentEvidence),
+        overdue_tasks: overdueTasks.map(taskEvidence),
+        people_without_next_action: withoutNextActionPeople.map((person) => evidencePerson(recordId(person))),
+      },
       last_activity:
         lastActivityTimestamp === Number.NEGATIVE_INFINITY
           ? null

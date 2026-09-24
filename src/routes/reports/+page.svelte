@@ -12,7 +12,11 @@
 
 <script>
     import MetricComparison from "$lib/components/charts/MetricComparison.svelte";
-    import { reportingMonths, roundedAverage } from "$lib/utils/comparisonMetrics.js";
+    import { reportMetricGroups } from "$lib/utils/reportDrilldown.js";
+    import ReportDrilldown from "$lib/components/drilldown/ReportDrilldown.svelte";
+    import { openDrilldown } from "$lib/components/drilldown/selection.js";
+    import { saveDomainReturn, takeDomainReturn } from "$lib/components/drilldown/domainReturnState.js";
+    import { session } from "$lib/auth/session.js";
     import FullscreenWrapper from "$lib/components/ui/FullscreenWrapper.svelte";
     import { onMount } from "svelte";
     import { browser } from "$app/environment";
@@ -27,7 +31,6 @@
     import { formatJourneyStatus } from "$lib/services/peopleService.js";
     import {
         buildPeopleJourneySummary,
-        buildReportSummary,
         completedCareCount,
         hasJoinedChurch,
         hasOpenCareFollowUp,
@@ -37,6 +40,7 @@
         isWithinReportingRange,
         meetingAttendance,
         prayerHours,
+        todayDate,
     } from "$lib/utils/reportingMetrics";
     import { isDemoMode } from "$lib/convex";
     import {
@@ -79,7 +83,7 @@
     // Filtered data based on date range
     const filteredContacts = $derived(() => {
         const range = $dateRange;
-        return contacts.filter((c) => isWithinReportingRange(c.contact_date, range));
+        return contacts.filter((c) => isWithinReportingRange(c.contact_date, range) && c.contact_date <= todayDate());
     });
 
     const filteredServices = $derived(() => {
@@ -95,50 +99,59 @@
     const filteredVisitations = $derived(() => {
         const range = $dateRange;
         return visitations.filter((v) =>
-            isWithinReportingRange(v.visit_date, range),
+            isWithinReportingRange(v.visit_date, range) && v.visit_date <= todayDate(),
         );
     });
 
-    // Calculate summary KPIs
-    const summaryKPIs = $derived(() => {
-        const fContacts = filteredContacts();
-        const fServices = filteredServices();
-        const fMeetings = filteredMeetings();
-        const fVisitations = filteredVisitations();
-
-        return buildReportSummary({
-            people,
-            contacts: fContacts,
-            services: fServices,
-            meetings: fMeetings,
-            visitations: fVisitations,
-        });
-    });
+    const metricGroups = $derived(reportMetricGroups({ people, contacts, services, meetings, visitations }, $dateRange));
+    const metric = (key) => Object.values(metricGroups).flat().find(row => row.key === key);
+    const summaryKPIs = $derived(() => ({
+        totalPeople: metric('totalPeople')?.total ?? 0,
+        newContacts: metric('newContacts')?.total ?? 0,
+        totalAttendance: metric('attendance')?.total ?? 0,
+        prayerHours: Math.round((metric('prayerHours')?.total ?? 0) * 10) / 10,
+        visitsCompleted: metric('careCompleted')?.total ?? 0,
+        joinedChurch: metric('joinedChurch')?.total ?? 0,
+        outreachSalvationDecisions: metric('outreachDecisions')?.total ?? 0,
+        salvationDecisions: metric('decisions')?.total ?? 0,
+        followUpsNeeded: metric('followUps')?.total ?? 0,
+    }));
     const peopleJourney = $derived(buildPeopleJourneySummary(people));
-    const comparisonMetrics = $derived.by(() => {
-        const summary = summaryKPIs();
-        const contacts = filteredContacts(), services = filteredServices(), meetings = filteredMeetings(), care = filteredVisitations();
-        const monthly = (dates) => ({ denominator: reportingMonths($dateRange, dates), averageLabel: 'Average per calendar month' });
-        const groups = {
-            people: Object.entries(peopleJourney).map(([key,total]) => ({key,label:({outreachContacts:'Outreach contacts',guests:'Non-members',members:'Members',bacentaLeaders:'Bacenta leaders',basontaLeaders:'Basonta leaders',basontaMembers:'Basonta members'})[key],total,periodLabel:'Current people snapshot'})),
-            evangelism: [
-                {key:'newContacts',label:'People reached',total:summary.newContacts},
-                {key:'joinedChurch',label:'Reached people who joined',total:summary.joinedChurch},
-                {key:'outreachDecisions',label:'Outreach salvation decisions',total:summary.outreachSalvationDecisions},
-            ].map(item => ({...item,...monthly(contacts.map(row=>row.contact_date))})),
-            services: [
-                {key:'attendance',label:'Sunday attendance',total:summary.totalAttendance},
-                {key:'decisions',label:'Sunday salvation decisions',total:summary.salvationDecisions},
-            ].map(item=>({...item,denominator:services.length,averageLabel:'Average per service'})),
-            meetings: [{key:'meetingAttendance',label:'Meeting attendance',total:meetings.reduce((total,row)=>total+meetingAttendance(row),0),denominator:meetings.length,averageLabel:'Average per held meeting'}],
-            visitation: [
-                {key:'careCompleted',label:'Completed care',total:summary.visitsCompleted,...monthly(care.map(row=>row.visit_date))},
-                {key:'followUps',label:'Outstanding follow-ups',total:summary.followUpsNeeded},
-            ],
-        };
-        return activeTab==='overview' ? Object.values(groups).flat() : groups[activeTab] || [];
-    });
-
+    const comparisonMetrics = $derived(activeTab === 'overview'
+        ? Object.values(metricGroups).flat().filter(row => !['totalPeople','prayerHours','responsive','has_church','non_responsive'].includes(row.key))
+        : (metricGroups[activeTab] || []).filter(row => !['totalPeople','prayerHours','responsive','has_church','non_responsive'].includes(row.key)));
+    let drilldown = $state(null);
+    function inspect(key, mode = 'total') {
+        if (loading || error || !metric(key)) return;
+        drilldown = openDrilldown({ kind: 'list', key, mode, title: metric(key).label, periodLabel: $dateRange.label }, { tab: activeTab, range: { ...$dateRange } });
+    }
+    function inspectComparison(selection) {
+        const choice = selection.choices[0];
+        inspect(choice.metricKey, choice.mode);
+    }
+    const identity = () => String($session.user?._id || $session.user?.id || ($session.status === 'demo' ? 'demo' : ''));
+    export const snapshot = {
+        capture: () => {
+            const token = `reports-${crypto.randomUUID()}`;
+            saveDomainReturn(token, {
+                identity: identity(), role: $session.user?.role, confidential: $session.user?.canViewConfidential,
+                range: { ...$dateRange }, activeTab, drilldown: $state.snapshot(drilldown),
+                exportType, exportDateMode, peopleDateField, exportPersonId, exportPersonRelation,
+                exportValues: { ...exportValues }, chosenColumns: { ...chosenColumns }, scrollY: window.scrollY,
+            });
+            return { token };
+        },
+        restore: value => {
+            const frame = value?.token ? takeDomainReturn(value.token) : null;
+            if (!frame || frame.identity !== identity() || frame.role !== $session.user?.role || frame.confidential !== $session.user?.canViewConfidential || frame.range.startDate !== $dateRange.startDate || frame.range.endDate !== $dateRange.endDate) return;
+            activeTab = frame.activeTab;
+            drilldown = frame.drilldown;
+            exportType = frame.exportType; exportDateMode = frame.exportDateMode; peopleDateField = frame.peopleDateField;
+            exportPersonId = frame.exportPersonId; exportPersonRelation = frame.exportPersonRelation;
+            exportValues = frame.exportValues; chosenColumns = frame.chosenColumns;
+            requestAnimationFrame(() => window.scrollTo(0, frame.scrollY || 0));
+        },
+    };
 
     async function loadReports() {
         if (!browser) return;
@@ -191,6 +204,7 @@
             visitations = visitationsResult.data || [];
         } catch (loadError) {
             error = loadError?.message || "Could not load reports.";
+            people = []; contacts = []; services = []; meetings = []; visitations = [];
         } finally {
             loading = false;
         }
@@ -291,6 +305,7 @@
             </div>
         {/if}
 
+        {#if !error}
         <section aria-labelledby="period-summary-heading" class="mb-8">
             <div class="mb-4">
                 <h2 id="period-summary-heading" class="text-lg font-semibold text-foreground">Period summary</h2>
@@ -299,10 +314,10 @@
                 </p>
             </div>
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <KPICard title="New Contacts" value={summaryKPIs().newContacts} icon="user-plus" variant="info" description={$dateRange.label} trend={null} />
-                <KPICard title="Sunday Attendance" value={summaryKPIs().totalAttendance} icon="users" description={$dateRange.label} trend={null} />
-                <KPICard title="Prayer Hours" value={summaryKPIs().prayerHours} format="decimal" icon="clock" suffix="hrs" description={$dateRange.label} trend={null} />
-                <KPICard title="Visits Completed" value={summaryKPIs().visitsCompleted} icon="home" variant="success" description={$dateRange.label} trend={null} />
+                <KPICard title="New Contacts" onclick={() => inspect('newContacts')} value={summaryKPIs().newContacts} icon="user-plus" variant="info" description={$dateRange.label} trend={null} />
+                <KPICard title="Sunday Attendance" onclick={() => inspect('attendance')} value={summaryKPIs().totalAttendance} icon="users" description={$dateRange.label} trend={null} />
+                <KPICard title="Prayer Hours" onclick={() => inspect('prayerHours')} value={summaryKPIs().prayerHours} format="decimal" icon="clock" suffix="hrs" description={$dateRange.label} trend={null} />
+                <KPICard title="Visits Completed" onclick={() => inspect('careCompleted')} value={summaryKPIs().visitsCompleted} icon="home" variant="success" description={$dateRange.label} trend={null} />
             </div>
         </section>
 
@@ -427,7 +442,7 @@
                     {#snippet filters()}<FilterBar compact />{/snippet}
                     <section class="card-base p-5">
                         <h2 class="mb-4 pr-12 text-base font-semibold">Report comparison</h2>
-                        <MetricComparison metrics={comparisonMetrics} periodLabel={activeTab === 'people' ? 'Current people snapshot' : $dateRange.label} />
+                        <MetricComparison metrics={comparisonMetrics} onDrilldown={inspectComparison} periodLabel={activeTab === 'people' ? 'Current people snapshot' : $dateRange.label} />
                         <p class="mt-3 text-xs text-muted-foreground">Monthly averages include empty and partial calendar months in the selected period. People are a current snapshot. Outstanding follow-ups are counted from care records in the selected period; an average does not apply.</p>
                     </section>
                 </FullscreenWrapper>
@@ -435,11 +450,11 @@
                     <div class="mt-6">
                         <h3 class="mb-4 text-sm font-semibold text-foreground">Other summary totals</h3>
                         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                            <KPICard title="Total People" value={summaryKPIs().totalPeople} icon="users" description="All-time directory" trend={null} />
-                            <KPICard title="Joined Church" value={summaryKPIs().joinedChurch} icon="check-circle" variant="success" description={$dateRange.label} trend={null} />
-                            <KPICard title="Saved on Outreach" value={summaryKPIs().outreachSalvationDecisions} icon="heart" variant="success" description={$dateRange.label} trend={null} />
-                            <KPICard title="Service Salvation Decisions" value={summaryKPIs().salvationDecisions} icon="heart" variant="success" description={$dateRange.label} trend={null} />
-                            <KPICard title="Follow-ups Needed" value={summaryKPIs().followUpsNeeded} icon="clock" variant={summaryKPIs().followUpsNeeded > 0 ? "warning" : "default"} description={$dateRange.label} trend={null} />
+                            <KPICard title="Total People" onclick={() => inspect('totalPeople')} value={summaryKPIs().totalPeople} icon="users" description="All-time directory" trend={null} />
+                            <KPICard title="Joined Church" onclick={() => inspect('joinedChurch')} value={summaryKPIs().joinedChurch} icon="check-circle" variant="success" description={$dateRange.label} trend={null} />
+                            <KPICard title="Saved on Outreach" onclick={() => inspect('outreachDecisions')} value={summaryKPIs().outreachSalvationDecisions} icon="heart" variant="success" description={$dateRange.label} trend={null} />
+                            <KPICard title="Service Salvation Decisions" onclick={() => inspect('decisions')} value={summaryKPIs().salvationDecisions} icon="heart" variant="success" description={$dateRange.label} trend={null} />
+                            <KPICard title="Follow-ups Needed" onclick={() => inspect('followUps')} value={summaryKPIs().followUpsNeeded} icon="clock" variant={summaryKPIs().followUpsNeeded > 0 ? "warning" : "default"} description={$dateRange.label} trend={null} />
                         </div>
                     </div>
                 {/if}
@@ -469,48 +484,48 @@
                     </Button>
                 </div>
                 <p class="text-sm text-muted-foreground mb-4">
-                    {people.length} total people in directory (not filtered by reporting period)
+                    {summaryKPIs().totalPeople} active people in directory (current snapshot, not filtered by reporting period)
                 </p>
                 <p class="mb-3 text-xs text-muted-foreground">
                     Journey status and church roles are shown separately. Leadership and Basonta involvement can overlap with membership.
                 </p>
                 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('outreachContacts', 'total')} aria-label="Inspect Outreach Contacts">
                         <p class="text-xs text-muted-foreground">Outreach Contacts</p>
                         <p class="text-xl font-semibold text-foreground">
                             {peopleJourney.outreachContacts}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('guests', 'total')} aria-label="Inspect Current Non-members">
                         <p class="text-xs text-muted-foreground">Current Non-members</p>
                         <p class="text-xl font-semibold text-foreground">
                             {peopleJourney.guests}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('members', 'total')} aria-label="Inspect Members">
                         <p class="text-xs text-muted-foreground">Members</p>
                         <p class="text-xl font-semibold text-foreground">
                             {peopleJourney.members}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('bacentaLeaders', 'total')} aria-label="Inspect Bacenta Leaders">
                         <p class="text-xs text-muted-foreground">Bacenta Leaders</p>
                         <p class="text-xl font-semibold text-foreground">
                             {peopleJourney.bacentaLeaders}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('basontaLeaders', 'total')} aria-label="Inspect Basonta Leaders">
                         <p class="text-xs text-muted-foreground">Basonta Leaders</p>
                         <p class="text-xl font-semibold text-foreground">
                             {peopleJourney.basontaLeaders}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('basontaMembers', 'total')} aria-label="Inspect In a Basonta">
                         <p class="text-xs text-muted-foreground">In a Basonta</p>
                         <p class="text-xl font-semibold text-foreground">
                             {peopleJourney.basontaMembers}
                         </p>
-                    </div>
+                    </button>
                 </div>
             </div></FullscreenWrapper>
         {/if}
@@ -543,37 +558,37 @@
                     {filteredContacts().length} contacts in selected period
                 </p>
                 <div class="grid grid-cols-2 sm:grid-cols-5 gap-4">
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('responsive', 'total')} aria-label="Inspect Responsive">
                         <p class="text-xs text-muted-foreground">Responsive</p>
                         <p class="text-xl font-semibold text-success">
                             {filteredContacts().filter(
                                 (c) => c.response === "responsive",
                             ).length}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('outreachDecisions', 'total')} aria-label="Inspect Saved on Outreach">
                         <p class="text-xs text-muted-foreground">Saved on Outreach</p>
                         <p class="text-xl font-semibold text-success">
                             {filteredContacts().filter(hasOutreachSalvation)
                                 .length}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('joinedChurch', 'total')} aria-label="Inspect Joined Church">
                         <p class="text-xs text-muted-foreground">Joined Church</p>
                         <p class="text-xl font-semibold text-success">
                             {filteredContacts().filter(hasJoinedChurch)
                                 .length}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('has_church', 'total')} aria-label="Inspect Has Church">
                         <p class="text-xs text-muted-foreground">Has Church</p>
                         <p class="text-xl font-semibold text-foreground">
                             {filteredContacts().filter(
                                 (c) => c.response === "has_church",
                             ).length}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('non_responsive', 'total')} aria-label="Inspect Non-Responsive">
                         <p class="text-xs text-muted-foreground">
                             Non-Responsive
                         </p>
@@ -582,7 +597,7 @@
                                 (c) => c.response === "non_responsive",
                             ).length}
                         </p>
-                    </div>
+                    </button>
                 </div>
             </div></FullscreenWrapper>
         {/if}
@@ -615,7 +630,7 @@
                     {filteredServices().length} completed services in selected period
                 </p>
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('attendance', 'total')} aria-label="Inspect Total Attendance">
                         <p class="text-xs text-muted-foreground">
                             Total Attendance
                         </p>
@@ -625,8 +640,8 @@
                                 0,
                             )}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('nonMemberAttendance', 'total')} aria-label="Inspect Non-member Attendance">
                         <p class="text-xs text-muted-foreground">
                             Non-member Attendance
                         </p>
@@ -639,8 +654,8 @@
                         <p class="mt-1 text-[11px] text-muted-foreground">
                             Includes first-timer and returning-guest visits; already part of total attendance.
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('decisions', 'total')} aria-label="Inspect Salvation Decisions">
                         <p class="text-xs text-muted-foreground">
                             Salvation Decisions
                         </p>
@@ -650,23 +665,15 @@
                                 0,
                             )}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('attendance', 'average')} aria-label="Inspect Avg Attendance">
                         <p class="text-xs text-muted-foreground">
                             Avg Attendance
                         </p>
                         <p class="text-xl font-semibold text-foreground">
-                            {filteredServices().length > 0
-                                ? roundedAverage(
-                                      filteredServices().reduce(
-                                          (sum, s) =>
-                                              sum + (s.total_attendance || 0),
-                                          0,
-                                      ), filteredServices().length,
-                                  )
-                                : 0}
+                            {metric('attendance')?.average ?? 'Unavailable'}
                         </p>
-                    </div>
+                    </button>
                 </div>
             </div></FullscreenWrapper>
         {/if}
@@ -699,15 +706,15 @@
                     {filteredMeetings().length} held meetings in selected period
                 </p>
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('prayerHours', 'total')} aria-label="Inspect Prayer Hours">
                         <p class="text-xs text-muted-foreground">
                             Prayer Hours
                         </p>
                         <p class="text-xl font-semibold text-foreground">
                             {prayerHours(filteredMeetings())}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('attendance', 'total')} aria-label="Inspect Total Attendance">
                         <p class="text-xs text-muted-foreground">
                             Total Attendance
                         </p>
@@ -717,8 +724,8 @@
                                 0,
                             )}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('leadersAttended', 'total')} aria-label="Inspect Leaders Attended">
                         <p class="text-xs text-muted-foreground">
                             Leaders Attended
                         </p>
@@ -728,23 +735,15 @@
                                 0,
                             )}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('meetingAttendance', 'average')} aria-label="Inspect Avg per Meeting">
                         <p class="text-xs text-muted-foreground">
                             Avg per Meeting
                         </p>
                         <p class="text-xl font-semibold text-foreground">
-                            {filteredMeetings().length > 0
-                                ? roundedAverage(
-                                      filteredMeetings().reduce(
-                                          (sum, m) =>
-                                              sum + meetingAttendance(m),
-                                          0,
-                                      ), filteredMeetings().length,
-                                  )
-                                : 0}
+                            {metric('meetingAttendance')?.average ?? 'Unavailable'}
                         </p>
-                    </div>
+                    </button>
                 </div>
             </div></FullscreenWrapper>
         {/if}
@@ -777,15 +776,15 @@
                     {filteredVisitations().length} care records in selected period
                 </p>
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('careCompleted', 'total')} aria-label="Inspect Visits Completed">
                         <p class="text-xs text-muted-foreground">
                             Visits Completed
                         </p>
                         <p class="text-xl font-semibold text-success">
                             {completedCareCount(filteredVisitations())}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('followUps', 'total')} aria-label="Inspect Follow-ups Needed">
                         <p class="text-xs text-muted-foreground">
                             Follow-ups Needed
                         </p>
@@ -794,16 +793,16 @@
                                 hasOpenCareFollowUp,
                             ).length}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('welcomed', 'total')} aria-label="Inspect Welcomed">
                         <p class="text-xs text-muted-foreground">Welcomed</p>
                         <p class="text-xl font-semibold text-foreground">
                             {filteredVisitations().filter(
                                 (v) => v.outcome === "welcomed_encouraged",
                             ).length}
                         </p>
-                    </div>
-                    <div class="p-3 bg-secondary/30 rounded-lg">
+                    </button>
+                    <button type="button" class="w-full p-3 bg-secondary/30 rounded-lg text-left" onclick={() => inspect('prayerRequests', 'total')} aria-label="Inspect Prayer Requests">
                         <p class="text-xs text-muted-foreground">
                             Prayer Requests
                         </p>
@@ -812,11 +811,14 @@
                                 (v) => v.outcome === "prayer_request_received",
                             ).length}
                         </p>
-                    </div>
+                    </button>
                 </div>
             </div></FullscreenWrapper>
         {/if}
             </div>
         </details>
+        {/if}
     {/if}
 </DashboardLayout>
+
+<ReportDrilldown bind:state={drilldown} groups={metricGroups} status={loading ? 'loading' : error ? 'unavailable' : 'ready'} error={error || ''} onretry={loadReports} />

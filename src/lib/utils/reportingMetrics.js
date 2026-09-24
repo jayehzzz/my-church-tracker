@@ -115,7 +115,7 @@ export function buildReportSummary({
 } = {}) {
   const joinedChurch = contacts.filter(hasJoinedChurch).length;
   return {
-    totalPeople: people.length,
+    totalPeople: people.filter((person) => person?.member_status !== "archived").length,
     newContacts: contacts.length,
     // Compatibility alias for existing report consumers. This now means
     // joined church; legacy converted data is only used when canonical status is absent.

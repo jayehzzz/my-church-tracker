@@ -1,8 +1,9 @@
 <script>
+  import { createChoice, createSelection } from '$lib/components/drilldown/selection.js';
   import ComparisonControls from './ComparisonControls.svelte';
   import ChartPointDetails from './ChartPointDetails.svelte';
   import { roundedAverage } from '$lib/utils/comparisonMetrics.js';
-  let {data=[],title='Programme comparison',subtitle='',unit='',onBarClick=null,onFilterClick=null,activeFilterCount=0,metricOptions=[],periodLabel='Selected period'}=$props();
+  let {data=[],title='Programme comparison',subtitle='',unit='',onBarClick=null,onDrilldown=null,filters={},onFilterClick=null,activeFilterCount=0,metricOptions=[],periodLabel='Selected period'}=$props();
   let primaryKey=$state('attendance'),comparisonKey=$state('');
   let primaryMode=$state('average'),comparisonMode=$state('total');
   let showAll=$state(false),detail=$state(null);
@@ -19,7 +20,13 @@
   const visibleData=$derived(showAll?data:data.slice(0,8));
   const maximum=$derived(Math.max(1,...visibleData.flatMap(item=>selections.map(selection=>measure(item,selection) || 0))));
   function inspect(item){
-    if(onBarClick)onBarClick({...item,value:measure(item,selections[0])});
+    const choices = selections.map(selection => createChoice({ domain: 'meeting', metricKey: selection.key,
+      mode: selection.mode, role: selection.role, seriesId: item.id, programmeId: item.id,
+      point: { ...item, sourcePoints: item.sourcePoints || item.points || item.meetings || [] },
+      value: measure(item, selection), filters }));
+    const drilldown = createSelection(choices);
+    if(onDrilldown)onDrilldown(drilldown);
+    else if(onBarClick)onBarClick({...item,value:measure(item,selections[0])}, drilldown);
     else detail={title:item.label,subtitle:periodLabel,summary:item.meetingCount?`${item.meetingCount} meeting${item.meetingCount===1?'':'s'} contributed to this programme’s attendance.`:'No meetings were recorded for this programme in the selected period.',context:[{label:'Meetings held',value:item.meetingCount ?? 0},{label:'Unique people',value:item.uniquePeople ?? 'Unavailable'}],metrics:selections.map(selection=>({label:caption(selection),value:measure(item,selection)}))};
   }
 </script>
@@ -31,7 +38,7 @@
   <ComparisonControls {options} bind:primaryKey bind:comparisonKey bind:primaryMode bind:comparisonMode averageLabel="Average per meeting" />
   <div class="my-3 flex flex-wrap gap-3 text-xs text-muted-foreground">{#each selections as selection}<span class:text-primary={selection.role==='A'} class:text-warning={selection.role==='B'}>Series {selection.role}: {caption(selection)}</span>{/each}</div>
   {#each visibleData as item}
-    <button type="button" class="mb-2 block w-full rounded-lg p-2 text-left hover:bg-secondary/30 focus-visible:outline focus-visible:outline-primary" aria-label={`${item.label}. View people and comparison details.`} onclick={()=>inspect(item)}>
+    <button type="button" class="mb-2 block w-full rounded-lg p-2 text-left hover:bg-secondary/30 focus-visible:outline focus-visible:outline-primary" aria-label={`${item.label}. View meeting comparison details.`} onclick={()=>inspect(item)}>
       <span class="mb-2 block text-sm font-medium">{item.label}</span>
       {#each selections as selection}
         {@const value=measure(item,selection)}

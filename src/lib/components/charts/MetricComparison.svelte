@@ -1,8 +1,9 @@
 <script>
+  import { createChoice, createSelection } from '$lib/components/drilldown/selection.js';
   import ComparisonControls from './ComparisonControls.svelte';
   import ChartPointDetails from './ChartPointDetails.svelte';
   import { roundedAverage } from '$lib/utils/comparisonMetrics.js';
-  let {metrics=[],periodLabel='Selected period',onSelect=null,wholeNumberAverages=false}=$props();
+  let {metrics=[],periodLabel='Selected period',onSelect=null,onDrilldown=null,domain=null,filters={},wholeNumberAverages=false}=$props();
   let primaryKey=$state(''),comparisonKey=$state('');
   let primaryMode=$state('total'),comparisonMode=$state('average');
   let detail=$state(null);
@@ -20,7 +21,13 @@
     return {...selection,metric,value:selection.mode==='total'?metric?.total:averageValue(metric)};
   }));
   function inspect(selection){
-    if(onSelect)onSelect(selection.metric);
+    const choice = createChoice({ domain: domain || selection.metric.domain || null, metricKey: selection.key, mode: selection.mode,
+      role: selection.role, value: selection.value, filters, point: { date: selection.metric.startDate || null,
+        bucketStart: selection.metric.startDate || null, bucketEnd: selection.metric.endDate || null,
+        sourcePoints: selection.metric.sourcePoints || [], sourceIds: selection.metric.sourceIds || [] } });
+    choice.sourceIds = selection.metric.sourceIds || choice.sourceIds;
+    if(onDrilldown)onDrilldown(createSelection([choice], selection.role));
+    else if(onSelect)onSelect(selection.metric, createSelection([choice], selection.role));
     else detail={title:selection.metric.label,subtitle:selection.metric.periodLabel || periodLabel,metrics:[{label:'Actual total count',value:selection.metric.total ?? 'Unavailable'},...(selection.metric.denominator!=null?[{label:selection.metric.averageLabel,value:averageValue(selection.metric)},{label:'Denominator',value:selection.metric.denominator}]:[])]};
   }
 </script>

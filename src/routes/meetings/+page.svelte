@@ -32,6 +32,11 @@
   import * as meetingsService from "$lib/services/meetingsService";
   import * as meetingProgramsService from "$lib/services/meetingProgramsService";
   import * as peopleService from "$lib/services/peopleService";
+  import MeetingDrilldown from "$lib/components/drilldown/MeetingDrilldown.svelte";
+  import { openDrilldown, createChoice, createSelection } from "$lib/components/drilldown/selection.js";
+  import { meetingId, resolveExactMeeting } from "$lib/components/drilldown/meetingAdapter.js";
+  import { goto } from "$app/navigation";
+  import { saveMeetingReturn, takeMeetingReturn } from '$lib/components/drilldown/meetingReturnState.js';
 
   let activeTab = $state("overview");
   let meetings = $state([]);
@@ -57,8 +62,12 @@
   let isAnalyticsFiltersOpen = $state(false);
   let analyticsFilterContext = $state("Meeting analytics");
   let analyticsFiltersInitialised = $state(false);
-  let peopleDrilldown = $state(null);
-  let isPeopleDrilldownOpen = $state(false);
+  let meetingDrilldown = $state(null);
+  let meetingDrilldownMeetings = $state([]);
+  let exactMeetingStatus = $state('ready');
+  let exactMeetingError = $state('');
+  let exactMeetingRequest = 0;
+  let filterSnapshot = $state(null);
 
   let isMeetingFormOpen = $state(false);
   let selectedMeeting = $state(null);
@@ -213,6 +222,7 @@
 
   onMount(() => {
     const params = new URLSearchParams(window.location.search);
+    const returned = takeMeetingReturn();
     analyticsFilters = {
       ...defaultAnalyticsFilters,
       program: params.get("programme") || "all",
@@ -228,8 +238,65 @@
       maxAttendance: params.get("maxAttendance") || "",
       comparePrevious: params.get("compare") !== "false",
     };
+    if (returned) {
+      analyticsFilters = returned.filters;
+      activeTab = returned.tab;
+      meetingDrilldownMeetings = [];
+      meetingDrilldown = returned.drilldown;
+      filterSnapshot = returned.drilldown?.current?.kind === 'selection' || returned.drilldown?.current?.kind === 'list' ? JSON.stringify({ filters: returned.filters, range: $dateRange }) : null;
+    }
     analyticsFiltersInitialised = true;
+    const exactId = params.get('meeting');
+    if (exactId !== null && !returned) void openExactMeeting(exactId);
   });
+
+  async function openExactMeeting(id) {
+    const request = ++exactMeetingRequest;
+    meetingDrilldownMeetings = [];
+    exactMeetingStatus = 'loading';
+    exactMeetingError = '';
+    meetingDrilldown = openDrilldown({ kind: 'meeting', title: 'Meeting details', id });
+    const result = await resolveExactMeeting(id, meetingsService.getById);
+    if (request !== exactMeetingRequest) return;
+    exactMeetingStatus = result.status;
+    exactMeetingError = result.error;
+    if (result.meeting) { meetingDrilldownMeetings = [result.meeting]; meetingDrilldown = openDrilldown({ kind: 'meeting', title: programmeName(result.meeting), id }); }
+  }
+
+  function openMeetingSelection(selection, cohort = filteredMeetings()) {
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('meeting')) { url.searchParams.delete('meeting'); replaceState(url, {}); }
+    }
+    exactMeetingRequest++;
+    exactMeetingStatus = 'ready';
+    meetingDrilldownMeetings = [...cohort];
+    filterSnapshot = JSON.stringify({ filters: analyticsFilters, range: $dateRange });
+    meetingDrilldown = openDrilldown({ kind: 'selection', title: 'Meeting contributions', selection }, { tab: activeTab });
+  }
+
+  $effect(() => {
+    if (filterSnapshot && meetingDrilldown && JSON.stringify({ filters: analyticsFilters, range: $dateRange }) !== filterSnapshot) {
+      meetingDrilldown = null;
+      filterSnapshot = null;
+    }
+  });
+
+  function openMeetingRecord(meeting) {
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('meeting')) { url.searchParams.delete('meeting'); replaceState(url, {}); }
+    }
+    meetingDrilldownMeetings = [meeting];
+    exactMeetingStatus = 'ready';
+    filterSnapshot = null;
+    meetingDrilldown = openDrilldown({ kind: 'meeting', title: programmeName(meeting), id: meetingId(meeting) });
+  }
+
+  function openPersonProfile(id) {
+    saveMeetingReturn({ filters: { ...analyticsFilters }, tab: activeTab, cohort: [...meetingDrilldownMeetings], drilldown: meetingDrilldown });
+    goto(`/people/${encodeURIComponent(id)}`);
+  }
 
   $effect(() => {
     if (!analyticsFiltersInitialised || typeof window === "undefined") return;
@@ -283,6 +350,10 @@
       programs = programResult.data || [];
       meetings = meetingResult.data || [];
       people = peopleResult.data || [];
+      if (meetingDrilldown) {
+        const sourceIds = new Set([...meetingDrilldown.history, meetingDrilldown.current].flatMap(frame => frame.choice?.sourceIds || frame.selection?.choices?.flatMap(choice => choice.sourceIds || []) || frame.rows?.map(meetingId) || [frame.id]).filter(Boolean).map(String));
+        meetingDrilldownMeetings = meetings.filter(meeting => sourceIds.has(meetingId(meeting)));
+      }
       loading = false;
 
       initialization.then(async (result) => {
@@ -413,53 +484,12 @@
     }).length;
   }
 
-  function openPeopleDrilldown(item, title, subtitle = "") {
-    const ids = new Set((item?.personIds || []).map(String));
-    const records = people
-      .filter((person) => ids.has(String(person.id)))
-      .map((person) => {
-        const attendedMeetings = filteredMeetings().filter((meeting) =>
-          attendeeIds(meeting).includes(String(person.id)),
-        );
-        return {
-          ...person,
-          attendance_count: attendedMeetings.length,
-          last_attended: attendedMeetings
-            .map((meeting) => meeting.meeting_date)
-            .sort()
-            .at(-1),
-        };
-      })
-      .sort(
-        (a, b) =>
-          b.attendance_count - a.attendance_count ||
-          `${a.first_name} ${a.last_name}`.localeCompare(
-            `${b.first_name} ${b.last_name}`,
-          ),
-      );
-    peopleDrilldown = { title, subtitle, people: records };
-    isPeopleDrilldownOpen = true;
-  }
-
-  function openTrendDrilldown(point) {
-    const meeting = meetings.find((item) => String(item.id || item._id) === String(point.id));
-    openPeopleDrilldown(
-      point,
-      meeting ? programmeName(meeting) : point.topic || "Meeting attendance",
-      `${formatDate(point.date)} · ${point.total} total attendance`,
-    );
-    if (meeting) {
-      peopleDrilldown = {
-        ...peopleDrilldown,
-        details: {
-          time: formatTime(meeting),
-          format: formatFormat(meeting.format),
-          location: meeting.location || meeting.online_url || "Location not recorded",
-          named: namedAttendanceCount(meeting),
-          guests: Number(meeting.unnamed_guests_count || 0),
-        },
-      };
-    }
+  function openPeriodMetric(metricKey, mode = 'total') {
+    const heldIds = new Set(analytics().trendData.map(point => String(point.id)));
+    const cohort = filteredMeetings().filter(meeting => heldIds.has(meetingId(meeting)));
+    const choice = createChoice({ domain: 'meeting', metricKey, mode, point: { date: $dateRange.startDate, bucketStart: $dateRange.startDate, bucketEnd: $dateRange.endDate, sourcePoints: cohort.map(meeting => ({ id: meetingId(meeting), date: meeting.meeting_date })) }, filters: { ...analyticsFilters } });
+    choice.contextLabel = 'All matching meetings';
+    openMeetingSelection(createSelection([choice], 'A'), cohort);
   }
 
   function exportFilteredMeetings() {
@@ -627,18 +657,21 @@
           value={analytics().metrics.uniquePeople}
           trend={metricTrends().uniquePeople}
           description="Unique named people"
+          onclick={() => openPeriodMetric('uniquePeople')}
         />
         <KPICard
           title="Average attendance"
           value={analytics().metrics.average}
           trend={metricTrends().average}
           description="Average per meeting"
+          onclick={() => openPeriodMetric('attendance', 'average')}
         />
         <KPICard
           title="First timers"
           value={analytics().metrics.firstTimers}
           trend={metricTrends().firstTimers}
           description="First-ever church attendance"
+          onclick={() => openPeriodMetric('firstTimers')}
         />
         <KPICard
           title="First-timer return rate"
@@ -750,12 +783,10 @@
               ]}
               onFilterClick={openAnalyticsFilters}
               {activeAnalyticsFilterCount}
-              onBarClick={(item) =>
-                openPeopleDrilldown(
-                  item,
-                  `${item.label} attendees`,
-                  `${item.meetingCount} meeting${item.meetingCount === 1 ? "" : "s"} · ${item.uniquePeople} unique people`,
-                )}
+              onDrilldown={(selection) => {
+                const choices = selection.choices.map(choice => ({ ...choice, contextLabel: analytics().programmeData.find(item => String(item.id) === String(choice.programmeId))?.label || 'Selected programme', scopeBounds: { startDate: $dateRange.startDate, endDate: $dateRange.endDate } }));
+                openMeetingSelection({ ...selection, choices });
+              }}
             />
           </FullscreenWrapper>
           <FullscreenWrapper title="Attendance over time">
@@ -766,7 +797,10 @@
               series={analytics().programmeData}
               title="Attendance over time"
               periodLabel={$dateRange.label}
-              onPointClick={openTrendDrilldown}
+              onDrilldown={(selection) => {
+                const choices = selection.choices.map(choice => ({ ...choice, contextLabel: analytics().programmeData.find(item => String(item.id) === String(choice.programmeId))?.label || 'Selected programme', scopeBounds: { startDate: $dateRange.startDate, endDate: $dateRange.endDate } }));
+                openMeetingSelection({ ...selection, choices });
+              }}
               onFilterClick={openAnalyticsFilters}
               {activeAnalyticsFilterCount}
             />
@@ -777,12 +811,11 @@
               data={analytics().peopleComposition}
               onFilterClick={openAnalyticsFilters}
               {activeAnalyticsFilterCount}
-              onSegmentClick={(item) =>
-                openPeopleDrilldown(
-                  item,
-                  item.label,
-                  `${item.value} unique ${item.value === 1 ? "person" : "people"}`,
-                )}
+              onSegmentClick={(item) => {
+                const heldIds = new Set(analytics().trendData.map(point => String(point.id)));
+                meetingDrilldownMeetings = filteredMeetings().filter(meeting => heldIds.has(meetingId(meeting)));
+                meetingDrilldown = openDrilldown({ kind: 'people', title: item.label, label: item.label, rows: meetingDrilldownMeetings, ids: item.personIds, metricKey: item.id });
+              }}
             />
           </FullscreenWrapper>
         </div>
@@ -807,7 +840,7 @@
               {#each filteredMeetings().slice(0, 6) as meeting}
                 <button
                   type="button"
-                  onclick={() => openMeeting(meeting)}
+                  onclick={() => openMeetingRecord(meeting)}
                   class="flex w-full items-center justify-between gap-4 py-4 text-left hover:bg-secondary/20"
                 >
                   <span class="min-w-0">
@@ -888,6 +921,7 @@
                     </p>
                   </div>
                   <div class="flex gap-2">
+                    <Button size="sm" variant="secondary" onclick={() => openMeetingRecord(meeting)}>View meeting</Button>
                     <Button
                       size="sm"
                       variant={meeting.status === "attendance_needed" ? "primary" : "secondary"}
@@ -970,6 +1004,8 @@
   </div>
 </DashboardLayout>
 
+<MeetingDrilldown bind:state={meetingDrilldown} meetings={meetingDrilldownMeetings} {people} status={exactMeetingStatus} error={exactMeetingError} onretry={() => meetingDrilldown?.current?.id && openExactMeeting(meetingDrilldown.current.id)} onprofile={openPersonProfile} />
+
 {#if isMeetingFormOpen}
   <MeetingForm
     bind:isOpen={isMeetingFormOpen}
@@ -1048,56 +1084,6 @@
     {/if}
     <Button onclick={() => (isAnalyticsFiltersOpen = false)}>View results</Button>
   {/snippet}
-</Modal>
-
-<Modal
-  bind:isOpen={isPeopleDrilldownOpen}
-  title={peopleDrilldown?.title || "People behind this data"}
-  size="md"
->
-  <div class="space-y-4">
-    {#if peopleDrilldown?.subtitle}
-      <p class="text-sm text-muted-foreground">{peopleDrilldown.subtitle}</p>
-    {/if}
-    {#if peopleDrilldown?.details}
-      <dl class="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border text-sm">
-        <div class="bg-card p-3"><dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Time</dt><dd class="mt-1 font-medium text-foreground">{peopleDrilldown.details.time}</dd></div>
-        <div class="bg-card p-3"><dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Format</dt><dd class="mt-1 font-medium text-foreground">{peopleDrilldown.details.format}</dd></div>
-        <div class="bg-card p-3"><dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Location</dt><dd class="mt-1 font-medium text-foreground">{peopleDrilldown.details.location}</dd></div>
-        <div class="bg-card p-3"><dt class="text-[11px] uppercase tracking-wide text-muted-foreground">Attendance</dt><dd class="mt-1 font-medium text-foreground">{peopleDrilldown.details.named} named · {peopleDrilldown.details.guests} unnamed</dd></div>
-      </dl>
-    {/if}
-    {#if peopleDrilldown?.people?.length}
-      <div class="max-h-[55vh] divide-y divide-border overflow-y-auto rounded-xl border border-border">
-        {#each peopleDrilldown.people as person}
-          <a
-            href="/people/{person.id}"
-            class="flex items-center justify-between gap-4 p-3 transition-colors hover:bg-secondary/30"
-          >
-            <span class="min-w-0">
-              <span class="block truncate text-sm font-medium text-foreground">
-                {person.first_name} {person.last_name}
-              </span>
-              <span class="block text-xs capitalize text-muted-foreground">
-                {person.member_status === "contact" ? "Outreach Contact" : ["guest", "visitor"].includes(person.member_status) ? "Non-member profile" : person.member_status || "Status unknown"}
-                {person.last_attended ? ` · Last attended ${formatDate(person.last_attended)}` : ""}
-              </span>
-            </span>
-            <span class="flex-shrink-0 text-right">
-              <span class="block text-base font-semibold text-foreground">{person.attendance_count}</span>
-              <span class="block text-[11px] text-muted-foreground">meeting{person.attendance_count === 1 ? "" : "s"}</span>
-            </span>
-          </a>
-        {/each}
-      </div>
-    {:else}
-      <div class="rounded-xl border border-dashed border-border p-8 text-center">
-        <p class="text-sm text-muted-foreground">
-          No named people are available for this data point. Its total may include unnamed non-members.
-        </p>
-      </div>
-    {/if}
-  </div>
 </Modal>
 
 <Modal bind:isOpen={isDeleteModalOpen} title="Delete meeting" size="sm">

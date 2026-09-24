@@ -604,10 +604,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 .map((task) => [task.person_id, task]),
         );
         const crmContacts = allPeople
-            .filter((person) =>
-                isEvangelismContact(person)
-                && (!args.leaderId || ownerByPerson.get(person._id) === args.leaderId),
-            )
+            .filter(isEvangelismContact)
             .map((person) => {
                 const personFollowUps = (followUpsByContact.get(person._id) ?? [])
                     .slice()
@@ -809,9 +806,28 @@ export const getDashboard = queryFor("crm:getDashboard")({
                     && person !== undefined
                     && isEvangelismContact(person);
             });
-            const openPersonIds = new Set(
-                leaderTasks.filter((task) => task.status === "open").map((task) => task.person_id),
-            );
+            const meaningfulFollowUps = periodFollowUps.filter((followUp) =>
+                !["no_response", "wrong_number"].includes(followUp.outcome));
+            const uniquePeriodPeople = [...new Set(periodFollowUps.map((followUp) => followUp.contact_id))];
+            const attendedPromises = sundayPromises.filter((commitment) => commitment.resolution === "attended");
+            const missedPromises = sundayPromises.filter((commitment) => commitment.resolution === "no_show");
+            const overdueTasks = leaderTasks.filter((task) => task.status === "open" && Boolean(task.due_date) && task.due_date < todayDate);
+            const seriousPeople = assignedPeople.filter((person) => person.is_serious);
+            const withoutNextAction = assignedPeople.filter((person) => !leaderTasks.some((task) => task.status === "open" && task.person_id === person._id));
+            const evidencePerson = (id: Id<"people">) => {
+                const person = peopleById.get(id);
+                return person ? { person_id: id, person_name: personName(person) } : { person_id: id, person_name: "Person unavailable" };
+            };
+            const followUpEvidence = (followUp: typeof allFollowUps[number]) => ({
+                id: followUp._id, ...evidencePerson(followUp.contact_id), date: followUp.follow_up_date, outcome: followUp.outcome,
+            });
+            const commitmentEvidence = (commitment: typeof allCommitments[number]) => ({
+                id: commitment._id, ...evidencePerson(commitment.person_id), date: commitment.gathering_date,
+                response: commitment.response, resolution: commitment.resolution,
+            });
+            const taskEvidence = (task: typeof allTasks[number]) => ({
+                id: task._id, ...evidencePerson(task.person_id), date: task.due_date, task_type: task.task_type,
+            });
             const completedThisWeek = leaderTasks.filter((task) =>
                 task.status === "completed"
                 && task.completed_at !== undefined
@@ -838,19 +854,26 @@ export const getDashboard = queryFor("crm:getDashboard")({
                     ? Math.round((freshContactedIds.size / freshAssignedIds.size) * 100)
                     : 100,
                 open_tasks: leaderTasks.filter((task) => task.status === "open").length,
-                overdue_tasks: leaderTasks.filter(
-                    (task) => task.status === "open" && task.due_date < todayDate,
-                ).length,
+                overdue_tasks: overdueTasks.length,
                 completed_this_week: completedThisWeek.length,
                 period_follow_ups: periodFollowUps.length,
-                period_unique_contacts: new Set(periodFollowUps.map((followUp) => followUp.contact_id)).size,
-                meaningful_conversations: periodFollowUps.filter((followUp) =>
-                    !["no_response", "wrong_number"].includes(followUp.outcome)).length,
-                serious_candidates: assignedPeople.filter((person) => person.is_serious).length,
+                period_unique_contacts: uniquePeriodPeople.length,
+                meaningful_conversations: meaningfulFollowUps.length,
+                serious_candidates: seriousPeople.length,
                 sunday_promises: sundayPromises.length,
-                promises_attended: sundayPromises.filter((commitment) => commitment.resolution === "attended").length,
-                promises_missed: sundayPromises.filter((commitment) => commitment.resolution === "no_show").length,
-                people_without_next_action: assignedPeople.filter((person) => !openPersonIds.has(person._id)).length,
+                promises_attended: attendedPromises.length,
+                promises_missed: missedPromises.length,
+                people_without_next_action: withoutNextAction.length,
+                evidence: {
+                    period_unique_contacts: uniquePeriodPeople.map(evidencePerson),
+                    meaningful_conversations: meaningfulFollowUps.map(followUpEvidence),
+                    serious_candidates: seriousPeople.map((person) => evidencePerson(person._id)),
+                    sunday_promises: sundayPromises.map(commitmentEvidence),
+                    promises_attended: attendedPromises.map(commitmentEvidence),
+                    promises_missed: missedPromises.map(commitmentEvidence),
+                    overdue_tasks: overdueTasks.map(taskEvidence),
+                    people_without_next_action: withoutNextAction.map((person) => evidencePerson(person._id)),
+                },
                 confirmed_this_sunday: sundayCommitments.filter((commitment) =>
                     commitment.leader_id === leader._id
                     && commitment.response === "yes"
@@ -951,7 +974,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
             visitation_follow_ups: visitationFollowUps,
             unassigned_contacts: unassignedContacts,
             later_contacts: laterContacts,
-            contacts: crmContacts,
+            contacts: crmContacts.filter((person) => !args.leaderId || ownerByPerson.get(person._id) === args.leaderId),
             member_care_tasks: memberCareTasks,
             visitation_tasks: visitationTasks,
             team_stats: teamStats,
