@@ -29,6 +29,12 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 ## Handoffs
 
+### Whole-person attendance display — published to Practice (24 September 2026)
+
+- Corrected grouped service and meeting charts so plotted heights, labels, tooltips and count axes use the same rounded whole-person value. Attendance, outreach, report and development averages now display whole counts with rounding identified; exact recorded totals and source records remain available. Service and meeting recording already reject fractional headcounts, so no data migration or backend change was needed. Decimal hours, distances and percentages remain appropriate to their units.
+- Source `ac1c9a6325b5e44a0174ea47a3974b0f1480f541` on `codex/practice-workflow` passed `npm run verify` (356 frontend tests, 89 backend tests, backend TypeScript and build), coverage, the critical Playwright workflow and [GitHub Verify run 36011239370](https://github.com/jayehzzz/my-church-tracker/actions/runs/36011239370). Built-in local demo and authenticated Practice browser checks confirmed whole-person chart labels and equal heights for July/August values both shown as 8. `git diff --check` passed.
+- Vercel Preview `dpl_2HiffPHTRp993RdgPoMs1LkhqVv3` is READY in the verified project with staging/rehearsal settings and the pinned Practice Convex URL. Only the permanent Practice alias was moved; it resolves to this Preview, and the production alias remains `dpl_EmPTBHhpm7cChzyd2PPAnkuVDraF`. No Practice refresh, church-record write or live release occurred. PR #2 remains open; live release requires owner approval.
+
 ### Contextual pop-ups — published to Practice; browser acceptance pending (24 September 2026)
 
 - Owner approved publishing the implemented popups to rehearsal. Committed and pushed the complete A–G implementation as `faecbe8c720f41f86505132254861632814e316a` on `codex/practice-workflow`, in [PR #2](https://github.com/jayehzzz/my-church-tracker/pull/2). Deployed matching Convex functions to the verified `jayden-ayeh / church-tracker-staging / rehearsal` deployment `standing-mongoose-699` first. No schema migration, data import, refresh, reset or deliberate church-record write occurred; existing Practice test edits were preserved.
