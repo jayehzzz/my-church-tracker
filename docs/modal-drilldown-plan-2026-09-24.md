@@ -1,12 +1,12 @@
 # Contextual pop-ups and record drill-down plan
 
-Prepared and approved 24 September 2026. Status: Batches A–G implemented locally on `codex/practice-workflow` with inherited uncommitted work. Automated checks passed; separate browser verification and any Practice acceptance remain pending. No production release.
+Prepared and approved 24 September 2026. Status: Batches A–G committed on `codex/practice-workflow` at `faecbe8` and published to Practice after owner approval. Automated checks passed; separate browser verification and Practice acceptance remain pending. No production release.
 
 ## Scope and reviewed baseline
 
 The request is to make pop-ups appropriate to their screen and selected data, with a useful path to more information. Review covered the current route components, their charts, record dialogs, data selectors and relevant backend responses. Browser verification is deliberately reserved for a separate task with a lower reasoning model, as requested. These are source-code findings, not claims about verified hosted behavior.
 
-At planning time, the baseline was a clean working tree on `codex/practice-workflow`, commit `d5cb782`. Recent changes included `256fbcd` (chart context) and `1f3be89` (service records in service-mix details). This plan was the only new file from the planning work; no app code, database records, deployments or task launches were changed during that planning stage. Batches A–G subsequently changed app code locally and left it uncommitted.
+At planning time, the baseline was a clean working tree on `codex/practice-workflow`, commit `d5cb782`. Recent changes included `256fbcd` (chart context) and `1f3be89` (service records in service-mix details). This plan was the only new file from the planning work; no app code, database records, deployments or task launches were changed during that planning stage. Batches A–G subsequently changed app code locally; the owner then approved publication to Practice, recorded in the implementation handoff.
 
 ## Proposed experience
 
