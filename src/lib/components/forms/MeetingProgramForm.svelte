@@ -7,6 +7,7 @@
     isOpen = $bindable(false),
     program = null,
     people = [],
+    canManageLeaders = true,
     onsave,
   } = $props();
 
@@ -181,6 +182,7 @@
           label="Meeting type"
           value={formData.meeting_type}
           options={typeOptions}
+          disabled={!canManageLeaders}
           error={errors.meeting_type}
           onchange={({ value }) => setType(value)}
         />
@@ -233,7 +235,7 @@
       </div>
     </div>
 
-    <div class="rounded-xl border border-border p-4">
+    {#if canManageLeaders}<div class="rounded-xl border border-border p-4">
       <h3 class="font-semibold text-foreground">Leaders</h3>
       <p class="mt-1 text-sm text-muted-foreground">
         Select one or more leaders. The first selected leader is treated as primary.
@@ -259,7 +261,7 @@
           {/each}
         </div>
       {/if}
-    </div>
+    </div>{/if}
 
     {#if showExpectationList}
       <div class="rounded-xl border border-border p-4">

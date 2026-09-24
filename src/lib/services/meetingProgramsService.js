@@ -236,3 +236,18 @@ export async function archive(id) {
     return { error };
   }
 }
+
+export async function addGuest(programId, guest) {
+  const client = getClient();
+  if (!client || !isConvexId(programId)) {
+    if (!isDemoMode()) return unavailable();
+    const person = { id: `mock-guest-${Date.now()}`, first_name: guest.firstName, last_name: guest.lastName, phone: guest.phone || "", member_status: "guest" };
+    mockPeople.push(person);
+    return { data: person, error: null };
+  }
+  try {
+    return { data: mapDoc(await withTimeout(client.mutation(api.meetingPrograms.addGuest, { programId, ...guest }), 6000)), error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
+}

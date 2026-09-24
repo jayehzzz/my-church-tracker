@@ -2,6 +2,7 @@
   import { Modal, Button, Input, SearchableSelect, Badge } from "$lib/components/ui";
   import * as meetingsService from "$lib/services/meetingsService";
   import * as peopleService from "$lib/services/peopleService";
+  import * as meetingProgramsService from "$lib/services/meetingProgramsService";
 
   let {
     isOpen = $bindable(false),
@@ -11,6 +12,8 @@
     meetings = [],
     initialProgramId = null,
     initialOneOff = false,
+    canRecordNotes = true,
+    canRecordOneOff = true,
     onsave,
   } = $props();
 
@@ -44,6 +47,9 @@
     notes: "",
   });
   let selectedPersonIds = $state(new Set());
+  let expectedIds = $state(new Set());
+  let excusedIds = $state(new Set());
+  let confirmedAbsences = $state(false);
   let firstTimerIds = $state(new Set());
   let attendeeFilter = $state("roster");
   let searchQuery = $state("");
@@ -66,9 +72,7 @@
   const selectedProgram = $derived(() =>
     programs.find((program) => String(program.id) === String(formData.program_id)),
   );
-  const rosterIds = $derived(
-    new Set((selectedProgram()?.member_ids || []).map(String)),
-  );
+  const rosterIds = $derived(expectedIds);
   const selectedTotal = $derived(
     selectedPersonIds.size + Math.max(0, Number(formData.unnamed_guests_count) || 0),
   );
@@ -158,6 +162,9 @@
         typeof record === "string" ? record : record.person_id,
       ),
     );
+    expectedIds = new Set((program?.member_ids || []).map(String));
+    excusedIds = new Set();
+    confirmedAbsences = false;
     firstTimerIds = new Set();
     activeTab = meeting ? "attendance" : "details";
     attendeeFilter =
@@ -185,6 +192,9 @@
     try {
       const result = await meetingsService.getAttendees(meetingId);
       if (result.data) {
+        if (meeting?.attendance_completed_at) expectedIds = new Set(result.data.filter(record => record.expected_regular).map(record => String(record.person_id)));
+        excusedIds = new Set(result.data.filter(record => record.status === "excused").map(record => String(record.person_id)));
+        confirmedAbsences = true;
         selectedPersonIds = new Set(
           result.data
             .filter((record) => !record.status || record.status === "present")
@@ -204,6 +214,9 @@
   function handleProgramChange(programId) {
     const program = programs.find((item) => String(item.id) === String(programId));
     formData.program_id = programId;
+    expectedIds = new Set((program?.member_ids || []).map(String));
+    excusedIds = new Set();
+    confirmedAbsences = false;
     if (!meeting && program) {
       formData.start_time = program.default_start_time || "";
       formData.end_time = program.default_end_time || "";
@@ -218,9 +231,12 @@
     if (meeting || recordingMode === mode) return;
     recordingMode = mode;
     selectedPersonIds = new Set();
+    expectedIds = new Set();
+    excusedIds = new Set();
     firstTimerIds = new Set();
     if (mode === "programme") {
       const program = defaultProgram();
+      expectedIds = new Set((program?.member_ids || []).map(String));
       formData.program_id = program?.id || "";
       formData.start_time = program?.default_start_time || "";
       formData.end_time = program?.default_end_time || "";
@@ -240,6 +256,7 @@
   }
 
   function toggleAttendee(personId) {
+    confirmedAbsences = false;
     const next = new Set(selectedPersonIds);
     if (next.has(personId)) {
       next.delete(personId);
@@ -314,7 +331,9 @@
     }
     quickAddSaving = true;
     try {
-      const result = await peopleService.create({
+      const result = recordingMode === "programme" ? await meetingProgramsService.addGuest(formData.program_id, {
+        firstName: quickAddData.first_name.trim(), lastName: quickAddData.last_name.trim(), phone: quickAddData.phone || undefined,
+      }) : await peopleService.create({
         first_name: quickAddData.first_name.trim(),
         last_name: quickAddData.last_name.trim(),
         phone: quickAddData.phone || undefined,
@@ -370,6 +389,11 @@
       activeTab = "details";
       return;
     }
+    if (markComplete && recordingMode === "programme" && [...expectedIds].some(id => !selectedPersonIds.has(id)) && !confirmedAbsences) {
+      errors = { ...errors, attendance: "Confirm the regular people who did not attend before completing attendance." };
+      activeTab = "attendance";
+      return;
+    }
     const program = selectedProgram();
     saving = true;
     try {
@@ -394,13 +418,17 @@
           Number(formData.unnamed_guests_count) || 0,
         ),
         status: markComplete ? "completed" : "attendance_needed",
-        notes: formData.notes || null,
+        notes: canRecordNotes ? formData.notes || null : null,
       };
       const attendanceData = Array.from(selectedPersonIds).map((personId) => ({
         person_id: personId,
         status: "present",
         first_timer: firstTimerIds.has(personId),
-      }));
+      })).concat(markComplete ? [...expectedIds].filter(id => !selectedPersonIds.has(id)).map(personId => ({
+        person_id: personId,
+        status: excusedIds.has(personId) ? "excused" : "absent",
+        first_timer: false,
+      })) : []);
       const result = await meetingsService.record({
         ...payload, id: meeting?.id || meeting?._id, request_id: requestId,
         attendanceData, markComplete,
@@ -460,7 +488,7 @@
         {#if !meeting}
           <fieldset>
             <legend class="mb-2 text-sm font-medium text-foreground">What are you recording?</legend>
-            <div class="grid grid-cols-2 gap-1 rounded-xl bg-secondary/40 p-1">
+            <div class="grid gap-1 rounded-xl bg-secondary/40 p-1 {canRecordOneOff ? 'grid-cols-2' : 'grid-cols-1'}">
               <button
                 type="button"
                 aria-pressed={recordingMode === "programme"}
@@ -469,14 +497,14 @@
               >
                 Regular programme
               </button>
-              <button
+              {#if canRecordOneOff}<button
                 type="button"
                 aria-pressed={recordingMode === "one_off"}
                 onclick={() => setRecordingMode("one_off")}
                 class="rounded-lg px-3 py-2.5 text-sm font-medium transition-colors {recordingMode === 'one_off' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}"
               >
                 One-off / special event
-              </button>
+              </button>{/if}
             </div>
           </fieldset>
         {/if}
@@ -540,7 +568,7 @@
             Record the normal Sunday service in <strong>Sunday Services</strong>, even when it has an evangelistic focus. Use this one-off option for a separate event with its own attendance.
           </div>
         {/if}
-        <div>
+        {#if canRecordNotes}<div>
           <label for="meeting-notes" class="mb-1.5 block text-sm font-medium text-foreground">
             Notes
           </label>
@@ -551,7 +579,7 @@
             class="w-full resize-none rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             placeholder="Optional notes about this meeting..."
           ></textarea>
-        </div>
+        </div>{/if}
         <div class="flex justify-end">
           <Button onclick={() => (activeTab = "attendance")}>Continue to attendance</Button>
         </div>
@@ -679,11 +707,27 @@
                   {#if isFirstProgrammeAttendance(person.id)}
                     <Badge variant="success" size="sm">{firstProgrammeLabel()}</Badge>
                   {/if}
+                  {#if markComplete && rosterIds.has(String(person.id)) && !selectedPersonIds.has(person.id)}
+                    <button type="button" class="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground" aria-pressed={excusedIds.has(String(person.id))} onclick={() => {
+                      const next = new Set(excusedIds);
+                      if (next.has(String(person.id))) next.delete(String(person.id)); else next.add(String(person.id));
+                      excusedIds = next;
+                      confirmedAbsences = false;
+                    }}>{excusedIds.has(String(person.id)) ? "Excused ✓" : "Absent · mark excused"}</button>
+                  {/if}
                 </div>
               </div>
             {/each}
           {/if}
         </div>
+
+        {#if markComplete && recordingMode === "programme" && [...rosterIds].some(id => !selectedPersonIds.has(id))}
+          <label class="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-4 text-sm text-foreground">
+            <input type="checkbox" bind:checked={confirmedAbsences} class="mt-0.5 h-4 w-4 accent-primary" />
+            <span>I have checked the {[...rosterIds].filter(id => !selectedPersonIds.has(id)).length} regular people not marked present. They will be recorded as absent unless marked excused above.</span>
+          </label>
+          {#if errors.attendance}<p class="text-sm text-destructive">{errors.attendance}</p>{/if}
+        {/if}
 
         <div class="grid grid-cols-1 gap-4 rounded-xl bg-secondary/25 p-4 sm:grid-cols-[1fr_180px] sm:items-center">
           <div>

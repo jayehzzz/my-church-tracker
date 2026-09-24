@@ -382,6 +382,8 @@ export default defineSchema({
     meeting_attendance: defineTable({
         meeting_id: v.id("meetings"),
         person_id: v.id("people"),
+        expected_regular: v.optional(v.boolean()), // Snapshot of this programme's regular list when attendance was first completed.
+        absence_reason: v.optional(v.string()),
 
         // Rich Metadata
         attended: v.optional(v.boolean()), // Default true if record exists, but good for explicit tracking
@@ -540,6 +542,8 @@ export default defineSchema({
 
     follow_up_tasks: defineTable({
         person_id: v.id("people"),
+        meeting_id: v.optional(v.id("meetings")),
+        program_id: v.optional(v.id("meeting_programs")),
         assigned_leader_id: v.id("people"),
         created_by_id: v.optional(v.id("people")),
         due_date: v.string(),
@@ -578,7 +582,8 @@ export default defineSchema({
         completed_by_id: v.optional(v.id("people")),
         created_at: v.string(),
         updated_at: v.string(),
-    }).index("by_person", ["person_id"])
+    }).index("by_meeting", ["meeting_id"])
+      .index("by_person", ["person_id"])
       .index("by_person_status", ["person_id", "status"])
       .index("by_assignee_status", ["assigned_leader_id", "status"])
       .index("by_created_by", ["created_by_id"])

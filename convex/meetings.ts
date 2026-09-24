@@ -387,9 +387,22 @@ async function syncMeetingAttendance(ctx: MutationCtx, args: {
             .query("meeting_attendance")
             .withIndex("by_meeting", (q) => q.eq("meeting_id", args.meetingId))
             .collect();
+        const regularIds = new Set<string>();
+        if (meeting.program_id) {
+            if (meeting.attendance_completed_at) {
+                existing.filter(row => row.expected_regular).forEach(row => regularIds.add(String(row.person_id)));
+            } else {
+                const members = await ctx.db.query("meeting_program_members")
+                    .withIndex("by_program", q => q.eq("program_id", meeting.program_id!)).collect();
+                members.filter(member => member.status === "active").forEach(member => regularIds.add(String(member.person_id)));
+            }
+        }
         const dedupedAttendance = Array.from(
             new Map(
-                args.attendanceData.map((record) => [String(record.person_id), record]),
+                [...args.attendanceData, ...(args.markComplete ? [...regularIds]
+                    .filter(personId => !args.attendanceData.some(record => String(record.person_id) === personId))
+                    .map(personId => ({ person_id: personId as Id<"people">, status: "absent", first_timer: false, arrived_late: false, left_early: false })) : [])]
+                    .map((record) => [String(record.person_id), record]),
             ).values(),
         );
         const existingByPerson = new Map(
@@ -416,6 +429,8 @@ async function syncMeetingAttendance(ctx: MutationCtx, args: {
                 arrived_late: record.arrived_late || false,
                 left_early: record.left_early || false,
                 first_timer: record.first_timer || false,
+                expected_regular: regularIds.has(String(record.person_id)),
+                absence_reason: isPresent ? undefined : current?.absence_reason,
                 first_program_attendance: Boolean(
                     isPresent &&
                         meeting.program_id &&
@@ -585,6 +600,10 @@ export const record = mutationFor("meetings:record")({
         const { id, request_id, attendanceData, markComplete, attendance_count, ...data } = args;
         date(data.meeting_date);
         count(data.unnamed_guests_count, "Unnamed guests");
+        if (data.program_id) {
+            const program = await ctx.db.get(data.program_id);
+            if (!program || program.meeting_type !== data.meeting_type) throw new Error("Meeting type must match its programme");
+        }
         if (!id && request_id) {
             const previous = await ctx.db.query("meetings").filter(q => q.eq(q.field("request_id"), request_id)).first();
             if (previous) return await hydrateMeeting(ctx, previous);
