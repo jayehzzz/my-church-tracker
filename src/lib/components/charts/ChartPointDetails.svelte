@@ -19,5 +19,18 @@
         {/each}
       </div>
     {/if}
+    {#if detail.items?.length}
+      <div class="mt-5 border-t border-border pt-4">
+        <h3 class="mb-2 text-sm font-semibold text-foreground">{detail.itemsTitle || 'Records'}</h3>
+        <div class="max-h-64 divide-y divide-border overflow-y-auto rounded-xl border border-border">
+          {#each detail.items as item}
+            <button type="button" class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-secondary/30 focus-visible:bg-secondary/30" onclick={() => item.onClick?.()}>
+              <span class="min-w-0"><span class="block text-sm font-medium text-foreground">{item.label}</span>{#if item.note}<span class="mt-0.5 block truncate text-xs text-muted-foreground">{item.note}</span>{/if}</span>
+              {#if item.value !== undefined}<strong class="shrink-0 text-sm text-foreground">{item.value}</strong>{/if}
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/if}
   {/if}
 </Modal>

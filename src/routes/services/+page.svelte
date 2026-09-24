@@ -335,6 +335,29 @@
     isOutcomeModalOpen = true;
   }
 
+  function openServiceTypeSummary(type) {
+    const matching = [...analyticsServices()]
+      .filter(service => service.service_type === type)
+      .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)));
+    const attendance = matching.reduce((sum, service) => sum + serviceMetrics(service).totalAttendance, 0);
+    chartDetail = {
+      title: formatServiceType(type),
+      subtitle: $dateRange.label,
+      summary: `${matching.length} gathering${matching.length === 1 ? '' : 's'} of this type had a combined attendance of ${attendance} in the selected period.`,
+      context: [
+        { label: 'Average attendance', value: matching.length ? wholePerson(attendance / matching.length) : 0 },
+        { label: 'Share of services', value: `${Math.round(matching.length / Math.max(typeDistribution().total, 1) * 100)}%` },
+      ],
+      itemsTitle: 'Services in this period',
+      items: matching.map(service => ({
+        label: formatShortDate(service.service_date),
+        note: service.sermon_topic || formatServiceType(service.service_type),
+        value: `${serviceMetrics(service).totalAttendance} attended`,
+        onClick: () => { chartDetail = null; handleServiceClick(service); },
+      })),
+    };
+  }
+
   const outcomeModalData = $derived(() => {
     const isTithers = selectedOutcome === "tithers";
     return {
@@ -1269,7 +1292,7 @@
               <div class="mt-5 space-y-4">
                 {#each typeDistribution().typeEntries as [type, count]}
                   {@const pct = Math.round((count / Math.max(typeDistribution().total, 1)) * 100)}
-                  <button type="button" class="w-full rounded-lg text-left outline-none transition-colors hover:bg-secondary/30 focus-visible:ring-2 focus-visible:ring-primary" onclick={() => chartDetail = {title: formatServiceType(type), subtitle: $dateRange.label, metrics: [{label:"Gatherings",value:count},{label:"Share of selected period",value:`${pct}%`}]}}>
+                  <button type="button" class="w-full rounded-lg text-left outline-none transition-colors hover:bg-secondary/30 focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openServiceTypeSummary(type)}>
                     <span class="mb-2 flex items-center justify-between text-sm">
                       <span class="font-medium text-foreground">{formatServiceType(type)}</span>
                       <span class="text-muted-foreground">{count} · {pct}%</span>
