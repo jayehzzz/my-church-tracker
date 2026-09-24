@@ -6,6 +6,7 @@
 
 <script>
   import { roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import { pointInsight } from "$lib/utils/chartInsights.js";
   import ComparisonControls from "./ComparisonControls.svelte";
   import ChartPointDetails from "./ChartPointDetails.svelte";
   let detail = $state(null);
@@ -196,6 +197,7 @@
     else detail = {
       title: point.label || point.date,
       subtitle: `${title} · ${periodLabel}`,
+      ...pointInsight(chartData().points, point.index, item => item.primary, pointMeasureLabel.toLowerCase()),
       metrics: [
         { label: pointMeasureLabel, value: displayValue(point.primary) },
         ...(selectedComparison ? [{ label: `${selectedComparison.label}${granularity === 'day' ? '' : ` (${comparisonAggregationMode})`}`, value: displayValue(point.comparison) }] : []),

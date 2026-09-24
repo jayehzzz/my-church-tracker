@@ -1,5 +1,6 @@
 <script>
   import ChartPointDetails from "./ChartPointDetails.svelte";
+  import { pointInsight } from "$lib/utils/chartInsights.js";
   let detail = $state(null);
   import { roundedAverage } from "$lib/utils/comparisonMetrics.js";
   import ComparisonControls from "./ComparisonControls.svelte";
@@ -52,7 +53,7 @@
   function inspect(point, item, event) {
     event.preventDefault();
     if (granularity === 'day' && onPointClick && point.id) onPointClick(point);
-    else detail = { title: point.label || formatDate(point.date), subtitle: `${item.label} · ${periodLabel}`, metrics: [{ label: item.measureLabel, value: point.total }] };
+    else detail = { title: point.label || formatDate(point.date), subtitle: `${item.label} · ${periodLabel}`, ...pointInsight(item.points, item.points.findIndex(candidate => candidate.date === point.date), candidate => candidate.total, item.measureLabel), metrics: [{ label: item.measureLabel, value: point.total }] };
   }
 </script>
 

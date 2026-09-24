@@ -20,7 +20,7 @@
   const maximum=$derived(Math.max(1,...visibleData.flatMap(item=>selections.map(selection=>measure(item,selection) || 0))));
   function inspect(item){
     if(onBarClick)onBarClick({...item,value:measure(item,selections[0])});
-    else detail={title:item.label,subtitle:periodLabel,metrics:selections.map(selection=>({label:caption(selection),value:measure(item,selection)}))};
+    else detail={title:item.label,subtitle:periodLabel,summary:item.meetingCount?`${item.meetingCount} meeting${item.meetingCount===1?'':'s'} contributed to this programme’s attendance.`:'No meetings were recorded for this programme in the selected period.',context:[{label:'Meetings held',value:item.meetingCount ?? 0},{label:'Unique people',value:item.uniquePeople ?? 'Unavailable'}],metrics:selections.map(selection=>({label:caption(selection),value:measure(item,selection)}))};
   }
 </script>
 <section class="card-base p-5">

@@ -1,6 +1,7 @@
 <script>
   import ComparisonControls from "./ComparisonControls.svelte";
   import { completeMonthlySeries, roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import { pointInsight } from "$lib/utils/chartInsights.js";
   import ChartPointDetails from "./ChartPointDetails.svelte";
   let detail = $state(null);
   import ChartViewToggle from "$lib/components/charts/ChartViewToggle.svelte";
@@ -107,7 +108,19 @@
     event?.stopPropagation();
     event?.preventDefault();
     if (onPointClick) onPointClick({...point.raw, label: point.label});
-    else detail = { title: point.label, subtitle: periodLabel, metrics: [{ label: primaryCaption, value: point.count }, ...(chartData().selected ? [{ label: comparisonCaption, value: point.comparison }] : [])] };
+    else {
+      const insight = pointInsight(monthlyRows, point.index, row => row[primaryKey], 'actual monthly count');
+      detail = {
+        title: point.label,
+        subtitle: periodLabel,
+        summary: insight.summary,
+        context: [
+          ...(primaryMode === 'average' ? [{ label: 'Actual count this month', value: Number(point.raw[primaryKey]) || 0 }] : []),
+          ...insight.context,
+        ],
+        metrics: [{ label: primaryCaption, value: point.count }, ...(chartData().selected ? [{ label: comparisonCaption, value: point.comparison }] : [])],
+      };
+    }
   }
 </script>
 
