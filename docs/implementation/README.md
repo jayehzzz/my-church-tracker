@@ -29,6 +29,13 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 ## Handoffs
 
+### See who said yes but missed Sunday — implemented locally (24 September 2026)
+
+- Added a Follow-up tab for confirmed Sunday absences, grouped by person in the recent four completed Sundays and searchable in older history. It shows distinct-Sunday miss counts, worker, latest reason and existing open task; workers can add/edit reason history and optionally schedule one call through the existing task flow. No miss automatically creates a task. Cancellations, pending results, archived people and member expectations without an explicit yes are excluded; later attendance corrections follow the existing commitment record.
+- Checks passed: `npm run verify` (**361 frontend tests, 91 backend tests, backend TypeScript and production build**), `npm run test:coverage` (**361 tests**), `npm run test:e2e` (critical attendance/care workflow), and `git diff --check`. Backend tests cover distinct Sunday counts, attended/cancelled/pending exclusions, open tasks, reason history, assigned-worker scope and length validation. Local demo browser confirmed the empty state on desktop and 390 × 844; document width matched viewport at 390px. Demo fixtures contain no misses, so populated-card behavior is covered by component tests rather than browser demo records.
+- Practice verification remains pending. The local `.env.rehearsal.local` contains only frontend settings; `.env.local` points Convex CLI at the separate recovery-rehearsal development deployment, and Vercel Preview has no Convex deployment key. I did not deploy backend functions to an uncertain target, move the Practice alias, refresh data, or write church records. Deploy the matching Convex functions to `standing-mongoose-699`, then deploy/verify Preview and move only the permanent Practice alias per [Practice workflow](../practice-workflow.md). Production remains unchanged.
+- State: `codex/missed-sunday-followup`, based on `b9f3095`; implementation and this handoff are committed on this branch. No merge to `main` or live release.
+
 ### Whole-person attendance display — published to Practice (24 September 2026)
 
 - Corrected grouped service and meeting charts so plotted heights, labels, tooltips and count axes use the same rounded whole-person value. Attendance, outreach, report and development averages now display whole counts with rounding identified; exact recorded totals and source records remain available. Service and meeting recording already reject fractional headcounts, so no data migration or backend change was needed. Decimal hours, distances and percentages remain appropriate to their units.

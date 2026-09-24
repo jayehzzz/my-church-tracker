@@ -9,12 +9,14 @@
   import { Button, Modal } from '$lib/components/ui';
   import PersonForm from '$lib/components/forms/PersonForm.svelte';
   import { ExpectedSunday, FollowUpBoard, WorkerAssessment, ContactDrawer } from '$lib/components/crm';
-  import { assignContact, batchAssignContacts, completeTask, getContactProfile, getDashboard, quickLogNoAnswer, reactivateContact, resolveCommitment, setAttendancePlan, watchDashboard } from '$lib/services/followUpCrmService.js';
+  import { assignContact, batchAssignContacts, completeTask, createTask, getContactProfile, getDashboard, quickLogNoAnswer, reactivateContact, resolveCommitment, setAttendancePlan, updateMissedSundayReason, watchDashboard } from '$lib/services/followUpCrmService.js';
   import { notificationStore, refreshLiveNotifications } from '$lib/stores/notificationStore.js';
   import { isDemoMode } from '$lib/convex.js';
   import { goto } from '$app/navigation';
   import { saveDomainReturn, takeDomainReturn } from '$lib/components/drilldown/domainReturnState.js';
   import { attentionRows, ATTENTION_LABELS } from '$lib/services/followUpAttention.js';
+  import MissedSundayFollowUp from '$lib/components/crm/MissedSundayFollowUp.svelte';
+  import { recentMissedSundayPeople } from '$lib/utils/missedSundayHistory.js';
 
   let actualAttendance = $state(null);
   let isActualAttendanceOpen = $state(false);
@@ -22,10 +24,19 @@
   let sundayActionNote = $state("");
   let isSundayNoteOpen = $state(false);
   let savingSundayNote = $state(false);
+  let missedReasonAction = $state(null);
+  let missedReasonDraft = $state('');
+  let isMissedReasonOpen = $state(false);
+  let savingMissedReason = $state(false);
+  let missedCallAction = $state(null);
+  let missedCallDate = $state('');
+  let isMissedCallOpen = $state(false);
+  let savingMissedCall = $state(false);
 
   const TABS = [
     { id: 'week', label: 'This week' },
     { id: 'sunday', label: 'Sunday' },
+    { id: 'missed', label: 'Missed after saying yes' },
     { id: 'later', label: 'Later' },
     { id: 'team', label: 'Workers' },
   ];
@@ -74,7 +85,7 @@
   let refreshing = $state(false);
   let errorMessage = $state('');
   let successMessage = $state('');
-  let workspace = $state({ leaders: [], tasks: [], confirmed_commitments: [], sunday_commitments: [], recent_sunday_results: [], attendance_roster: [], attendance_forecast: {}, unassigned_contacts: [], later_contacts: [], contacts: [], team_stats: [], service_date: '', source: 'local' });
+  let workspace = $state({ leaders: [], tasks: [], confirmed_commitments: [], sunday_commitments: [], recent_sunday_results: [], sunday_missed_history: [], attendance_roster: [], attendance_forecast: {}, unassigned_contacts: [], later_contacts: [], contacts: [], team_stats: [], service_date: '', source: 'local' });
   let selectedTask = $state(null);
   let isCompleteModalOpen = $state(false);
   let savingTask = $state(false);
@@ -98,7 +109,8 @@
   const unassignedCount = $derived((workspace.unassigned_contacts || []).length);
   const sundayPending = $derived((workspace.sunday_commitments || workspace.confirmed_commitments || []).filter((item) => (item.resolution || 'pending') === 'pending').length);
   const laterContacts = $derived((workspace.later_contacts || []).filter((contact) => personName(contact).toLowerCase().includes(laterSearch.trim().toLowerCase())));
-  const tabCounts = $derived({ week: weekTasks.length + unassignedCount, sunday: sundayPending, later: (workspace.later_contacts || []).length, team: 0 });
+  const missedCount = $derived(recentMissedSundayPeople(workspace.sunday_missed_history || [], today).length);
+  const tabCounts = $derived({ week: weekTasks.length + unassignedCount, sunday: sundayPending, missed: missedCount, later: (workspace.later_contacts || []).length, team: 0 });
   const attentionItems = $derived(attentionRows(workspace, attentionFilter, today));
   const attentionAvailable = $derived(attentionFilter !== 'expected-sunday'
     || (Array.isArray(workspace.attendance_forecast?.expected_person_ids)
@@ -435,6 +447,53 @@
   }
   function closeWorkerMetric() { workerMetric = null; detailRow = null; metricTrigger?.focus?.(); }
   function selectTab(tab) { attentionFilter = ''; workerMetric = null; activeTab = tab; }
+  function openMissedReason(commitment) {
+    missedReasonAction = commitment;
+    missedReasonDraft = commitment?.resolution_note === 'Not in the recorded Sunday attendance.' ? '' : commitment?.resolution_note || '';
+    isMissedReasonOpen = true;
+  }
+  async function saveMissedReason() {
+    if (!missedReasonAction || missedReasonDraft.trim().length > 500) return;
+    savingMissedReason = true;
+    const result = await updateMissedSundayReason(missedReasonAction._id || missedReasonAction.id, missedReasonDraft);
+    savingMissedReason = false;
+    if (result.error) { errorMessage = result.error.message || 'The reason could not be saved.'; return; }
+    isMissedReasonOpen = false;
+    missedReasonAction = null;
+    await loadWorkspace({ quiet: true });
+  }
+  function openMissedCall(row) {
+    missedCallAction = row;
+    missedCallDate = addDays(today, 2);
+    isMissedCallOpen = true;
+  }
+  async function saveMissedCall() {
+    if (!missedCallAction || !missedCallDate) return;
+    if (missedCallAction.next_task) {
+      errorMessage = 'A follow-up task is already open for this person. Open their profile to review it.';
+      missedCallAction = null;
+      isMissedCallOpen = false;
+      await loadWorkspace({ quiet: true });
+      return;
+    }
+    const person = missedCallAction.person;
+    const leaderId = missedCallAction.assigned_leader_id;
+    if (!personId(person) || !leaderId) { errorMessage = 'Assign a worker before scheduling a call.'; return; }
+    savingMissedCall = true;
+    const result = await createTask({
+      personId: personId(person),
+      assignedLeaderId: leaderId,
+      dueDate: missedCallDate,
+      taskType: 'follow_up',
+      ...(confidential ? { reason: 'Check in after a missed Sunday confirmation' } : {}),
+    });
+    savingMissedCall = false;
+    if (result.error) { errorMessage = result.error.message || 'The call could not be scheduled.'; return; }
+    missedCallAction = null;
+    isMissedCallOpen = false;
+    successMessage = `A follow-up call for ${personName(person)} is planned for ${formatDate(missedCallDate)}.`;
+    await loadWorkspace({ quiet: true });
+  }
   function viewFullProfile(person) {
     if (!personId(person)) return;
     saveDomainReturn('pipeline-profile', returnFrame());
@@ -587,6 +646,14 @@
       onNextSunday={() => changeSunday(7)}
       onCurrentSunday={resetSundayToCurrent}
     />
+  {:else if activeTab === 'missed'}
+    <MissedSundayFollowUp
+      history={workspace.sunday_missed_history || []}
+      {today}
+      onOpen={openPerson}
+      onEditReason={openMissedReason}
+      onPlanCall={openMissedCall}
+    />
   {:else if activeTab === 'later'}
     <section class="overflow-hidden rounded-xl border border-border bg-card">
       <div class="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -714,6 +781,28 @@
       </label>
     </form>
     {#snippet footer()}<Button variant="secondary" disabled={savingSundayNote} onclick={() => isSundayNoteOpen = false}>Cancel</Button><Button loading={savingSundayNote} onclick={submitSundayNoteAction}>Save update</Button>{/snippet}
+  </Modal>
+
+  <Modal bind:isOpen={isMissedReasonOpen} title={missedReasonAction ? `Sunday follow-up note — ${personName(missedReasonAction.person)}` : 'Sunday follow-up note'} size="md">
+    <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); saveMissedReason(); }}>
+      <p class="text-sm text-muted-foreground">Add the reason you learned for this missed Sunday. The history will keep the previous note changes.</p>
+      <label class="block text-sm font-medium text-foreground">Reason or context <span class="font-normal text-muted-foreground">(optional)</span>
+        <textarea bind:value={missedReasonDraft} maxlength="500" rows="3" placeholder="For example, transport fell through" class="mt-1.5 w-full resize-none rounded-lg border border-border bg-secondary px-3 py-2 text-sm"></textarea>
+      </label>
+    </form>
+    {#snippet footer()}<Button variant="secondary" disabled={savingMissedReason} onclick={() => isMissedReasonOpen = false}>Cancel</Button><Button loading={savingMissedReason} onclick={saveMissedReason}>Save reason</Button>{/snippet}
+  </Modal>
+
+  <Modal bind:isOpen={isMissedCallOpen} title={missedCallAction ? `Plan a call — ${personName(missedCallAction.person)}` : 'Plan a call'} size="md">
+    {#if missedCallAction}
+      <div class="space-y-4">
+        <p class="text-sm text-muted-foreground">This adds one follow-up task for {personName(missedCallAction.assigned_leader)}. No task will be created until you save.</p>
+        <label class="block text-sm font-medium text-foreground">Call due date
+          <input type="date" min={today} bind:value={missedCallDate} class="mt-1.5 w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm" />
+        </label>
+      </div>
+    {/if}
+    {#snippet footer()}<Button variant="secondary" disabled={savingMissedCall} onclick={() => { missedCallAction = null; isMissedCallOpen = false; }}>Cancel</Button><Button loading={savingMissedCall} onclick={saveMissedCall}>Schedule call</Button>{/snippet}
   </Modal>
 </DashboardLayout>
 

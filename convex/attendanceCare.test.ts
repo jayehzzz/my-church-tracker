@@ -318,6 +318,42 @@ describe('plans and promise timeline reconciliation',()=>{
         expect(await t.run(ctx=>ctx.db.get(plan!._id))).toMatchObject({status:'attended'});
         expect((await t.run(ctx=>ctx.db.query('gathering_commitments').collect()))[0]).toMatchObject({resolution:'attended'});
     });
+    it('builds Sunday missed history from explicit yeses, distinct Sundays, reasons and open tasks', async()=>{
+        const {t,owner,ids,service,commitment}=await fixture();
+        const missedOne=await commitment({gatheringDate:'2026-08-02'});
+        const attended=await commitment({gatheringDate:'2026-08-09'});
+        const missedTwo=await commitment({gatheringDate:'2026-08-16'});
+        const cancelled=await commitment({gatheringDate:'2026-08-23'});
+        const pending=await commitment({gatheringDate:'2026-08-30'});
+        await owner.mutation(api.crm.resolveCommitment,{commitmentId:missedOne!._id,resolution:'no_show',note:'Transport fell through'});
+        const gathering=await service({service_date:'2026-08-09'});
+        await owner.mutation(api.crm.resolveCommitment,{commitmentId:attended!._id,serviceId:gathering!._id,resolution:'attended'});
+        await owner.mutation(api.crm.resolveCommitment,{commitmentId:missedTwo!._id,resolution:'no_show'});
+        await owner.mutation(api.crm.resolveCommitment,{commitmentId:cancelled!._id,resolution:'cancelled'});
+        const dashboard=await owner.query(api.crm.getDashboard,{serviceDate:'2026-09-27'});
+        const row=dashboard.sunday_missed_history.find((item:any)=>item.person_id===ids.person);
+        expect(row).toMatchObject({missed_count:2,decided_count:3,next_task:{status:'open',person_id:ids.person}});
+        expect(row.missed_sundays.map((item:any)=>item.gathering_date)).toEqual(['2026-08-16','2026-08-02']);
+        expect(row.missed_sundays.find((item:any)=>item._id===missedOne!._id)?.resolution_note).toBe('Transport fell through');
+        expect(row.missed_sundays.some((item:any)=>item._id===cancelled!._id||item._id===pending!._id)).toBe(false);
+    });
+    it('lets an assigned leader add a reason to a missed Sunday and retains note history',async()=>{
+        const {t,owner,ids,commitment}=await fixture();
+        const c=await commitment({gatheringDate:'2026-08-02'});
+        await owner.mutation(api.crm.resolveCommitment,{commitmentId:c!._id,resolution:'no_show'});
+        await t.run(async ctx=>{
+            await ctx.db.insert('crm_users',{external_auth_id:'https://fixture.example|leader',person_id:ids.leader,role:'leader',status:'active',created_at:stamp,updated_at:stamp});
+        });
+        const leader=t.withIdentity({tokenIdentifier:'https://fixture.example|leader',issuer:'https://fixture.example',subject:'leader'});
+        await expect(leader.mutation(api.crm.updateMissedSundayReason,{commitmentId:c!._id,note:'Should not be allowed yet'})).rejects.toThrow();
+        expect(await t.run(ctx=>ctx.db.get(c!._id))).not.toHaveProperty('resolution_note');
+        await t.run(ctx=>ctx.db.insert('follow_up_assignments',{person_id:ids.person,assigned_leader_id:ids.leader,status:'active',assigned_at:stamp,created_at:stamp,updated_at:stamp}));
+        await leader.mutation(api.crm.updateMissedSundayReason,{commitmentId:c!._id,note:'Transport fell through'});
+        const updated=await t.run(ctx=>ctx.db.get(c!._id));
+        expect(updated).toMatchObject({resolution:'no_show',resolution_note:'Transport fell through'});
+        expect(updated?.history?.map(change=>change.action)).toEqual(['confirmed','no_show','reason_added']);
+        await expect(leader.mutation(api.crm.updateMissedSundayReason,{commitmentId:c!._id,note:'x'.repeat(501)})).rejects.toThrow(/500 characters/);
+    });
 
     it('creates exactly one plan through CRM when the member had no plan',async()=>{
         const {t,owner,ids,service}=await fixture();

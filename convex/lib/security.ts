@@ -61,7 +61,7 @@ const leaderMutations = new Set([
   "people:addDiscipleshipReview", "people:update", "evangelism:create", "evangelism:update", "evangelism:markAsJoinedChurch", "evangelism:markAsConverted",
   "people:createGrowthAgreement", "people:reviewGrowthAgreement",
   "crm:createTask", "crm:completeTask", "crm:moveToLater", "crm:recordCommitment",
-  "crm:resolveCommitment", "crm:setAttendancePlan",
+  "crm:resolveCommitment", "crm:setAttendancePlan", "crm:updateMissedSundayReason",
   "follow_ups:create", "follow_ups:resolvePromise", "follow_ups:bulkResolvePromises",
   "visitations:create", "visitations:update",
 ]);

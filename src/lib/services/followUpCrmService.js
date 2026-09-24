@@ -652,9 +652,55 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
       .map((commitment) => enrichCommitment(commitment, state))
       .sort((a, b) => String(b.gathering_date).localeCompare(String(a.gathering_date)))
       .slice(0, 40),
+    sunday_missed_history: buildLocalMissedSundayHistory(state, leaderId),
     service_date: targetSunday,
     source: "local",
   };
+}
+
+function buildLocalMissedSundayHistory(state, leaderId) {
+  const people = allLocalPeople(state);
+  const peopleById = new Map(people.map(person => [String(person._id || person.id), person]));
+  const owners = new Map(state.assignments
+    .filter(assignment => assignment.status === "active")
+    .sort((a, b) => String(a.assigned_at).localeCompare(String(b.assigned_at)))
+    .map(assignment => [String(assignment.person_id), String(assignment.assigned_leader_id)]));
+  const byPerson = new Map();
+  for (const commitment of state.commitments || []) {
+    if (commitment.gathering_type !== "sunday_service" || commitment.response !== "yes") continue;
+    const id = String(commitment.person_id);
+    const rows = byPerson.get(id) || [];
+    rows.push(commitment);
+    byPerson.set(id, rows);
+  }
+  const ranks = { pending: 0, cancelled: 1, no_show: 2, attended: 3 };
+  const openTasks = (state.tasks || []).filter(task => task.status === "open");
+  return [...byPerson.entries()].flatMap(([id, rows]) => {
+    const person = peopleById.get(id);
+    if (!person || person.member_status === "archived") return [];
+    const byDate = new Map();
+    for (const row of rows) {
+      const previous = byDate.get(row.gathering_date);
+      if (!previous || (ranks[row.resolution] || 0) > (ranks[previous.resolution] || 0)) byDate.set(row.gathering_date, row);
+    }
+    const resolved = [...byDate.values()].filter(row => ["attended", "no_show"].includes(row.resolution));
+    const missed = [...byDate.values()].filter(row => row.resolution === "no_show").sort((a, b) => String(b.gathering_date).localeCompare(String(a.gathering_date)));
+    if (!missed.length) return [];
+    const workerId = owners.get(id) || missed[0].leader_id;
+    if (leaderId && String(workerId) !== String(leaderId)) return [];
+    const worker = peopleById.get(String(workerId)) || null;
+    const nextTask = openTasks.filter(task => String(task.person_id) === id).sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)))[0] || null;
+    return [{
+      person_id: id,
+      person,
+      assigned_leader_id: workerId,
+      assigned_leader: worker,
+      missed_count: missed.length,
+      decided_count: resolved.length,
+      missed_sundays: missed.map(row => ({ ...enrichCommitment(row, state), person })),
+      next_task: nextTask ? enrichTask(nextTask, state) : null,
+    }];
+  }).sort((a, b) => String(b.missed_sundays[0].gathering_date).localeCompare(String(a.missed_sundays[0].gathering_date)));
 }
 
 function normalizeDashboard(data, source) {
@@ -684,6 +730,7 @@ function normalizeDashboard(data, source) {
     })),
     attendance_roster: data?.attendance_roster || [],
     recent_sunday_results: data?.recent_sunday_results || [],
+    sunday_missed_history: data?.sunday_missed_history || [],
     attendance_forecast: {
       ...forecast,
       service_date: forecast.service_date || data?.service_date,
@@ -1240,35 +1287,6 @@ export async function resolveCommitment(commitmentId, resolution, gathering = {}
       contact.sunday_no_show_count = noShowCount;
       contact.pipeline_stage = "no_show";
     }
-    const assignment = state.assignments
-      .filter((item) => String(item.person_id) === String(commitment.person_id) && item.status === "active")
-      .sort((a, b) => String(b.assigned_at).localeCompare(String(a.assigned_at)))[0];
-    const leaderId = assignment?.assigned_leader_id || commitment.leader_id || state.people.find((p) => p.member_status === "leader")?._id;
-    const existingOpenTask = state.tasks.find(
-      (task) => String(task.person_id) === String(commitment.person_id) && task.status === "open",
-    );
-    if (contact && !canFollowUp(contact)) {
-      // Attendance history can still be resolved without restarting outreach.
-    } else if (existingOpenTask) {
-      existingOpenTask.reason = "Missed Sunday service — warm care check-in";
-      existingOpenTask.due_date = addDays(dateOnly(), 2);
-      existingOpenTask.priority = "high";
-      existingOpenTask.updated_at = new Date().toISOString();
-    } else if (leaderId) {
-      const now = new Date().toISOString();
-      state.tasks.push({
-        _id: makeId("local-task"),
-        person_id: commitment.person_id,
-        assigned_leader_id: leaderId,
-        task_type: "follow_up",
-        due_date: addDays(dateOnly(), 2),
-        status: "open",
-        priority: "high",
-        reason: "Missed Sunday service — warm care check-in",
-        created_at: now,
-        updated_at: now,
-      });
-    }
   }
   if (resolution === "attended") {
     const contact = state.contacts.find((item) => String(item._id) === String(commitment.person_id));
@@ -1296,6 +1314,40 @@ export async function resolveCommitment(commitmentId, resolution, gathering = {}
       });
     }
   }
+  writeLocalState(state);
+  return { data: enrichCommitment(commitment, state), error: null, source: "local" };
+}
+
+export async function updateMissedSundayReason(commitmentId, note) {
+  const client = getClient();
+  if (client && isRemoteId(commitmentId)) {
+    try {
+      const data = await client.mutation(api.crm.updateMissedSundayReason, { commitmentId, note: String(note ?? "") });
+      return { data, error: null, source: "convex" };
+    } catch (error) {
+      return { data: null, error, source: "convex" };
+    }
+  }
+  const state = readLocalState();
+  const commitment = state.commitments.find(row => String(row._id || row.id) === String(commitmentId));
+  if (!commitment || commitment.gathering_type !== "sunday_service" || commitment.response !== "yes" || commitment.resolution !== "no_show") {
+    return { data: null, error: new Error("This missed Sunday could not be found."), source: "local" };
+  }
+  const cleanNote = String(note ?? "").trim();
+  if (cleanNote.length > 500) return { data: null, error: new Error("Keep the reason to 500 characters or fewer."), source: "local" };
+  const now = new Date().toISOString();
+  const leaderId = state.assignments
+    .filter(assignment => String(assignment.person_id) === String(commitment.person_id) && assignment.status === "active")
+    .sort((a, b) => String(b.assigned_at).localeCompare(String(a.assigned_at)))[0]?.assigned_leader_id || commitment.leader_id;
+  const hadReason = Boolean(commitment.resolution_note && commitment.resolution_note !== "Not in the recorded Sunday attendance.");
+  commitment.resolution_note = cleanNote || undefined;
+  commitment.history = [...(commitment.history || []), {
+    at: now,
+    ...(leaderId ? { leader_id: leaderId } : {}),
+    action: cleanNote ? (hadReason ? "reason_updated" : "reason_added") : "reason_cleared",
+    ...(cleanNote ? { note: cleanNote } : {}),
+  }];
+  commitment.updated_at = now;
   writeLocalState(state);
   return { data: enrichCommitment(commitment, state), error: null, source: "local" };
 }

@@ -24,8 +24,9 @@ vi.mock('$lib/services/followUpCrmService.js', () => ({
   getDashboard: async () => ({ data: workspace, error: null }),
   watchDashboard: async () => () => {},
   getContactProfile: async () => ({ data: { person: historicalPerson, follow_ups: [], commitments: [] }, error: null }),
-  assignContact: vi.fn(), batchAssignContacts: vi.fn(), completeTask: vi.fn(), quickLogNoAnswer: vi.fn(),
+  assignContact: vi.fn(), batchAssignContacts: vi.fn(), completeTask: vi.fn(), createTask: vi.fn(), quickLogNoAnswer: vi.fn(),
   reactivateContact: vi.fn(), resolveCommitment: vi.fn(), setAttendancePlan: vi.fn(),
+  updateMissedSundayReason: vi.fn(),
 }));
 
 beforeEach(() => {

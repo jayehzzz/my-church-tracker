@@ -28,6 +28,7 @@ describe("follow-up CRM service", () => {
     expect(result.data.attendance_forecast.confirmed_guests).toBe(result.data.attendance_forecast.confirmed_non_members);
     expect(result.data.upcoming_commitments).toBeInstanceOf(Array);
     expect(result.data.sunday_commitments).toBeInstanceOf(Array);
+    expect(result.data.sunday_missed_history).toBeInstanceOf(Array);
     expect(result.data.visitation_follow_ups).toBeInstanceOf(Array);
     expect(result.data.quarterly_active_limit).toBe(10);
     expect(result.data.quarterly_backlog_count).toBeGreaterThanOrEqual(0);
@@ -138,20 +139,19 @@ describe("follow-up CRM service", () => {
     }
   });
 
-  it("creates a recovery task when a Sunday commitment is resolved as no_show", async () => {
+  it("does not create or alter a follow-up task when a Sunday commitment is resolved as no_show", async () => {
     const { resolveCommitment, getDashboard } = await import("./followUpCrmService.js");
     const dashboard = await getDashboard();
     const commitment = dashboard.data.sunday_commitments.find((c) => c.resolution === "pending" || !c.resolution);
     if (commitment) {
+      const before = dashboard.data.tasks.filter((task) => String(task.person_id) === String(commitment.person_id)).map(task => task._id || task.id);
       const result = await resolveCommitment(commitment._id || commitment.id, "no_show");
       expect(result.error).toBeNull();
       expect(result.data.resolution).toBe("no_show");
 
       const refreshed = await getDashboard();
-      const recoveryTask = refreshed.data.tasks.find(
-        (t) => String(t.person_id) === String(commitment.person_id) && t.reason?.includes("Missed Sunday"),
-      );
-      expect(recoveryTask).toBeDefined();
+      expect(refreshed.data.tasks.filter((task) => String(task.person_id) === String(commitment.person_id)).map(task => task._id || task.id)).toEqual(before);
+      expect(refreshed.data.sunday_missed_history.some(row => String(row.person_id) === String(commitment.person_id))).toBe(true);
     }
   });
   it("preserves restrictions and cancels only outreach when an existing contact opts out", async () => {
