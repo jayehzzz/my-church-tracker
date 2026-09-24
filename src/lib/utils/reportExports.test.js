@@ -12,8 +12,27 @@ describe('CSV report selection', () => {
             { id: 'b', member_status: 'member', membership_date: '2026-08-31' },
             { id: 'c', member_status: 'guest', membership_date: '2026-09-02' },
         ] };
-        expect(reportExportRows('people', sources, settings({ peopleDateField: 'membership_date', values: { member_status: 'member' } }), range)).toEqual([sources.people[0]]);
+        expect(reportExportRows('people', sources, settings({ peopleDateField: 'membership_date', values: { people_group: 'church_members' } }), range)).toEqual([sources.people[0]]);
         expect(reportExportRows('people', sources, settings(), range)).toHaveLength(3);
+    });
+
+    it('treats members and leaders as church members while keeping quick groups distinct', () => {
+        const sources = { people: [
+            { id: 'm', member_status: 'member', role: 'no_role' },
+            { id: 'l', member_status: 'leader', role: 'bacenta_leader' },
+            { id: 'g', member_status: 'guest' },
+            { id: 'v', member_status: 'visitor' },
+            { id: 'c', member_status: 'contact' },
+            { id: 'a', member_status: 'archived' },
+        ] };
+        const group = (people_group) => reportExportRows('people', sources, settings({ values: { people_group } }), range).map(({ id }) => id);
+        expect(group('church_members')).toEqual(['m', 'l']);
+        expect(group('member')).toEqual(['m']);
+        expect(group('leader')).toEqual(['l']);
+        expect(group('guest')).toEqual(['g', 'v']);
+        expect(group('contact')).toEqual(['c']);
+        expect(group('archived')).toEqual(['a']);
+        expect(reportExportRows('people', sources, settings({ values: { people_group: 'church_members', role: 'no_role' } }), range).map(({ id }) => id)).toEqual(['m']);
     });
 
     it('selects an outreach contact by credited collector and keeps its own journey', () => {
@@ -22,6 +41,7 @@ describe('CSV report selection', () => {
             { id: 'c2', contact_date: '2026-09-30', inviter_ids: ['p2'], response: 'responsive', member_status: 'guest' },
         ] };
         expect(reportExportRows('contacts', sources, settings({ personId: 'p1', personRelation: 'credited', values: { response: 'responsive' } }), range)).toEqual([sources.contacts[0]]);
+        expect(reportExportRows('contacts', sources, settings({ values: { people_group: 'church_members' } }), range)).toEqual([sources.contacts[0]]);
     });
 
     it('uses named attendance to select a gathering while retaining whole-gathering counts', () => {

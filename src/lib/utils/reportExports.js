@@ -5,13 +5,26 @@ const date = (key, label) => ({ key, label, format: formatDateForExport });
 const yesNo = (key, label) => ({ key, label, format: (value) => value == null ? '' : formatBooleanForExport(value) });
 const list = (key, label) => ({ key, label, format: (value) => Array.isArray(value) ? value.join(', ') : value });
 const name = (person) => [person?.preferred_name || person?.first_name, person?.last_name].filter(Boolean).join(' ');
+const peopleGroups = [
+    { value: 'church_members', label: 'Church members (including leaders)' },
+    { value: 'member', label: 'Members without leader status' },
+    { value: 'leader', label: 'Leaders only' },
+    { value: 'guest', label: 'Guests' },
+    { value: 'contact', label: 'Outreach contacts' },
+    { value: 'archived', label: 'Archived people' },
+];
+
+function matchesPeopleGroup(row, group) {
+    const status = row.member_status === 'visitor' ? 'guest' : row.member_status;
+    return group === 'church_members' ? status === 'member' || status === 'leader' : status === group;
+}
 
 export const reportExportTypes = {
     people: {
         label: 'People directory',
         description: 'One row per person, including contacts, guests, members, leaders and archived records. Current profile snapshot.',
         dateFields: [date('contact_date', 'First contact date'), date('first_visit_date', 'First visit date'), date('membership_date', 'Membership date')],
-        filters: [{ key: 'member_status', label: 'Journey status' }, { key: 'role', label: 'Leadership role' }, { key: 'activity_status', label: 'Activity status' }],
+        filters: [{ key: 'people_group', label: 'People group', allLabel: 'All people', options: peopleGroups }, { key: 'role', label: 'Leadership role' }, { key: 'activity_status', label: 'Activity status' }],
         personRelations: [{ key: 'self', label: 'This person' }],
         columns: [
             ...exportColumns.people,
@@ -28,7 +41,7 @@ export const reportExportTypes = {
         label: 'Outreach contacts',
         description: 'One row per person with a recorded contact date or evangelism entry point; includes people who later joined.',
         dateField: 'contact_date', dateLabel: 'First contact date',
-        filters: [{ key: 'response', label: 'Response category' }, { key: 'pipeline_stage', label: 'Pipeline stage' }, { key: 'member_status', label: 'Journey status' }],
+        filters: [{ key: 'people_group', label: 'People group', allLabel: 'All outreach contacts', options: peopleGroups }, { key: 'response', label: 'Response category' }, { key: 'pipeline_stage', label: 'Pipeline stage' }],
         personRelations: [{ key: 'self', label: 'Contact' }, { key: 'credited', label: 'Inviter or credited collector' }],
         columns: [
             ...exportColumns.evangelismContacts,
@@ -97,7 +110,12 @@ export function reportExportRows(type, sources, settings, range) {
         }
         for (const filter of config.filters) {
             const selected = settings.values?.[filter.key];
-            if (selected && String(row[filter.key] ?? '') !== selected) return false;
+            if (!selected) continue;
+            if (filter.key === 'people_group') {
+                if (!matchesPeopleGroup(row, selected)) return false;
+            } else if (filter.key === 'role' && selected === 'no_role') {
+                if (row.role && row.role !== 'no_role') return false;
+            } else if (String(row[filter.key] ?? '') !== selected) return false;
         }
         if (settings.personId) {
             const id = String(settings.personId);

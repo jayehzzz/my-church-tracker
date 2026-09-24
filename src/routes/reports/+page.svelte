@@ -345,7 +345,7 @@
                         <div>
                             <label for={`csv-filter-${filter.key}`} class="mb-2 block text-sm font-medium">{filter.label}</label>
                             <select id={`csv-filter-${filter.key}`} class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary" bind:value={exportValues[filter.key]}>
-                                <option value="">All</option>
+                                <option value="">{filter.allLabel || 'All'}</option>
                                 {#each filter.options || reportExportOptions(exportSources[exportType], filter.key) as option}
                                     <option value={option.value}>{option.label}</option>
                                 {/each}
