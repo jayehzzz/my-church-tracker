@@ -100,6 +100,17 @@ describe("public backend boundaries", () => {
     expect(await as("owner").query(api.people.getById, { id: ids.assigned })).toHaveProperty("is_tither", true);
   });
 
+  it("allows a care-enabled leader to read care while denying giving", async () => {
+    const { t, as, ids } = await fixture();
+    await t.run(ctx => ctx.db.patch(ids.assigned, { is_tither: true }));
+    const person = await as("pastoral").query(api.people.getById, { id: ids.assigned });
+    expect(person).toHaveProperty("notes", "Confidential pastoral note");
+    expect(person).not.toHaveProperty("is_tither");
+    expect(await as("pastoral").query(api.visitations.getById, { id: ids.visit })).toHaveProperty("notes", "Private care note");
+    await expect(as("pastoral").mutation(api.people.update, { id: ids.assigned, is_tither: false })).rejects.toThrow(/FORBIDDEN/);
+    expect((await as("pastoral").query(api.access.me, {})).canViewGiving).toBe(false);
+  });
+
   it("lets a leader collect a new contact with self-owned follow-up, never claim existing contacts", async () => {
     const { t, as, ids } = await fixture();
     const input = { first_name: "New contact", contact_date: "2026-09-05", response: "not_assessed" };

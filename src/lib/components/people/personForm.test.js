@@ -9,7 +9,7 @@ vi.mock('$lib/services/peopleService', () => ({
   update: vi.fn(async (id, data) => ({ data: { id, ...data }, error: null })),
 }));
 vi.mock("svelte/transition", () => ({ fade: () => ({}), fly: () => ({}), scale: () => ({}) }));
-beforeEach(() => { vi.clearAllMocks(); session.set({ status: 'authenticated', user: { role: 'owner', canViewConfidential: true } }); });
+beforeEach(() => { vi.clearAllMocks(); session.set({ status: 'authenticated', user: { role: 'owner', canViewConfidential: true, canViewGiving: true } }); });
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -65,6 +65,19 @@ it('does not display or submit giving and private notes for a restricted leader'
   const payload = peopleService.update.mock.calls[0][1];
   expect(payload).not.toHaveProperty('is_tither');
   expect(payload).not.toHaveProperty('notes');
+});
+
+it('lets a care-enabled leader record notes without exposing giving', async () => {
+  session.set({ status: 'authenticated', user: { role: 'leader', canViewConfidential: true, canViewGiving: false } });
+  const person = { id: 'care', first_name: 'Anne', last_name: 'Jones' };
+  const { getByLabelText, queryByLabelText, getByRole } = render(PersonForm, { isOpen: true, person });
+  expect(queryByLabelText('Manually recorded tither status')).toBeNull();
+  await fireEvent.input(getByLabelText('Notes'), { target: { value: 'Pastoral check-in' } });
+  await fireEvent.click(getByRole('button', { name: 'Save Changes' }));
+  await waitFor(() => expect(peopleService.update).toHaveBeenCalled());
+  const payload = peopleService.update.mock.calls[0][1];
+  expect(payload.notes).toBe('Pastoral check-in');
+  expect(payload).not.toHaveProperty('is_tither');
 });
 
 it('uses an in-app discard confirmation instead of blocking window.confirm', async () => {

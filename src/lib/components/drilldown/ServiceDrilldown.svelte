@@ -6,7 +6,7 @@
   import { selectedChoice } from './selection.js';
   import { serviceId, metricLabels, selectServiceContributions, serviceContribution, namedServicePeople } from './serviceAdapter.js';
   let { state = $bindable(null), services = [], attendance = [], people = [], status = 'ready', error = '', onretry = null, onedit = null, onprofile = null, wholeNumberAverages = true } = $props();
-  const confidential = $derived($session.status === 'demo' || $session.user?.canViewConfidential === true);
+  const confidential = $derived($session.status === 'demo' || $session.user?.canViewGiving === true);
   function date(value) { return value ? new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Date unavailable'; }
   function title(service) { return service.sermon_topic || String(service.service_type || 'Service').replaceAll('_', ' '); }
   function name(person) { return [person.first_name, person.last_name].filter(Boolean).join(' ') || person.name || 'Named attendee'; }

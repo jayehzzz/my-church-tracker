@@ -113,7 +113,7 @@
 
 <DashboardLayout>
   <div class="pb-12">
-    <a href="/meetings" class="text-sm font-medium text-primary hover:underline">← All meetings</a>
+    <a href={$session.user?.role === 'leader' ? '/my-bacenta' : '/meetings'} class="text-sm font-medium text-primary hover:underline">← {$session.user?.role === 'leader' ? 'My Bacenta' : 'All meetings'}</a>
     {#if loading}
       <p class="mt-6 text-sm text-muted-foreground">Loading programme…</p>
     {:else if error}

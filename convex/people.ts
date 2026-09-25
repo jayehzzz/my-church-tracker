@@ -1,5 +1,5 @@
 import { developmentGatherings, developmentPresent } from "../src/lib/utils/developmentRecords.js";
-import { queryFor, mutationFor, authenticatedUser, forbidden, isAdmin } from "./lib/security";
+import { queryFor, mutationFor, authenticatedUser, forbidden, isAdmin, canViewGiving } from "./lib/security";
 
 import { v } from "convex/values";
 import {
@@ -700,10 +700,10 @@ export const getDevelopmentSummary = queryFor("people:getDevelopmentSummary")({
                     programmes,
                 )].map(g => [g.id, g])).values()],
                 attendance: [
-                    ...serviceRows.map(r => ({ event_id: String(r.service_id), present: true, gave_tithe: user.can_view_confidential ? r.gave_tithe === true : undefined })),
-                    ...meetingRows.map(r => ({ event_id: String(r.meeting_id), present: developmentPresent(r), gave_tithe: user.can_view_confidential ? r.gave_tithe === true : undefined })),
+                    ...serviceRows.map(r => ({ event_id: String(r.service_id), present: true, gave_tithe: canViewGiving(user) ? r.gave_tithe === true : undefined })),
+                    ...meetingRows.map(r => ({ event_id: String(r.meeting_id), present: developmentPresent(r), gave_tithe: canViewGiving(user) ? r.gave_tithe === true : undefined })),
                 ],
-                givingAvailable: Boolean(user.can_view_confidential),
+                givingAvailable: canViewGiving(user),
                 // RLS can expose only a subset of an inviter's contacts. Label this
                 // response explicitly; never present partial scope as church totals.
                 outreachComplete: user.role === "owner" || user.role === "admin",

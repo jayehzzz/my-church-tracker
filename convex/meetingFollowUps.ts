@@ -24,6 +24,7 @@ export const setAbsenceReason = mutationFor("meetingFollowUps:setAbsenceReason")
   handler: async (ctx, args) => {
     const meeting = await ctx.db.get(args.meetingId);
     if (!meeting || meeting.status !== "completed" || !meeting.program_id) forbidden();
+    if (!await ctx.db.get(args.personId)) forbidden();
     const row = await ctx.db.query("meeting_attendance").withIndex("by_meeting_person", q => q.eq("meeting_id", args.meetingId).eq("person_id", args.personId)).first();
     if (!row || !["absent", "excused"].includes(row.status || "")) forbidden();
     const reason = args.absenceReason.trim();

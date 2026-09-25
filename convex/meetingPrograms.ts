@@ -125,6 +125,37 @@ export const getAll = queryFor("meetingPrograms:getAll")({
     },
 });
 
+// One scoped read for the leader's daily workspace. The security wrapper
+// filters every table before these records are assembled.
+export const getLeaderWorkspace = queryFor("meetingPrograms:getLeaderWorkspace")({
+    args: {},
+    handler: async (ctx) => {
+        const user = authenticatedUser(ctx);
+        if (user.role !== "leader" || !user.person_id) forbidden();
+        const programs = (await ctx.db.query("meeting_programs").collect())
+            .filter(program => program.active && program.category === "bacenta");
+        const hydrated = await Promise.all(programs.map(program => hydrateProgram(ctx, program)));
+        const people = (await ctx.db.query("people").collect())
+            .filter(person => person.member_status !== "archived");
+        const [assignments, openTasks, commitments, visits, meetingsByProgram] = await Promise.all([
+            ctx.db.query("follow_up_assignments").withIndex("by_leader_status", q => q.eq("assigned_leader_id", user.person_id!).eq("status", "active")).collect(),
+            ctx.db.query("follow_up_tasks").withIndex("by_status_due_date", q => q.eq("status", "open")).collect(),
+            ctx.db.query("gathering_commitments").collect(),
+            user.can_view_confidential ? ctx.db.query("visitations").collect() : Promise.resolve([]),
+            Promise.all(hydrated.map(program => ctx.db.query("meetings")
+                .withIndex("by_program", q => q.eq("program_id", program._id)).collect())),
+        ]);
+        const meetings = meetingsByProgram.flat().sort((a, b) => b.meeting_date.localeCompare(a.meeting_date));
+        const meetingRows = (await Promise.all(meetings.filter(meeting => meeting.status === "completed")
+            .map(meeting => ctx.db.query("meeting_attendance").withIndex("by_meeting", q => q.eq("meeting_id", meeting._id)).collect()))).flat();
+        return {
+            leaderId: user.person_id, programs: hydrated, people, assignments,
+            tasks: openTasks, commitments: commitments.filter(row => row.gathering_type === "sunday_service"),
+            visits, meetings, meetingRows,
+        };
+    },
+});
+
 export const create = mutationFor("meetingPrograms:create")({
     args: {
         code: v.string(),

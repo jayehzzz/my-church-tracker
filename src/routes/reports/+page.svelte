@@ -134,7 +134,7 @@
         capture: () => {
             const token = `reports-${crypto.randomUUID()}`;
             saveDomainReturn(token, {
-                identity: identity(), role: $session.user?.role, confidential: $session.user?.canViewConfidential,
+                identity: identity(), role: $session.user?.role, confidential: $session.user?.canViewConfidential, giving: $session.user?.canViewGiving,
                 range: { ...$dateRange }, activeTab, drilldown: $state.snapshot(drilldown),
                 exportType, exportDateMode, peopleDateField, exportPersonId, exportPersonRelation,
                 exportValues: { ...exportValues }, chosenColumns: { ...chosenColumns }, scrollY: window.scrollY,
@@ -143,7 +143,7 @@
         },
         restore: value => {
             const frame = value?.token ? takeDomainReturn(value.token) : null;
-            if (!frame || frame.identity !== identity() || frame.role !== $session.user?.role || frame.confidential !== $session.user?.canViewConfidential || frame.range.startDate !== $dateRange.startDate || frame.range.endDate !== $dateRange.endDate) return;
+            if (!frame || frame.identity !== identity() || frame.role !== $session.user?.role || frame.confidential !== $session.user?.canViewConfidential || frame.giving !== $session.user?.canViewGiving || frame.range.startDate !== $dateRange.startDate || frame.range.endDate !== $dateRange.endDate) return;
             activeTab = frame.activeTab;
             drilldown = frame.drilldown;
             exportType = frame.exportType; exportDateMode = frame.exportDateMode; peopleDateField = frame.peopleDateField;

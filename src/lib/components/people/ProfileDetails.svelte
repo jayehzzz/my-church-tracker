@@ -1,4 +1,5 @@
 <script>
+  import { session } from "$lib/auth/session.js";
   import { Button } from "$lib/components/ui";
   import { formatChurchRole, formatChurchSchool, formatDegreeStatus, normalizeCompletedSchools } from "$lib/utils/personMetrics.js";
   import { formatJourneyStatus, formatLeadershipRole, normalizeJourneyStatus } from "$lib/services/peopleService.js";
@@ -22,7 +23,8 @@
     ["Leadership role", formatLeadershipRole(person.role)],
     ["Basonta membership", person.church_role === "basonta" ? "Basonta member" : person.church_role ? formatChurchRole(person.church_role) : "Not recorded"],
     ["Membership date", date(person.membership_date)], ["Baptised", yesNo(person.is_baptised)],
-    ["Manually recorded tither status", yesNo(person.is_tither)], ["Basonta / ministry groups", person.basontas?.length ? person.basontas.map(label).join(", ") : "None recorded"],
+    ...($session.status === "demo" || $session.user?.canViewGiving ? [["Manually recorded tither status", yesNo(person.is_tither)]] : []),
+    ["Basonta / ministry groups", person.basontas?.length ? person.basontas.map(label).join(", ") : "None recorded"],
   ]);
   let connectionHeading = $derived(journeyStatus === "contact" ? "Outreach information" : journeyStatus === "guest" ? "Non-member information" : "How they connected");
   let firstAttendance = $derived(person.first_visit_date ? date(person.first_visit_date) : journeyStatus === "contact" ? "Not yet attended" : "Not recorded");

@@ -113,7 +113,8 @@ describe('development evidence and agreement safety', () => {
     expect(summary.opportunities[1]).toMatchObject({name:'Evening prayer',category:'prayer',register_known:true});
     expect(JSON.stringify(summary)).not.toContain('private.example');
     expect(JSON.stringify(summary)).not.toContain('Private details');
-    expect(summary.attendance).toEqual([{event_id:events.first,present:true,gave_tithe:true}]);
+    expect(summary.attendance).toEqual([{event_id:events.first,present:true}]);
+    expect(summary.givingAvailable).toBe(false);
     expect(summary.outreachComplete).toBe(false);
     const [redacted] = await as('admin').query(api.people.getDevelopmentSummary,{ids:[ids.person]});
     expect(redacted.givingAvailable).toBe(false);

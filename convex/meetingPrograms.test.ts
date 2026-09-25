@@ -52,7 +52,6 @@ describe("programme leadership and weekly attendance", () => {
     expect(meeting?.status).toBe("completed");
     const [absence] = await as("a").query(api.meetings.getAttendees, { meetingId: meeting!._id });
     expect(absence).toMatchObject({ person_id: ids.regular, status: "absent", expected_regular: true });
-    await as("owner").mutation(api.meetingPrograms.syncPeople, { programId: ids.a, leaderIds: [ids.leaderA], memberIds: [] });
     const followUps = await as("a").query(api.meetingFollowUps.getForProgram, { programId: ids.a });
     expect(followUps.rows).toHaveLength(1);
     await as("a").mutation(api.meetingFollowUps.setAbsenceReason, { meetingId: meeting!._id, personId: ids.regular, absenceReason: "On holiday" });
@@ -73,5 +72,11 @@ describe("programme leadership and weekly attendance", () => {
     await expect(as("b").mutation(api.meetingFollowUps.createTask, { meetingId: meeting!._id, personId: ids.regular, assignedLeaderId: ids.leaderB, dueDate: "2026-09-26" })).rejects.toThrow();
     await expect(as("a").mutation(api.meetings.record, { program_id: ids.b, meeting_type: "bacenta", meeting_date: "2026-09-24", attendanceData: [], markComplete: true })).rejects.toThrow();
     expect((await t.run(ctx => ctx.db.query("meeting_attendance").collect())).filter(row => row.meeting_id === meeting!._id)).toHaveLength(1);
+    await as("owner").mutation(api.meetingPrograms.syncPeople, { programId: ids.a, leaderIds: [ids.leaderA], memberIds: [] });
+    expect(await as("a").query(api.people.getById, { id: ids.regular })).toBeNull();
+    const revoked = await as("a").query(api.meetingFollowUps.getForProgram, { programId: ids.a });
+    expect(revoked.rows).toHaveLength(0);
+    expect(revoked.tasks).toHaveLength(0);
+    await expect(as("a").mutation(api.meetings.record, { id: meeting!._id, program_id: ids.a, meeting_type: "bacenta", meeting_date: "2026-09-24", attendanceData: [{ person_id: ids.regular, status: "absent" }], markComplete: true })).rejects.toThrow();
   });
 });

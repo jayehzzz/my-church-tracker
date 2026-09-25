@@ -8,6 +8,7 @@
     title = "Sunday follow-through",
     compact = false,
     showEmpty = true,
+    showRate = true,
   } = $props();
 
   const reliability = $derived({ ...summarizeSundayCommitments(commitments), ...(summary || {}) });
@@ -48,9 +49,9 @@
         <p class="mt-1 text-xs text-muted-foreground">Explicit Sundays where this person said they would come.</p>
         <p class="mt-1 text-xs font-medium {reliability.missed ? 'text-destructive' : 'text-muted-foreground'}">Missed when expected: {missedRatioLabel}</p>
       </div>
-      <Badge size="sm" variant={reliability.repeated_misses ? "warning" : reliability.decided && reliability.follow_through_rate >= 75 ? "success" : "default"}>
+      {#if showRate}<Badge size="sm" variant={reliability.repeated_misses ? "warning" : reliability.decided && reliability.follow_through_rate >= 75 ? "success" : "default"}>
         {rateLabel}
-      </Badge>
+      </Badge>{/if}
     </div>
 
     {#if reliability.expected > 0}
@@ -62,7 +63,7 @@
         {#if !compact}<div class="rounded-lg bg-primary/10 px-3 py-2"><dt class="text-[11px] text-muted-foreground">Awaiting result</dt><dd class="mt-0.5 text-lg font-semibold text-primary">{reliability.pending}</dd></div>{/if}
       </dl>
       <p class="mt-3 text-xs leading-relaxed text-muted-foreground">
-        Follow-through is based on attended vs missed resolved commitments. Cancellations stay in the expected total but are shown separately from no-shows.
+        {showRate ? 'Follow-through is based on attended vs missed resolved commitments. ' : ''}Cancellations stay in the expected total but are shown separately from no-shows.
       </p>
       {#if !compact && reliability.entries?.length}
         <div class="mt-4 border-t border-border pt-3">

@@ -128,7 +128,7 @@
   const workerLabels = { period_unique_contacts: 'People worked', meaningful_conversations: 'Real conversations', serious_candidates: 'Serious now', sunday_promises: 'Said yes to Sunday', promises_attended: 'Attended', promises_missed: 'Did not attend', overdue_tasks: 'Overdue calls', people_without_next_action: 'People with no next call', attention: 'Needs attention' };
   function authKey() {
     const user = $session.user;
-    return JSON.stringify([$session.status, user?.id || user?.sub || user?.email || user?.externalAuthId, user?.role, user?.canViewConfidential]);
+    return JSON.stringify([$session.status, user?.id || user?.sub || user?.email || user?.externalAuthId, user?.role, user?.canViewConfidential, user?.canViewGiving]);
   }
   function returnFrame() { return { auth: authKey(), activeTab, boardView, assessmentPeriod, selectedLeaderId, attentionFilter, workerMetric, detailRowId: detailRow?.id || detailRow?._id, drawerPersonId: personId(drawerPerson), drawerOpen: isDrawerOpen, scrollY: window.scrollY }; }
   function restoreFrame(frame) {

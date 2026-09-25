@@ -266,7 +266,7 @@ describe("attendance and care correction edge cases", () => {
             await ctx.db.insert('follow_up_assignments',{person_id:ids.person,assigned_leader_id:ids.leader,status:'active',assigned_at:stamp,created_at:stamp,updated_at:stamp});
         });
         const leader=t.withIdentity({tokenIdentifier:'https://fixture.example|leader',issuer:'https://fixture.example',subject:'leader'});
-        await expect(leader.mutation(api.crm.resolveCommitment,{commitmentId:c!._id,serviceId:s!._id,resolution:'attended'})).rejects.toThrow(/administrator/);
+        await expect(leader.mutation(api.crm.resolveCommitment,{commitmentId:c!._id,serviceId:s!._id,resolution:'attended'})).rejects.toThrow(/FORBIDDEN/);
         expect(await t.run(ctx=>ctx.db.query('attendance').collect())).toHaveLength(0);
         expect(await leader.query(api.follow_ups.getByContact,{contactId:ids.person})).toEqual([]);
         expect(await owner.query(api.follow_ups.getByContact,{contactId:ids.person})).toHaveLength(1);

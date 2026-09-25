@@ -9,6 +9,7 @@
     task = null,
     people = [],
     initialPersonId = "",
+    initialLeaderId = "",
     onsave = null,
     ...restProps
   } = $props();
@@ -90,7 +91,7 @@
     const existing = visitation;
     formData = {
       person_id: existing?.person_id || task?.person_id || initialPersonId || "",
-      visited_by_id: existing?.visited_by_id || task?.assigned_leader_id || "",
+      visited_by_id: existing?.visited_by_id || task?.assigned_leader_id || initialLeaderId || "",
       visit_date: existing?.visit_date || localDate(),
       interaction_type: existing?.interaction_type || "home_visit",
       purpose: existing?.purpose

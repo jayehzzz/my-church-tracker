@@ -20,6 +20,7 @@
     onEditProfile = () => {},
     onViewProfile = null,
     onClose = () => {},
+    showSundayRate = true,
   } = $props();
 
   let loadingProfile = $state(false);
@@ -315,7 +316,7 @@
           </div>
         </section>
 
-        <SundayReliabilitySummary commitments={profileData?.commitments || []} summary={profileData?.sunday_reliability || null} compact />
+        <SundayReliabilitySummary commitments={profileData?.commitments || []} summary={profileData?.sunday_reliability || null} compact showRate={showSundayRate} />
         {#if profileError}<div role="alert" class="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{profileError} <button type="button" class="font-semibold underline" onclick={() => retryProfile += 1}>Try again</button></div>{/if}
 
         <!-- Sunday Commitment History -->

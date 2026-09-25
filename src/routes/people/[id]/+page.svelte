@@ -26,6 +26,7 @@
     import VisitationDetailModal from "$lib/components/visitation/VisitationDetailModal.svelte";
     import CareSummary from "$lib/components/people/CareSummary.svelte";
     import SundayReliabilitySummary from "$lib/components/shared/SundayReliabilitySummary.svelte";
+    import { session } from "$lib/auth/session.js";
 
     let { data } = $props();
 
@@ -382,7 +383,7 @@
             {#if sectionErrors.care}
                 <p class="rounded-xl border border-border p-4 text-sm text-muted-foreground">Sunday commitment history is unavailable. Retry profile history to see expected-Sunday follow-through.</p>
             {:else}
-                <SundayReliabilitySummary commitments={careProfile?.commitments || []} summary={careProfile?.sunday_reliability || null} />
+                <SundayReliabilitySummary commitments={careProfile?.commitments || []} summary={careProfile?.sunday_reliability || null} showRate={$session.user?.role !== 'leader'} />
             {/if}
 
             <a class="development-entry" href="/development?person={encodeURIComponent(person._id || person.id)}">Open Development assessment <span aria-hidden="true">→</span><small>Participation evidence, leader review and growth agreements</small></a>

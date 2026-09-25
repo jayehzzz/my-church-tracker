@@ -23,6 +23,7 @@
       personId: source.personId || '',
       displayName: source.displayName || '',
       canViewConfidential: source.canViewConfidential === true,
+      canViewGiving: source.canViewGiving === true,
     };
   }
 
@@ -61,6 +62,8 @@
   function updateDraft(key, values) {
     const next = { ...drafts[key], ...values };
     if (next.role === 'viewer') next.canViewConfidential = false;
+    if (next.role === 'viewer' || next.role === 'leader') next.canViewGiving = false;
+    if (next.role === 'leader' && drafts[key]?.role !== 'leader') next.canViewConfidential = true;
     drafts = { ...drafts, [key]: next };
   }
 
@@ -84,6 +87,7 @@
       personId: draft.personId || undefined,
       displayName: draft.displayName.trim() || undefined,
       canViewConfidential: draft.canViewConfidential,
+      canViewGiving: draft.canViewGiving,
     };
   }
 
@@ -156,6 +160,7 @@
         ...storedDraft,
         status: nextStatus,
         canViewConfidential: nextStatus === 'inactive' ? false : storedDraft.canViewConfidential,
+        canViewGiving: nextStatus === 'inactive' ? false : storedDraft.canViewGiving,
       };
       await getConvexHttpClient().mutation(api.access.updateAccount, { accountId: account.id, ...payload(nextDraft) });
       notice = nextStatus === 'inactive'
@@ -212,7 +217,7 @@
                 <label class="text-sm">Link to a person<select class="mt-1 w-full rounded-md border border-border bg-background p-2" value={draft?.personId || ''} onchange={(event) => updateDraft(key, { personId: event.currentTarget.value })}><option value="">No linked person</option>{#each people as person}<option value={person._id}>{person.first_name} {person.last_name || ''}</option>{/each}</select></label>
               </div>
               <div class="flex flex-wrap items-center justify-between gap-3">
-                <label class="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft?.canViewConfidential || false} disabled={draft?.role === 'viewer'} onchange={(event) => updateDraft(key, { canViewConfidential: event.currentTarget.checked })} /> Grant confidential care and giving access</label>
+                <div class="flex flex-wrap gap-4"><label class="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft?.canViewConfidential || false} disabled={draft?.role === 'viewer'} onchange={(event) => updateDraft(key, { canViewConfidential: event.currentTarget.checked })} /> Grant confidential care access</label><label class="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft?.canViewGiving || false} disabled={draft?.role === 'viewer' || draft?.role === 'leader'} onchange={(event) => updateDraft(key, { canViewGiving: event.currentTarget.checked })} /> Grant tithing access</label></div>
                 <div class="flex flex-wrap gap-2">
                   <button class="px-4 py-2 border border-border rounded-lg font-semibold" disabled={saving === key} onclick={() => decline(request)}>Decline request</button>
                   <button class="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-semibold" disabled={saving === key} onclick={() => approve(request)}>{saving === key ? 'Working…' : 'Approve access'}</button>
@@ -239,7 +244,7 @@
               {#if account.isCurrentAccount}<p class="text-sm font-semibold text-primary">You’re signed in here</p>{/if}
               <p class="text-sm">{account.email || 'Email not recorded for this older account'}</p>
               <p class="text-sm"><span class={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${account.status === 'inactive' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary'}`}>{account.status === 'inactive' ? 'Access removed' : 'Active'}</span></p>
-              <p class="text-sm text-muted-foreground">{account.role === 'owner' ? 'Owner — manages accounts and church records.' : account.role === 'admin' ? 'Admin — manages church records.' : account.role === 'leader' ? 'Leader — works with assigned people, evangelism and follow-up.' : 'Viewer — views summary information.'} {account.canViewConfidential ? 'Confidential care and giving access included.' : 'No confidential care or giving access.'}</p>
+              <p class="text-sm text-muted-foreground">{account.role === 'owner' ? 'Owner — manages accounts and church records.' : account.role === 'admin' ? 'Admin — manages church records.' : account.role === 'leader' ? 'Leader — works with their bacenta and assigned people.' : 'Viewer — views summary information.'} {account.canViewConfidential ? 'Confidential care access.' : 'No confidential care access.'} {account.canViewGiving ? 'Tithing access.' : 'No tithing access.'}</p>
               <p class="text-sm text-muted-foreground">Linked person: {linkedPersonLabel(account.personId)}</p>
             </div>
             <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -248,7 +253,7 @@
               <label class="text-sm">Link to a person<select class="mt-1 w-full rounded-md border border-border bg-background p-2" value={draft?.personId || ''} onchange={(event) => updateDraft(key, { personId: event.currentTarget.value })}><option value="">No linked person</option>{#each people as person}<option value={person._id}>{person.first_name} {person.last_name || ''}</option>{/each}</select></label>
             </div>
             <div class="flex flex-wrap items-center justify-between gap-3">
-              <label class="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft?.canViewConfidential || false} disabled={draft?.role === 'viewer' || account.status === 'inactive'} onchange={(event) => updateDraft(key, { canViewConfidential: event.currentTarget.checked })} /> Grant confidential care and giving access</label>
+              <div class="flex flex-wrap gap-4"><label class="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft?.canViewConfidential || false} disabled={draft?.role === 'viewer' || account.status === 'inactive'} onchange={(event) => updateDraft(key, { canViewConfidential: event.currentTarget.checked })} /> Grant confidential care access</label><label class="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft?.canViewGiving || false} disabled={draft?.role === 'viewer' || draft?.role === 'leader' || account.status === 'inactive'} onchange={(event) => updateDraft(key, { canViewGiving: event.currentTarget.checked })} /> Grant tithing access</label></div>
               <div class="flex flex-wrap gap-2">
                 {#if account.status === 'inactive'}
                   <button class="px-4 py-2 border border-primary/50 text-primary rounded-lg font-semibold" disabled={saving === key} onclick={() => setAccountStatus(account, 'active')}>{saving === key ? 'Restoring…' : 'Restore access'}</button>

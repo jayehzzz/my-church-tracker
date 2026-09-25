@@ -1,4 +1,5 @@
 <script>
+  import { session } from '$lib/auth/session.js';
   import { goto } from "$app/navigation";
   import ServiceDrilldown from "$lib/components/drilldown/ServiceDrilldown.svelte";
   import { openDrilldown, createChoice, createSelection } from "$lib/components/drilldown/selection.js";
@@ -17,6 +18,10 @@
   import { dateRange } from "$lib/stores/filterStore";
   import * as dashboardService from "$lib/services/dashboardService.js";
   import { getDashboard as getCrmDashboard, getDemoDashboard } from "$lib/services/followUpCrmService.js";
+
+  $effect(() => {
+    if ($session.status === 'authenticated' && $session.user?.role === 'leader') void goto('/my-bacenta', { replaceState: true });
+  });
 
   let kpiData = $state([]);
   let kpiSources = $state(null);

@@ -3,7 +3,7 @@ import { session } from '$lib/auth/session.js';
 
 export function returnAuthKey() {
   const { status, user } = get(session);
-  return JSON.stringify([status, user?.id || user?._id || user?.sub || user?.email || user?.externalAuthId || '', user?.role, user?.canViewConfidential]);
+  return JSON.stringify([status, user?.id || user?._id || user?.sub || user?.email || user?.externalAuthId || '', user?.role, user?.canViewConfidential, user?.canViewGiving]);
 }
 
 export function scopedReturnState() {

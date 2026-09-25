@@ -12,6 +12,7 @@
 <script>
   import { session } from "$lib/auth/session.js";
   const confidential = $derived($session.status === "demo" || $session.user?.canViewConfidential === true);
+  const giving = $derived($session.status === "demo" || $session.user?.canViewGiving === true);
   import { untrack } from "svelte";
   import {
     Modal,
@@ -413,7 +414,8 @@
             ? { lat: "", lng: "" }
             : {}),
       };
-      if (!confidential) { delete payload.is_tither; delete payload.notes; }
+      if (!giving) delete payload.is_tither;
+      if (!confidential) delete payload.notes;
       if (mode === "edit") {
         result = await peopleService.update(person.id || person._id, payload);
       } else {
@@ -815,7 +817,7 @@
             class="h-4 w-4 rounded border-border text-primary focus:ring-primary"
           />
         </label>
-        {#if confidential}
+        {#if giving}
         <div class="rounded-lg border border-border/60 bg-secondary/20 p-4">
           <label for="person-tither-status" class="block text-sm font-medium text-foreground">Manually recorded tither status</label>
           <p class="text-xs text-muted-foreground">A profile note, not evidence of giving. Dated records appear in Development.</p>

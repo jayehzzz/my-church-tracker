@@ -679,6 +679,7 @@ export default defineSchema({
 
     crm_users: defineTable({
         can_view_confidential: v.optional(v.boolean()),
+        can_view_giving: v.optional(v.boolean()),
         person_id: v.optional(v.id("people")),
         external_auth_id: v.optional(v.string()),
         display_name: v.optional(v.string()),

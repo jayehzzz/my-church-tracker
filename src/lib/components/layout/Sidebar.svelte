@@ -26,8 +26,8 @@
   import { navigationGroups } from "$lib/config/navigation.js";
 
   function canShowItem(item) {
-    return $session.status === "demo" || (
-      ($session.user?.role !== "leader" || ["/", "/evangelism", "/pipeline", "/people"].includes(item.href))
+    return ($session.status === "demo" && item.href !== "/my-bacenta") || (
+      ($session.user?.role === "leader" ? item.href === "/my-bacenta" : item.href !== "/my-bacenta")
       && (item.href !== "/visitation" || $session.user?.canViewConfidential)
     );
   }

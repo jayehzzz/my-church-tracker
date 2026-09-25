@@ -42,13 +42,13 @@
   export const snapshot = {
     capture: () => {
       const token = `memories-${crypto.randomUUID()}`;
-      saveDomainReturn(token, { identity: identity(), role: $session.user?.role, confidential: $session.user?.canViewConfidential,
+      saveDomainReturn(token, { identity: identity(), role: $session.user?.role, confidential: $session.user?.canViewConfidential, giving: $session.user?.canViewGiving,
         search, category, year, albumId: selectedAlbum?.id || null, mediaIndex, scrollY: window.scrollY });
       return { token };
     },
     restore: value => {
       const frame = value?.token ? takeDomainReturn(value.token) : null;
-      if (!frame || frame.identity !== identity() || frame.role !== $session.user?.role || frame.confidential !== $session.user?.canViewConfidential) return;
+      if (!frame || frame.identity !== identity() || frame.role !== $session.user?.role || frame.confidential !== $session.user?.canViewConfidential || frame.giving !== $session.user?.canViewGiving) return;
       search = frame.search; category = frame.category; year = frame.year;
       pendingReturn = { albumId: frame.albumId, mediaIndex: frame.mediaIndex, scrollY: frame.scrollY };
       restoreAlbum();
