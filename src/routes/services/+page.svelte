@@ -45,9 +45,9 @@
   // Import chart components
   let drilldown = $state(null);
   export const snapshot = { capture: () => { const token = `services-${crypto.randomUUID()}`; saveDomainReturn(token, { drilldown, activeView, serviceTypeFilter, serviceMetricFilter, searchQuery, range: [$dateRange.startDate, $dateRange.endDate] }); return { token }; }, restore: value => { const frame = value?.token ? takeDomainReturn(value.token) : null; if (!frame || frame.range[0] !== $dateRange.startDate || frame.range[1] !== $dateRange.endDate) return; drilldown = frame.drilldown; activeView = frame.activeView; serviceTypeFilter = frame.serviceTypeFilter; serviceMetricFilter = frame.serviceMetricFilter || "all"; searchQuery = frame.searchQuery; previousDrilldownFilters = JSON.stringify([$dateRange.startDate, $dateRange.endDate, serviceTypeFilter, serviceMetricFilter, searchQuery]); } };
-  function openSelection(selection) {
+  function openSelection(selection, title = null) {
     const choice = selection.choices.find((item) => item.role === selection.selectedRole) || selection.choices[0];
-    drilldown = openDrilldown({ kind: "selection", title: metricLabels[choice?.metricKey] || choice?.metricKey || "Service breakdown", selection });
+    drilldown = openDrilldown({ kind: "selection", title: title || metricLabels[choice?.metricKey] || choice?.metricKey || "Service breakdown", selection });
   }
   function openMetric(metricKey, source = analyticsServices(), mode = "total") {
     openSelection(periodServiceSelection(metricKey, source, { mode, range: $dateRange, filters: { serviceType: serviceTypeFilter } }));
@@ -374,13 +374,29 @@
       });
   });
 
-  // Handle chart point click - find service and open modal
-  function handleChartPointClick(point) {
-    if (!point.id) return;
-    const service = filteredServices().find((s) => s.id === point.id);
-    if (service) {
-      handleServiceClick(service);
+  // A grouped chart point represents all of its recorded services.
+  function handleTrendDrilldown(selection) {
+    const choice = selection.choices[0];
+    const bounds = choice?.pointBounds;
+    if (selection.choices.length === 1 && bounds?.startDate === bounds?.endDate && choice.sourceIds?.length === 1) {
+      const service = analyticsServices().find((item) => serviceId(item) === serviceId(choice.sourceIds[0]));
+      if (service) {
+        handleServiceClick(service);
+        return;
+      }
     }
+
+    const start = bounds?.startDate;
+    const end = bounds?.endDate;
+    const date = start ? new Date(`${start}T12:00:00`) : null;
+    const label = date && !Number.isNaN(date.getTime())
+      ? start === end
+        ? `Services on ${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+        : start?.slice(8) === '01' && start?.slice(0, 7) === end?.slice(0, 7) && end?.slice(8) === String(new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()).padStart(2, '0')
+          ? `Services in ${date.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`
+          : `Services in week of ${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+      : 'Services';
+    drilldown = openDrilldown({ kind: 'trend-services', title: label, choice });
   }
 
   function openServiceTypeSummary(type) {
@@ -1173,7 +1189,7 @@
                   itemLabel="services"
                   periodLabel={$dateRange.label}
                   showSummaryFooter={false}
-                  onPointClick={handleChartPointClick}
+                  onDrilldown={handleTrendDrilldown}
                   comparisonOptions={[
                     { key: "returningGuests", label: "Returning guests", color: "warning" },
                     { key: "unclassifiedNonMembers", label: "Unclassified non-member visits", color: "secondary" },

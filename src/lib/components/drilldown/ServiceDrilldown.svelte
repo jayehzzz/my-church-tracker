@@ -16,6 +16,10 @@
 {#snippet view(current, navigate)}
   {#if status !== 'ready'}
     <ContributionList domain="service" status={status} {error} {onretry} />
+  {:else if current.kind === 'trend-services'}
+    {@const result = rowsFor(current.choice)}
+    <p class="mb-4 text-sm text-muted-foreground">Choose a service to open its details.</p>
+    <ContributionList domain="service" records={result.rows.map(({ service, contribution }) => ({ id: serviceId(service), title: title(service), date: date(service.service_date), contribution, note: String(service.service_type || '').replaceAll('_', ' ') }))} countLabel={`${result.denominator} service${result.denominator === 1 ? '' : 's'} in this period`} contributionLabel={metricLabels[current.choice.metricKey] || current.choice.metricKey} onselect={row => { const service = result.rows.find(item => serviceId(item.service) === row.id)?.service; if (service) onedit?.(service); }} />
   {:else if current.kind === 'selection'}
     {#if current.selection.selectedRole === null}
       <p class="mb-3 text-sm">Choose the series to inspect.</p>

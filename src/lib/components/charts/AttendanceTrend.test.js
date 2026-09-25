@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render } from "@testing-library/svelte";
 import AttendanceTrend from "./AttendanceTrend.svelte";
 
@@ -122,6 +122,30 @@ describe("AttendanceTrend", () => {
     await fireEvent.click(getByRole('button', { name: 'View Jul 2026 details' }));
     expect(getByRole('dialog')).toHaveTextContent('8');
     expect(getByRole('dialog').textContent).not.toContain('7.5');
+  });
+
+  it("passes every service behind a monthly point to the page drilldown", async () => {
+    const onDrilldown = vi.fn();
+    const { getByRole, queryByRole } = render(AttendanceTrend, {
+      props: {
+        data: [
+          { id: 'july-1', date: '2026-07-05', total: 7 },
+          { id: 'july-2', date: '2026-07-12', total: 8 },
+          { id: 'august-1', date: '2026-08-02', total: 9 },
+        ],
+        periodLabel: 'This Year (2026)',
+        onDrilldown,
+      },
+    });
+
+    await fireEvent.click(getByRole('button', { name: 'View Jul 2026 details' }));
+    expect(onDrilldown).toHaveBeenCalledOnce();
+    expect(onDrilldown.mock.calls[0][0].choices[0]).toMatchObject({
+      metricKey: 'total', mode: 'average', value: 8,
+      pointBounds: { startDate: '2026-07-01', endDate: '2026-07-31' },
+      sourceIds: ['july-1', 'july-2'],
+    });
+    expect(queryByRole('dialog', { name: 'Jul 2026' })).toBeNull();
   });
 
   it("shows empty state when no data provided", () => {

@@ -13,6 +13,17 @@ const services = [
 ];
 
 describe('service dialog interaction', () => {
+  it('opens the selected service directly from a trend point list', async () => {
+    const choice = periodServiceSelection('total', services, { mode: 'average', range: { startDate: '2026-09-01', endDate: '2026-09-30' } }).choices[0];
+    const onedit = vi.fn();
+    const ui = render(ServiceDrilldown, { state: openDrilldown({ kind: 'trend-services', title: 'Services in Sept 2026', choice }), services, onedit });
+    expect(ui.getByRole('dialog', { name: 'Services in Sept 2026' })).toHaveTextContent('2 services in this period');
+    expect(ui.getByText('Choose a service to open its details.')).toBeDefined();
+    await fireEvent.click(ui.getAllByRole('button', { name: 'View service' })[0]);
+    expect(onedit).toHaveBeenCalledWith(services[0]);
+    expect(ui.queryByRole('button', { name: 'Back to previous details' })).toBeNull();
+  });
+
   it('opens a KPI source list, a service and returns to the same two-record list', async () => {
     const selection = periodServiceSelection('total', services, { mode: 'average', range: { startDate: '2026-09-01', endDate: '2026-09-30' } });
     const state = openDrilldown({ kind: 'selection', title: 'Average attendance', selection });
