@@ -26,7 +26,7 @@
         type: "Type",
         topic: "Topic",
         attendance: "Attendance",
-        guests: "Guests",
+        guests: "Non-members",
         decisions: "Decisions",
         individuals: "Individuals",
         photos: "Photos",

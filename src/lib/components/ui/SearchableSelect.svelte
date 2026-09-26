@@ -258,7 +258,7 @@
             {#if membersFirst}
                 <div class="border-b border-border p-2 text-xs text-muted-foreground">
                     <p>Leaders and members first</p>
-                    <button type="button" class="mt-1 text-primary hover:underline" onclick={(event) => { event.stopPropagation(); includeOthers = !includeOthers; }}>{includeOthers ? "Show leaders and members only" : "Include outreach contacts and guests"}</button>
+                    <button type="button" class="mt-1 text-primary hover:underline" onclick={(event) => { event.stopPropagation(); includeOthers = !includeOthers; }}>{includeOthers ? "Show leaders and members only" : "Include outreach contacts and non-members"}</button>
                 </div>
             {/if}
 

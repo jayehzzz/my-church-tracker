@@ -56,7 +56,7 @@ function journeyFor(contact) {
   if (member) return { key: "joined", label: "Joined church" };
 
   const visited = hasFirstAttended(contact);
-  if (visited) return { key: "guest", label: "Guest" };
+  if (visited) return { key: "guest", label: "Non-member" };
   return { key: "outreach", label: "Outreach Contact" };
 }
 

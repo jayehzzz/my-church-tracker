@@ -1,10 +1,10 @@
 <script>
-  let { totalAttendance = 0, lastAttended = null, unavailable = false } = $props();
+  let { totalAttendance = 0, lastAttended = null, unavailable = false, onhistory = null, onlatest = null } = $props();
   const latestDate = $derived(lastAttended ? new Date(lastAttended).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Not recorded");
 </script>
 <dl class="attendance-summary">
-  <div><dt>Recorded attendance</dt><dd>{unavailable ? "Unavailable" : totalAttendance}</dd><p>Services and meetings held to date</p></div>
-  <div><dt>Last attended</dt><dd>{unavailable ? "Unavailable" : latestDate}</dd><p>Most recent recorded attendance</p></div>
+  <div><dt>Recorded attendance</dt><dd>{unavailable ? "Unavailable" : totalAttendance}</dd><p>Services and meetings held to date</p>{#if !unavailable && onhistory}<button type="button" class="mt-2 text-sm text-primary" onclick={onhistory}>View attendance history</button>{/if}</div>
+  <div><dt>Last attended</dt><dd>{unavailable ? "Unavailable" : latestDate}</dd><p>Most recent recorded attendance</p>{#if !unavailable && lastAttended && onlatest}<button type="button" class="mt-2 text-sm text-primary" onclick={onlatest}>View latest gathering</button>{/if}</div>
 </dl>
 <style>
   .attendance-summary { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid hsl(var(--border)); border-radius: 12px; background: hsl(var(--card)); }

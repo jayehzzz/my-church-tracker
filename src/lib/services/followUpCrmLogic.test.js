@@ -192,6 +192,35 @@ describe('attendance forecasting', () => {
 });
 
 describe('leader oversight stats', () => {
+  it('uses recorded worker and creation period, with only evangelism people in Sunday evidence', () => {
+    const stats = deriveTeamStats({
+      today: '2026-09-05', periodStart: '2026-09-01', periodEnd: '2026-09-05',
+      leaders: [{ id: 'old', first_name: 'Old' }, { id: 'new', first_name: 'New' }],
+      people: [
+        { id: 'contact', member_status: 'contact' },
+        { id: 'archived', member_status: 'archived' },
+        { id: 'unknown', member_status: 'other' },
+        { id: 'evangelism', member_status: 'other', entry_point: 'evangelism' },
+        { id: 'member', member_status: 'member' },
+      ],
+      assignments: [{ leader_id: 'new', person_id: 'contact' }],
+      followUps: [
+        { id: 'old-call', leader_id: 'old', contact_id: 'contact', follow_up_date: '2026-09-03', outcome: 'positive_conversation' },
+        { id: 'member-call', leader_id: 'old', contact_id: 'member', follow_up_date: '2026-09-03', outcome: 'positive_conversation' },
+      ],
+      commitments: ['contact', 'archived', 'unknown', 'evangelism'].map((id) => ({
+        id: `yes-${id}`, leader_id: 'old', person_id: id, created_at: '2026-09-03T09:00:00',
+        gathering_type: 'sunday_service', gathering_date: '2026-09-06', response: 'yes', resolution: 'attended',
+      })),
+    });
+    const old = stats.find((row) => row.leader_id === 'old');
+    const newer = stats.find((row) => row.leader_id === 'new');
+    expect(old.evidence.period_unique_contacts.map((row) => row.person_id)).toEqual(['contact']);
+    expect(newer.period_unique_contacts).toBe(0);
+    expect(old.evidence.sunday_promises.map((row) => row.person_id)).toEqual(['contact', 'evangelism']);
+    expect(old.sunday_promises).toBe(old.evidence.sunday_promises.length);
+    expect(old.promises_attended).toBe(old.evidence.promises_attended.length);
+  });
   it('reports fresh coverage, task accountability and Sunday commitments by assignee', () => {
     const [stats] = deriveTeamStats({
       today: '2026-08-27',

@@ -25,7 +25,7 @@ describe("people journey labels", () => {
     expect(normalizeJourneyStatus("visitor")).toBe("guest");
     expect(normalizeJourneyStatus("contact")).toBe("contact");
     expect(formatJourneyStatus("contact")).toBe("Outreach Contact");
-    expect(formatJourneyStatus("guest")).toBe("Guest");
+    expect(formatJourneyStatus("guest")).toBe("Non-member");
     expect(formatJourneyStatus()).toBe("Not recorded");
   });
 

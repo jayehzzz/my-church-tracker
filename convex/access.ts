@@ -1,6 +1,6 @@
 import { query, mutation, internalMutation, type MutationCtx } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
-import { requireUser, forbidden, isAdmin, requireVerifiedPasswordEmail } from "./lib/security";
+import { requireUser, forbidden, isAdmin, canViewGiving, requireVerifiedPasswordEmail } from "./lib/security";
 import { requireMaintenance } from "./lib/maintenance";
 
 const role = v.union(v.literal("owner"), v.literal("admin"), v.literal("leader"), v.literal("viewer"));
@@ -12,10 +12,12 @@ type AccountInput = {
   personId?: any;
   displayName?: string;
   canViewConfidential: boolean;
+  canViewGiving?: boolean;
 };
 
 function validateAccount(input: AccountInput) {
-  if (input.role === "viewer" && input.canViewConfidential) throw new ConvexError("VIEWER_CANNOT_READ_NOTES");
+  if (input.role === "viewer" && (input.canViewConfidential || input.canViewGiving)) throw new ConvexError("VIEWER_CANNOT_READ_NOTES");
+  if (input.role === "leader" && input.canViewGiving) throw new ConvexError("LEADER_CANNOT_READ_GIVING");
   if (input.role === "leader" && !input.personId) throw new ConvexError("LINKED_PERSON_REQUIRED");
 }
 
@@ -31,7 +33,9 @@ async function saveAccount(ctx: MutationCtx, actor: any, externalAuthId: string,
   const values = {
     external_auth_id: externalAuthId, role: input.role, status: input.status,
     person_id: input.personId, display_name: input.displayName,
-    can_view_confidential: input.canViewConfidential, updated_at: now,
+    can_view_confidential: input.canViewConfidential,
+    can_view_giving: ["owner", "admin"].includes(input.role) ? (input.canViewGiving ?? input.canViewConfidential) : false,
+    updated_at: now,
   };
   const id = existing?._id ?? await ctx.db.insert("crm_users", { ...values, created_at: now });
   if (existing) await ctx.db.patch(id, values);
@@ -57,6 +61,7 @@ export const me = query({
       name: user.display_name || identity.name || "Church Tracker user",
       email: identity.email || user.email,
       canViewConfidential: user.can_view_confidential === true,
+      canViewGiving: canViewGiving(user),
     };
   },
 });
@@ -109,6 +114,7 @@ export const listManagedAccounts = query({
         status: account.status,
         personId: account.person_id,
         canViewConfidential: account.can_view_confidential === true,
+        canViewGiving: canViewGiving(account),
         createdAt: account.created_at,
         updatedAt: account.updated_at,
       };
@@ -160,7 +166,7 @@ export const listAccessRequests = query({
 export const approveAccessRequest = mutation({
   args: {
     requestId: v.id("access_requests"), role, status,
-    personId: v.optional(v.id("people")), displayName: v.optional(v.string()), canViewConfidential: v.boolean(),
+    personId: v.optional(v.id("people")), displayName: v.optional(v.string()), canViewConfidential: v.boolean(), canViewGiving: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const actor = await requireUser(ctx);
@@ -197,7 +203,7 @@ export const rejectAccessRequest = mutation({
 export const updateAccount = mutation({
   args: {
     accountId: v.id("crm_users"), role, status,
-    personId: v.optional(v.id("people")), displayName: v.optional(v.string()), canViewConfidential: v.boolean(),
+    personId: v.optional(v.id("people")), displayName: v.optional(v.string()), canViewConfidential: v.boolean(), canViewGiving: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const actor = await requireUser(ctx);
@@ -212,7 +218,7 @@ export const setAccount = mutation({
   args: {
     tokenIdentifier: v.string(), role, status,
     personId: v.optional(v.id("people")),
-    displayName: v.optional(v.string()), canViewConfidential: v.boolean(),
+    displayName: v.optional(v.string()), canViewConfidential: v.boolean(), canViewGiving: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const actor = await requireUser(ctx);
@@ -240,7 +246,7 @@ export const provisionFirstOwner = internalMutation({
     const now = new Date().toISOString();
     const id = await ctx.db.insert("crm_users", {
       external_auth_id: args.tokenIdentifier, display_name: args.displayName,
-      role: "owner", status: "active", can_view_confidential: args.canViewConfidential,
+      role: "owner", status: "active", can_view_confidential: args.canViewConfidential, can_view_giving: args.canViewConfidential,
       created_at: now, updated_at: now,
     });
     await ctx.db.insert("security_audit", { actor_user_id: id, operation: "operator_bootstrap", record_id: id, created_at: now });

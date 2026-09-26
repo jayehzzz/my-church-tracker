@@ -1,6 +1,9 @@
 <script>
+  import { createChoice, createSelection } from "$lib/components/drilldown/selection.js";
   import ComparisonControls from "./ComparisonControls.svelte";
-  import { completeMonthlySeries, roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import { completeMonthlySeries, wholeCountAverage } from "$lib/utils/comparisonMetrics.js";
+  import { todayDate } from "$lib/utils/reportingMetrics.js";
+  import { pointInsight } from "$lib/utils/chartInsights.js";
   import ChartPointDetails from "./ChartPointDetails.svelte";
   let detail = $state(null);
   import ChartViewToggle from "$lib/components/charts/ChartViewToggle.svelte";
@@ -16,11 +19,14 @@
 
   let {
     data = [],
+    rows = [],
     title = "Outreach over time",
     subtitle = "Track outreach and the outcomes recorded each month.",
     periodLabel = "Selected period",
     comparisonOptions = [],
     onPointClick = null,
+    onDrilldown = null,
+    filters = {},
     periodRange = {},
   } = $props();
 
@@ -28,10 +34,13 @@
   let primaryMode = $state('total');
   let comparisonMode = $state('average');
   const metricOptions = $derived([{key:'count',label:'Contacts reached'}, ...comparisonOptions]);
-  const monthlyRows = $derived(completeMonthlySeries(data, periodRange));
+  const monthlyRows = $derived(completeMonthlySeries(data, periodRange).map(month => ({
+    ...month,
+    sourcePoints: rows.length ? rows.filter(row => String(row.contact_date || '').startsWith(`${month.year}-${String(month.month).padStart(2, '0')}`)) : month.sourcePoints || [],
+  })));
   const primaryMetric = $derived(metricOptions.find(option => option.key === primaryKey) || metricOptions[0]);
   const totalFor = key => monthlyRows.reduce((sum,row) => sum + (Number(row[key]) || 0),0);
-  const averageFor = key => roundedAverage(totalFor(key), monthlyRows.length) ?? 0;
+  const averageFor = key => wholeCountAverage(totalFor(key), monthlyRows.length) ?? 0;
   const primaryCaption = $derived(`${primaryMetric.label} · ${primaryMode === 'total' ? 'actual monthly count' : 'period average per month'}`);
   const comparisonCaption = $derived(`${metricOptions.find(option => option.key === comparisonKey)?.label || ''} · ${comparisonMode === 'total' ? 'actual monthly count' : 'period average per month'}`);
   let chartType = $state("bar");
@@ -60,7 +69,7 @@
       : 0;
 
     const overallMax = Math.max(maxRawCount, maxComparisonRaw, 1);
-    const yScale = getNiceYScale(overallMax);
+    const yScale = getNiceYScale(overallMax, 4, 1.2, true);
 
     const { bandWidth, getCenterX } = getBandCoordinates(rawPoints.length, innerWidth, padding.left);
 
@@ -106,8 +115,41 @@
   function selectPoint(point, event) {
     event?.stopPropagation();
     event?.preventDefault();
-    if (onPointClick) onPointClick({...point.raw, label: point.label});
-    else detail = { title: point.label, subtitle: periodLabel, metrics: [{ label: primaryCaption, value: point.count }, ...(chartData().selected ? [{ label: comparisonCaption, value: point.comparison }] : [])] };
+    const firstMonth = monthlyRows[0];
+    const lastMonth = monthlyRows.at(-1);
+    const lastMonthEnd = lastMonth && `${lastMonth.year}-${String(lastMonth.month).padStart(2, '0')}-${new Date(lastMonth.year, Number(lastMonth.month), 0).getDate()}`;
+    const scopeBounds = {
+      startDate: periodRange.startDate || (firstMonth && `${firstMonth.year}-${String(firstMonth.month).padStart(2, '0')}-01`) || null,
+      endDate: [periodRange.endDate, lastMonthEnd, todayDate()].filter(Boolean).sort()[0] || null,
+    };
+    const monthPoint = { ...point.raw, date: `${point.year}-${String(point.month).padStart(2, '0')}-01`,
+      bucketStart: `${point.year}-${String(point.month).padStart(2, '0')}-01`,
+      bucketEnd: `${point.year}-${String(point.month).padStart(2, '0')}-${new Date(point.year, Number(point.month), 0).getDate()}` };
+    const periodSources = monthlyRows;
+    const choice = (key, mode, role, value) => createChoice({ domain: 'contact', metricKey: key, mode,
+      role, point: mode === 'average'
+        ? { ...monthPoint, sourcePoints: periodSources, sourceIds: periodSources.flatMap(month => month.sourcePoints || []).map(row => row.id || row._id).filter(Boolean) }
+        : { ...monthPoint, sourceIds: (point.raw.sourcePoints || []).map(row => row.id || row._id).filter(Boolean) },
+      scopeBounds: mode === 'average' ? scopeBounds : null, value, filters });
+    const selection = createSelection([
+      choice(primaryKey, primaryMode, 'A', point.count),
+      chartData().selected && choice(comparisonKey, comparisonMode, 'B', point.comparison),
+    ]);
+    if (onDrilldown) onDrilldown(selection);
+    else if (onPointClick) onPointClick({...point.raw, label: point.label}, selection);
+    else {
+      const insight = pointInsight(monthlyRows, point.index, row => row[primaryKey], 'actual monthly count');
+      detail = {
+        title: point.label,
+        subtitle: periodLabel,
+        summary: insight.summary,
+        context: [
+          ...(primaryMode === 'average' ? [{ label: 'Actual count this month', value: Number(point.raw[primaryKey]) || 0 }] : []),
+          ...insight.context,
+        ],
+        metrics: [{ label: primaryCaption, value: point.count }, ...(chartData().selected ? [{ label: comparisonCaption, value: point.comparison }] : [])],
+      };
+    }
   }
 </script>
 
@@ -125,7 +167,7 @@
   </header>
 
   {#if monthlyRows.length}
-    <p class="mb-3 text-xs text-muted-foreground">Actual count shows each month’s total. Average shows the period total ÷ {monthlyRows.length} calendar month{monthlyRows.length === 1 ? "" : "s"}, including months with no contacts and any partial months in the selected period.</p>
+    <p class="mb-3 text-xs text-muted-foreground">Actual count shows each month’s total. Average shows the period total ÷ {monthlyRows.length} calendar month{monthlyRows.length === 1 ? "" : "s"}, rounded to a whole person. Months with no contacts and partial months are included.</p>
   {/if}
   {#if chartData().selected}
     <div class="mb-3 flex flex-wrap items-center justify-center gap-3 text-xs">

@@ -29,6 +29,7 @@
     closable = true,
     closeOnBackdrop = true,
     closeOnEscape = true,
+    tone = "primary",
     children,
     footer,
     onclose,
@@ -115,16 +116,17 @@
     {...restProps}
   >
     <div
-      class="modal-content {sizeClasses}"
+      class="modal-content modal-tone-{tone} {sizeClasses}"
       transition:scale={{ duration: 200, start: 0.95 }}
     >
       <!-- Header -->
       {#if title || closable}
         <div class="modal-header">
           {#if title}
-            <h2 id={titleId} class="text-xl font-semibold text-foreground">
-              {title}
-            </h2>
+            <div class="modal-heading">
+              <span class="modal-title-accent" aria-hidden="true"></span>
+              <h2 id={titleId} class="modal-title">{title}</h2>
+            </div>
           {:else}
             <div></div>
           {/if}
@@ -179,49 +181,105 @@
     align-items: center;
     justify-content: center;
     padding: 1rem;
-    background-color: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(4px);
+    background:
+      radial-gradient(circle at 50% 15%, hsl(var(--primary) / 0.07), transparent 34rem),
+      rgba(0, 0, 0, 0.76);
+    backdrop-filter: blur(7px) saturate(0.88);
   }
 
   .modal-content {
+    --modal-accent: var(--primary);
     width: 100%;
     max-height: calc(100vh - 2rem);
     max-height: calc(100dvh - 2rem);
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    background-color: hsl(var(--card));
-    border: 1px solid hsl(var(--border));
-    border-radius: var(--radius);
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    position: relative;
+    isolation: isolate;
+    background:
+      linear-gradient(145deg, hsl(var(--card-elevated)) 0%, hsl(var(--card)) 58%, hsl(var(--background)) 135%);
+    border: 1px solid hsl(var(--modal-accent) / 0.22);
+    border-radius: 1rem;
+    box-shadow:
+      0 34px 90px -30px rgba(0, 0, 0, 0.88),
+      0 0 0 1px hsl(var(--modal-accent) / 0.045),
+      0 0 44px -28px hsl(var(--modal-accent) / 0.55);
+  }
+
+  .modal-content::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    height: 3px;
+    z-index: 2;
+    background: linear-gradient(90deg, transparent 4%, hsl(var(--modal-accent) / 0.42) 22%, hsl(var(--modal-accent)) 50%, hsl(var(--modal-accent) / 0.42) 78%, transparent 96%);
+    pointer-events: none;
+  }
+
+  .modal-tone-success { --modal-accent: var(--success); }
+  .modal-tone-info { --modal-accent: var(--info); }
+  .modal-tone-warning { --modal-accent: var(--warning); }
+  .modal-tone-destructive { --modal-accent: var(--destructive); }
+
+  .modal-heading {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .modal-title-accent {
+    width: 0.25rem;
+    height: 1.8rem;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background: hsl(var(--modal-accent));
+    box-shadow: 0 0 18px hsl(var(--modal-accent) / 0.28);
+  }
+
+  .modal-title {
+    min-width: 0;
+    color: hsl(var(--foreground));
+    font-size: 1.18rem;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.018em;
   }
 
   .modal-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid hsl(var(--border));
+    gap: 1rem;
+    padding: 1.05rem 1.25rem;
+    border-bottom: 1px solid hsl(var(--modal-accent) / 0.14);
+    background: linear-gradient(90deg, hsl(var(--modal-accent) / 0.085), hsl(var(--card) / 0.45) 48%, transparent 100%);
   }
 
   .modal-close {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    border-radius: 0.375rem;
+    width: 2.15rem;
+    height: 2.15rem;
+    flex: 0 0 auto;
+    border: 1px solid hsl(var(--modal-accent) / 0.14);
+    border-radius: 0.65rem;
+    background: hsl(var(--background) / 0.34);
     color: hsl(var(--muted-foreground));
-    transition: all 150ms ease;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease;
   }
 
   .modal-close:hover {
-    background-color: hsl(var(--secondary));
-    color: hsl(var(--foreground));
+    border-color: hsl(var(--modal-accent) / 0.34);
+    background-color: hsl(var(--modal-accent) / 0.11);
+    color: hsl(var(--modal-accent));
+    transform: translateY(-1px);
   }
 
   .modal-close:focus-visible {
-    outline: 2px solid hsl(var(--primary));
+    outline: 2px solid hsl(var(--modal-accent));
     outline-offset: 2px;
   }
 
@@ -232,6 +290,7 @@
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     padding: 1.25rem;
+    background: radial-gradient(circle at 12% 0%, hsl(var(--modal-accent) / 0.035), transparent 22rem);
   }
 
   .modal-footer {
@@ -241,6 +300,7 @@
     gap: 0.75rem;
     padding: 1rem 1.25rem;
     border-top: 1px solid hsl(var(--border));
+    background: hsl(var(--background) / 0.28);
   }
 
   @media (max-width: 640px) {
@@ -254,7 +314,7 @@
 
     .modal-content {
       max-height: calc(100dvh - 1rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-      border-radius: 0.875rem;
+      border-radius: 1rem;
     }
 
     .modal-header,

@@ -8,10 +8,14 @@
   import FilterBar from "$lib/components/filters/FilterBar.svelte";
   import TaskQueue from "$lib/components/crm/TaskQueue.svelte";
   import VisitationCalendar from "$lib/components/charts/VisitationCalendar.svelte";
+  import CareDrilldown from '$lib/components/drilldown/CareDrilldown.svelte';
+  import { openDrilldown } from '$lib/components/drilldown/selection.js';
+  import { saveDomainReturn, takeDomainReturn } from '$lib/components/drilldown/domainReturnState.js';
+  import { goto } from '$app/navigation';
+  import { tick } from 'svelte';
   import VisitationForm from "$lib/components/forms/VisitationForm.svelte";
   import CareTaskForm from "$lib/components/forms/CareTaskForm.svelte";
   import PersonForm from "$lib/components/forms/PersonForm.svelte";
-  import VisitationDetailModal from "$lib/components/visitation/VisitationDetailModal.svelte";
   import { Button, DataTable, Modal, Select } from "$lib/components/ui";
   import {
     mockAttendance,
@@ -63,9 +67,10 @@
 
   let isCareFormOpen = $state(false);
   let isTaskFormOpen = $state(false);
-  let isDetailModalOpen = $state(false);
   let isDeleteModalOpen = $state(false);
   let selectedVisitation = $state(null);
+  let careDrilldown = $state(null);
+  let requestedCareId = $state('');
   let selectedTask = $state(null);
   let selectedCandidate = $state(null);
   let initialPersonId = $state("");
@@ -155,15 +160,28 @@
   ]);
 
   onMount(() => {
+    const returned = takeDomainReturn('care');
+    if (returned) {
+      activeView = returned.activeView;
+      outcomeFilter = returned.outcomeFilter;
+      profileFilterId = returned.profileFilterId;
+      careDrilldown = returned.drilldown;
+      previousCareFilters = `${$dateRange.startDate}|${$dateRange.endDate}|${returned.outcomeFilter}|${returned.profileFilterId}`;
+      void tick().then(() => window.scrollTo(0, returned.scrollY));
+    }
     void loadPage();
     const params = new URLSearchParams(window.location.search);
+    if (!returned) {
+      requestedCareId = params.get('care') || '';
+      if (requestedCareId) careDrilldown = openDrilldown({ kind: 'care', id: requestedCareId, title: 'Care details' });
+    }
     const action = params.get("action");
     const personId = params.get("personId") || "";
     const requestedView = params.get("view");
-    if (["care", "visits", "history"].includes(requestedView)) activeView = requestedView;
-    if (requestedView === "attention") activeView = "care";
-    if (requestedView === "planned") activeView = "visits";
-    if (personId && !action) {
+    if (!returned && ["care", "visits", "history"].includes(requestedView)) activeView = requestedView;
+    if (!returned && requestedView === "attention") activeView = "care";
+    if (!returned && requestedView === "planned") activeView = "visits";
+    if (!returned && personId && !action) {
       profileFilterId = personId;
       activeView = "history";
     }
@@ -176,6 +194,27 @@
       replaceState(url, {});
     }
   });
+
+  $effect(() => {
+    if (!requestedCareId || loading || error) return;
+    const id = requestedCareId;
+    requestedCareId = '';
+    const visit = visitations.find(item => String(recordId(item)) === id);
+    careDrilldown = openDrilldown({ kind: 'care', id, title: visit?.person_visited_name || 'Care details' });
+  });
+
+  let previousCareFilters = null;
+  $effect(() => {
+    const key = `${$dateRange.startDate}|${$dateRange.endDate}|${outcomeFilter}|${profileFilterId}`;
+    if (previousCareFilters !== null && key !== previousCareFilters) careDrilldown = null;
+    previousCareFilters = key;
+  });
+
+  function openCareProfile(id) {
+    saveDomainReturn('care', { activeView, outcomeFilter, profileFilterId, drilldown: careDrilldown, scrollY: window.scrollY });
+    careDrilldown = null;
+    goto(`/people/${encodeURIComponent(id)}`);
+  }
 
   async function loadPage() {
     loading = true;
@@ -427,10 +466,8 @@
             periodRange={$dateRange}
             data={filteredVisitations()}
             title="Pastoral care activity"
-            onVisitSelect={(visit) => {
-              selectedVisitation = visit;
-              isDetailModalOpen = true;
-            }}
+            onDaySelect={(date) => { careDrilldown = openDrilldown({ kind: 'day', date, title: `Care on ${date}` }); }}
+            onDrilldown={(selection) => { careDrilldown = openDrilldown({ kind: 'selection', selection, title: 'Care contributions' }); }}
           />
 
           </FullscreenWrapper>
@@ -464,8 +501,7 @@
             searchPlaceholder="Search people, leaders, outcomes or notes…"
             emptyMessage="No pastoral care interactions match this period."
             onrowclick={(row) => {
-              selectedVisitation = row;
-              isDetailModalOpen = true;
+              careDrilldown = openDrilldown({ kind: 'care', id: recordId(row), title: `Care for ${row.person_visited_name || 'Unknown person'}` });
             }}
           />
         </div>
@@ -473,6 +509,13 @@
     </section>
   </div>
 </DashboardLayout>
+
+<CareDrilldown bind:state={careDrilldown}
+  visits={careDrilldown?.current?.kind === 'care' && careDrilldown.history.length === 0 ? visitations : filteredVisitations()}
+  status={loading ? 'loading' : error ? 'unavailable' : 'ready'} {error} onretry={loadPage}
+  onprofile={openCareProfile}
+  onedit={(visit) => { careDrilldown = null; selectedVisitation = visit; selectedTask = null; isCareFormOpen = true; }}
+  ondelete={(visit) => { careDrilldown = null; selectedVisitation = visit; isDeleteModalOpen = true; }} />
 
 <PersonForm bind:isOpen={isPersonFormOpen} person={selectedPerson} onsave={handlePersonSaved} />
 
@@ -493,21 +536,7 @@
   onsave={handleCareSaved}
 />
 
-<VisitationDetailModal
-  bind:isOpen={isDetailModalOpen}
-  visitation={selectedVisitation}
-  onEdit={(visit) => {
-    selectedVisitation = visit;
-    selectedTask = null;
-    isCareFormOpen = true;
-  }}
-  onDelete={(visit) => {
-    selectedVisitation = visit;
-    isDeleteModalOpen = true;
-  }}
-/>
-
-<Modal bind:isOpen={isDeleteModalOpen} title="Delete Care Record" size="sm">
+<Modal bind:isOpen={isDeleteModalOpen} title="Delete Care Record" size="sm" tone="destructive">
   <div class="text-center">
     <div class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive" aria-hidden="true">!</div>
     <p class="text-foreground">Delete the care record for <strong>{selectedVisitation?.person_visited_name || "this person"}</strong>?</p>

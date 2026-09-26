@@ -35,7 +35,7 @@ export function normalizeJourneyStatus(status) {
 export function formatJourneyStatus(status, fallback = "Not recorded") {
   const labels = {
     contact: "Outreach Contact",
-    guest: "Guest",
+    guest: "Non-member",
     member: "Member",
     leader: "Leader",
     archived: "Archived",
@@ -327,15 +327,15 @@ export async function getDevelopmentSummary(ids, range = {}) {
     if (!isDemoMode()) return unavailable();
     const opportunities = developmentGatherings(mockServices, mockMeetings, mockMeetingPrograms);
     const contacts = [...new Map([...mockPeople, ...mockEvangelismContacts].map(p => [String(p.id), p])).values()];
-    const serviceDates = personId => [...new Set(mockAttendance.filter(r => String(r.person_id) === String(personId)).map(r => opportunities.find(g => g.kind === 'service' && g.id === String(r.service_id))).filter(g => g?.category === 'sunday').map(g => g.date))].sort();
+    const serviceEvidence = personId => [...new Map(mockAttendance.filter(r => String(r.person_id) === String(personId)).map(r => opportunities.find(g => g.kind === 'service' && g.id === String(r.service_id))).filter(g => g?.category === 'sunday').map(g => [g.id, { id: g.id, date: g.date }])).values()].sort((a,b) => a.date.localeCompare(b.date));
     const rows = ids.map(id => mockPeople.find(person => String(person.id) === String(id))).filter(Boolean).map(person => ({
       person: mapDoc(person), opportunities, givingAvailable: true, outreachComplete: true,
       attendance: [
         ...mockAttendance.filter(r => String(r.person_id) === String(person.id)).map(r => ({ event_id: String(r.service_id), present: true, gave_tithe: r.gave_tithe === true })),
         ...mockMeetings.flatMap(m => (m.attendance_records || (m.attendees || []).map(id => ({ person_id: typeof id === 'object' ? id.person_id : id, attended: true }))).filter(r => String(r.person_id) === String(person.id)).map(r => ({ event_id: String(m.id), present: developmentPresent(r), gave_tithe: r.gave_tithe === true }))),
       ],
-      collectedContacts: contacts.filter(c => String(c.collected_by_id) === String(person.id)),
-      invitedPeople: contacts.filter(c => String(c.invited_by_id) === String(person.id)).map(c => ({ id: c.id, service_dates: serviceDates(c.id) })),
+      collectedContacts: contacts.filter(c => String(c.collected_by_id) === String(person.id)).map(c => ({ id: c.id, contact_date: c.contact_date, first_name: c.first_name, last_name: c.last_name })),
+      invitedPeople: contacts.filter(c => String(c.invited_by_id) === String(person.id)).map(c => ({ id: c.id, first_name: c.first_name, last_name: c.last_name, service_dates: [...new Set(serviceEvidence(c.id).map(g => g.date))], services: serviceEvidence(c.id) })),
       agreements: person.growth_agreements || [], agreementReviews: person.growth_agreement_reviews || [],
     }));
     if (rows.length !== ids.length) return { data: null, error: new Error('Person not found or unavailable') };

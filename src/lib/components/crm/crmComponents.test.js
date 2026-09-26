@@ -11,17 +11,17 @@ describe('ExpectedSunday', () => {
   const awayMember = { id: 'away', first_name: 'Kofi', last_name: 'Away', attendance_plan: { status: 'away' } };
   const commitment = { id: 'promise', person_id: 'contact', response: 'yes', resolution: 'pending', person: { id: 'contact', first_name: 'Kojo', last_name: 'Contact', member_status: 'contact' } };
 
-  it('shows outreach contacts/guests, regular members and away people as separate groups', () => {
+  it('shows outreach contacts/non-members, regular members and away people as separate groups', () => {
     const { getByRole, getByText } = render(ExpectedSunday, {
       props: { today: '2026-09-02', forecast: { service_date: '2026-09-06' }, roster: [member, awayMember], commitments: [commitment] },
     });
 
     expect(getByText('2 people expected in total')).toBeDefined();
     const summary = getByRole('group', { name: 'Sunday summary' });
-    expect(summary).toContainElement(getByRole('button', { name: /Contacts & guests who said yes 1/ }));
+    expect(summary).toContainElement(getByRole('button', { name: /Contacts & non-members who said yes 1/ }));
     expect(summary).toContainElement(getByRole('button', { name: /Regular members expected 1/ }));
     expect(summary).toContainElement(getByRole('button', { name: /Away this Sunday 1/ }));
-    expect(getByRole('list', { name: 'Outreach contacts and guests expected this Sunday' })).toContainElement(getByRole('button', { name: 'Kojo Contact' }));
+    expect(getByRole('list', { name: 'Outreach contacts and non-members expected this Sunday' })).toContainElement(getByRole('button', { name: 'Kojo Contact' }));
     expect(getByText(/Outreach contact ·/)).toBeDefined();
     expect(getByRole('list', { name: 'Regular members this Sunday' })).toContainElement(getByRole('button', { name: 'Ama Member' }));
     expect(getByRole('list', { name: 'Members away this Sunday' })).toContainElement(getByRole('button', { name: 'Kofi Away' }));
@@ -35,7 +35,7 @@ describe('ExpectedSunday', () => {
     await fireEvent.click(getByRole('button', { name: /Away this Sunday/ }));
     expect(getByRole('list', { name: 'Members away this Sunday' })).toBeDefined();
     expect(queryByRole('list', { name: 'Regular members this Sunday' })).toBeNull();
-    expect(queryByRole('list', { name: 'Outreach contacts and guests expected this Sunday' })).toBeNull();
+    expect(queryByRole('list', { name: 'Outreach contacts and non-members expected this Sunday' })).toBeNull();
     await fireEvent.click(getByRole('button', { name: 'Show all three' }));
     expect(getByRole('list', { name: 'Regular members this Sunday' })).toBeDefined();
   });
@@ -174,11 +174,21 @@ describe('WorkerAssessment', () => {
     expect(getByText('Ama Leader')).toBeDefined();
     expect(getByText('People worked')).toBeDefined();
     expect(getByText('Said yes to Sunday')).toBeDefined();
-    expect(getByText('1 person')).toBeDefined();
+    expect(getByRole('button', { name: '1 item needing attention for Ama Leader' })).toBeDefined();
     expect(queryByText('Real conversations')).toBeNull();
     await fireEvent.click(getByRole('button', { name: 'Details' }));
     expect(getByText('Real conversations')).toBeDefined();
     expect(queryByText(/score/i)).toBeNull();
+  });
+
+  it('routes a rendered worker number to its exact evidence key and source rows', async () => {
+    const onMetric = vi.fn();
+    const evidence = { period_unique_contacts: [{ person_id: 'historical', person_name: 'Historical Person' }], sunday_promises: [] };
+    const stat = { leader_id: 'old-worker', leader_name: 'Old Worker', period_unique_contacts: 1, sunday_promises: 0, evidence };
+    const { getByRole } = render(WorkerAssessment, { props: { stats: [stat], onMetric } });
+    await fireEvent.click(getByRole('button', { name: '1 person worked by Old Worker' }));
+    expect(onMetric).toHaveBeenCalledWith(stat, 'period_unique_contacts');
+    expect(onMetric.mock.calls[0][0].evidence.period_unique_contacts).toEqual([{ person_id: 'historical', person_name: 'Historical Person' }]);
   });
 });
 

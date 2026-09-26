@@ -40,7 +40,7 @@ describe('people profile actions', () => {
     expect(details.getByText('Bacenta Leader')).toBeTruthy();
     expect(details.getByText('Basonta member')).toBeTruthy();
     expect(details.getByText('Not yet attended')).toBeTruthy();
-    expect(details.getByText(/First Timer is an attendance marker/)).toBeTruthy();
+    expect(details.getByText(/First timer marks the first recorded visit/)).toBeTruthy();
     details.unmount();
 
     const quickView = render(ProfileQuickViewCard, { person: outreach });

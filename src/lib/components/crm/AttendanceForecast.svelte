@@ -66,9 +66,9 @@
         <p class="mt-2 text-xs text-muted-foreground">
           {confirmedRegular} regular · {confirmedIrregular} irregular ·
           {#if hasJourneySplit}
-            {confirmedOutreachContacts} outreach contacts · {confirmedReturningGuests} guests
+            {confirmedOutreachContacts} outreach contacts · {confirmedReturningGuests} non-members
           {:else}
-            {confirmedNonMembers} contacts/guests
+            {confirmedNonMembers} contacts/non-members
           {/if}
         </p>
       </div>

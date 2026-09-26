@@ -1,5 +1,6 @@
 export const pageNames = {
   "/": "Dashboard",
+  "/my-bacenta": "My Bacenta",
   "/evangelism": "Evangelism",
   "/pipeline": "Follow-Up",
   "/services": "Sunday Services",
@@ -14,7 +15,7 @@ export const pageNames = {
 export const navigationGroups = [
   {
     label: "Overview",
-    items: [{ icon: "home", label: pageNames["/"], href: "/" }],
+    items: [{ icon: "home", label: pageNames["/"], href: "/" }, { icon: "users", label: pageNames["/my-bacenta"], href: "/my-bacenta" }],
   },
   {
     label: "People & care",

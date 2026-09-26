@@ -1,4 +1,4 @@
-const roles = { leader: 'Leader', member: 'Member', contact: 'Outreach contact', guest: 'Guest', visitor: 'Guest' };
+const roles = { leader: 'Leader', member: 'Member', contact: 'Outreach contact', guest: 'Non-member', visitor: 'Non-member' };
 export function personOption(person) {
   return {
     value: String(person.id || person._id),

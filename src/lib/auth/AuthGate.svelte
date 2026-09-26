@@ -26,7 +26,7 @@
 </script>
 
 {#if $session.status === 'demo' || ($session.status === 'authenticated' && $session.user?.role !== 'viewer')}
-  {#key `${$session.user?.id}:${$session.user?.role}:${$session.user?.canViewConfidential}`}
+  {#key `${$session.user?.id}:${$session.user?.role}:${$session.user?.canViewConfidential}:${$session.user?.canViewGiving}`}
     {@render children?.()}
   {/key}
 {:else}

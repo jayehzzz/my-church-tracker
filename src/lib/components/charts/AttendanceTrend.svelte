@@ -5,7 +5,9 @@
 -->
 
 <script>
-  import { roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import { createChoice, createSelection } from "$lib/components/drilldown/selection.js";
+  import { wholeCountAverage } from "$lib/utils/comparisonMetrics.js";
+  import { pointInsight } from "$lib/utils/chartInsights.js";
   import ComparisonControls from "./ComparisonControls.svelte";
   import ChartPointDetails from "./ChartPointDetails.svelte";
   let detail = $state(null);
@@ -28,10 +30,13 @@
     itemLabel = "meetings",
     periodLabel = "Selected period",
     onPointClick = null,
+    onDrilldown = null,
+    domain = "service",
+    filters = {},
     onFilterClick = null,
     activeFilterCount = 0,
     comparisonOptions = [],
-    wholeNumberValues = false,
+    wholeNumberValues = true,
     showSummaryFooter = true,
   } = $props();
 
@@ -73,32 +78,33 @@
       return {
         points: [],
         maxValue: 0,
-        yScale: getNiceYScale(0),
+        yScale: getNiceYScale(0, 4, 1.2, true),
         bandWidth: innerWidth,
       };
     }
 
-    const maxPrimary = Math.max(...primaryGrouped.map((d) => Number(d[selectedPrimary.key]) || 0), 0);
+    const maxPrimary = Math.max(...primaryGrouped.map((d) => displayValue(d[selectedPrimary.key])), 0);
     const maxComparison = selectedComparison
-      ? Math.max(...comparisonGrouped.map((d) => Number(d[selectedComparison.key]) || 0), 0)
+      ? Math.max(...comparisonGrouped.map((d) => displayValue(d[selectedComparison.key])), 0)
       : 0;
     const overallMax = Math.max(maxPrimary, maxComparison, 1);
-    const yScale = getNiceYScale(overallMax);
+    const yScale = getNiceYScale(overallMax, 4, 1.2, true);
 
     const { bandWidth, getCenterX } = getBandCoordinates(primaryGrouped.length, innerWidth, padding.left);
 
     const points = primaryGrouped.map((d, i) => {
       const x = getCenterX(i);
-      const primaryValue = Number(d[selectedPrimary.key]) || 0;
+      const primaryValue = displayValue(d[selectedPrimary.key]);
       const comparisonPoint = comparisonGrouped.find((candidate) => candidate.date === d.date) || comparisonGrouped[i];
       const y = padding.top + innerHeight - (primaryValue / yScale.max) * innerHeight;
-      const compVal = selectedComparison ? Number(comparisonPoint?.[selectedComparison.key]) || 0 : 0;
+      const compVal = selectedComparison ? displayValue(comparisonPoint?.[selectedComparison.key]) : 0;
       const compY = selectedComparison
         ? padding.top + innerHeight - (compVal / yScale.max) * innerHeight
         : chartBottom;
 
       return {
         ...d,
+        comparisonPoint,
         x,
         y,
         primary: primaryValue,
@@ -158,11 +164,11 @@
         : `Highest ${granularity} average ${primaryMetricLower}`,
   );
   const averagePrimary = $derived(
-    data.length ? roundedAverage(data.reduce((sum, item) => sum + (Number(item[selectedPrimary?.key]) || 0), 0), data.length) : 0,
+    data.length ? wholeCountAverage(data.reduce((sum, item) => sum + (Number(item[selectedPrimary?.key]) || 0), 0), data.length) : 0,
   );
   const averageComparison = $derived(
     selectedComparison && data.length
-      ? roundedAverage(data.reduce((sum, item) => sum + (Number(item[selectedComparison.key]) || 0), 0), data.length)
+      ? wholeCountAverage(data.reduce((sum, item) => sum + (Number(item[selectedComparison.key]) || 0), 0), data.length)
       : 0,
   );
   const periodAttendance = $derived(
@@ -192,10 +198,17 @@
   function handlePointClick(point, event) {
     event.preventDefault();
     event.stopPropagation();
-    if (onPointClick && point.id && granularity === "day") onPointClick(point);
+    const choices = [
+      createChoice({ domain, metricKey: selectedPrimary.key, mode: primaryAggregationMode, role: 'A', point, value: point.primary, filters }),
+      selectedComparison && createChoice({ domain, metricKey: selectedComparison.key, mode: comparisonAggregationMode, role: 'B', point: point.comparisonPoint || point, value: point.comparison, filters }),
+    ];
+    const selection = createSelection(choices);
+    if (onDrilldown) onDrilldown(selection);
+    else if (onPointClick && point.id && granularity === "day") onPointClick(point, selection);
     else detail = {
       title: point.label || point.date,
       subtitle: `${title} · ${periodLabel}`,
+      ...pointInsight(chartData().points, point.index, item => item.primary, pointMeasureLabel.toLowerCase()),
       metrics: [
         { label: pointMeasureLabel, value: displayValue(point.primary) },
         ...(selectedComparison ? [{ label: `${selectedComparison.label}${granularity === 'day' ? '' : ` (${comparisonAggregationMode})`}`, value: displayValue(point.comparison) }] : []),
@@ -237,6 +250,9 @@
         </button>
       {/if}
     </div>
+    {#if granularity !== "day" && (primaryAggregationMode === "average" || selectedComparison && comparisonAggregationMode === "average")}
+      <p class="text-[11px] text-muted-foreground">Averages per gathering are shown as whole people, rounded to the nearest person. Totals count every recorded visit.</p>
+    {/if}
   </div>
 
   {#if selectedComparison || primaryKey !== "total"}

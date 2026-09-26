@@ -14,9 +14,8 @@ export function isOutreachContact(person) {
 }
 
 export function isGuestAttendance(person) {
-  // This helper is intentionally attendance-scoped: an outreach contact is not
-  // a guest while they are only in the directory, but their first check-in is a
-  // guest attendance and the backend then promotes them to Guest.
+  // The stored guest total is the combined non-member attendance count.
+  // An outreach contact joins that total only when checked in.
   return isGuest(person) || isOutreachContact(person);
 }
 
@@ -32,7 +31,7 @@ export function summarizeNamedAttendance(selectedPersonIds, metadata = {}, peopl
     const guestAttendance = isGuestAttendance(person);
     const firstTimer = Boolean(personMetadata.first_timer);
     summary.named += 1;
-    if (guestAttendance) summary.guests += 1;
+    if (guestAttendance || firstTimer) summary.guests += 1;
     if (firstTimer) summary.firstTimers += 1;
     if (guestAttendance && !firstTimer) summary.returningGuests += 1;
     if (personMetadata.made_salvation_decision) summary.salvationDecisions += 1;

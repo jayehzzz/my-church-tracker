@@ -1,4 +1,5 @@
 <script>
+  import { session } from "$lib/auth/session.js";
   import { Button } from "$lib/components/ui";
   import { formatChurchRole, formatChurchSchool, formatDegreeStatus, normalizeCompletedSchools } from "$lib/utils/personMetrics.js";
   import { formatJourneyStatus, formatLeadershipRole, normalizeJourneyStatus } from "$lib/services/peopleService.js";
@@ -22,9 +23,10 @@
     ["Leadership role", formatLeadershipRole(person.role)],
     ["Basonta membership", person.church_role === "basonta" ? "Basonta member" : person.church_role ? formatChurchRole(person.church_role) : "Not recorded"],
     ["Membership date", date(person.membership_date)], ["Baptised", yesNo(person.is_baptised)],
-    ["Manually recorded tither status", yesNo(person.is_tither)], ["Basonta / ministry groups", person.basontas?.length ? person.basontas.map(label).join(", ") : "None recorded"],
+    ...($session.status === "demo" || $session.user?.canViewGiving ? [["Manually recorded tither status", yesNo(person.is_tither)]] : []),
+    ["Basonta / ministry groups", person.basontas?.length ? person.basontas.map(label).join(", ") : "None recorded"],
   ]);
-  let connectionHeading = $derived(journeyStatus === "contact" ? "Outreach information" : journeyStatus === "guest" ? "Guest information" : "How they connected");
+  let connectionHeading = $derived(journeyStatus === "contact" ? "Outreach information" : journeyStatus === "guest" ? "Non-member information" : "How they connected");
   let firstAttendance = $derived(person.first_visit_date ? date(person.first_visit_date) : journeyStatus === "contact" ? "Not yet attended" : "Not recorded");
 </script>
 
@@ -38,7 +40,7 @@
     <div><dt>Invited by</dt><dd>{#if person.invited_by_id}<a href="/people/{encodeURIComponent(person.invited_by_id)}">{person.invited_by || "View inviter"} →</a>{:else}{person.invited_by || "Not recorded"}{/if}</dd></div>
     <div><dt>Contact preference</dt><dd>{label(person.contact_category)}</dd></div>
     {#if person.follow_up_status}<div><dt>Follow-up status</dt><dd>{label(person.follow_up_status)}</dd></div>{/if}
-  </dl><p class="attendance-note">First Timer is an attendance marker for a person's first recorded attendance, not a permanent profile status.</p></section>
+  </dl><p class="attendance-note">First timer marks the first recorded visit; returning guest marks later visits before membership. Non-member is a current profile status.</p></section>
   <section class="notes"><div class="section-heading"><h3>Notes</h3><button type="button" onclick={onEdit}>Edit notes</button></div><p class="notes-text">{person.notes || "No notes recorded."}</p></section>
 </div>
 {#if onMerge}<details class="record-tools"><summary>Record management</summary><p>Review a duplicate record and choose which profile to keep.</p><Button variant="secondary" onclick={onMerge}>Merge duplicate</Button></details>{/if}

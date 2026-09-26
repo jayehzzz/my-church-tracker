@@ -22,6 +22,7 @@ import type * as lib_contactPolicy from "../lib/contactPolicy.js";
 import type * as lib_maintenance from "../lib/maintenance.js";
 import type * as lib_security from "../lib/security.js";
 import type * as maintenance from "../maintenance.js";
+import type * as meetingFollowUps from "../meetingFollowUps.js";
 import type * as meetingPrograms from "../meetingPrograms.js";
 import type * as meetings from "../meetings.js";
 import type * as memories from "../memories.js";
@@ -57,6 +58,7 @@ declare const fullApi: ApiFromModules<{
   "lib/maintenance": typeof lib_maintenance;
   "lib/security": typeof lib_security;
   maintenance: typeof maintenance;
+  meetingFollowUps: typeof meetingFollowUps;
   meetingPrograms: typeof meetingPrograms;
   meetings: typeof meetings;
   memories: typeof memories;

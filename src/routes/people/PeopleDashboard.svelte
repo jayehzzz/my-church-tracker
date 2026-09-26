@@ -7,12 +7,17 @@
   import { externalMapLookupUrl, geocodeAddress, normalizeGeocodingAddress } from "$lib/services/geocodingService.js";
   import * as peopleService from "$lib/services/peopleService.js";
   import { isDemoMode } from "$lib/convex.js";
+  import { goto } from '$app/navigation';
+  import DrilldownDialog from '$lib/components/drilldown/DrilldownDialog.svelte';
+  import ContributionList from '$lib/components/drilldown/ContributionList.svelte';
+  import { openDrilldown } from '$lib/components/drilldown/selection.js';
 
-  let { people = [], loading = false, onEditPerson = null } = $props();
+  let { people = [], loading = false, onEditPerson = null, onOpenProfile = null, comparison = $bindable(null), query = $bindable(''), locationFilter = $bindable('all'), focusedId = $bindable(null) } = $props();
+  function inspectPeople(metric) {
+    const matching = metric.key === 'mapped' ? mapped : metric.key === 'missing' ? mapPeople.filter(person => !hasMapLocation(person)) : metric.key === 'address' ? addressed : people;
+    comparison = openDrilldown({ kind: 'people', title: metric.label, records: [...matching] });
+  }
   let mapComponent = $state();
-  let query = $state("");
-  let locationFilter = $state("all");
-  let focusedId = $state(null);
   let routeEstimate = $state(null);
   let routeRequest = null;
   let churchSettings = $state(null);
@@ -163,9 +168,17 @@
   }
 </script>
 
+{#snippet comparisonView(current, navigate)}
+  {@const freshRecords = people.filter(person => current.records.some(saved => String(saved.id || saved._id) === String(person.id || person._id)))}
+  <p class="mb-3 text-sm text-muted-foreground">Current people snapshot · {freshRecords.length} matching people in the directory view.</p>
+  <ContributionList domain="person" records={freshRecords.map(person => ({ id: String(person.id || person._id), title: `${person.first_name || ''} ${person.last_name || ''}`.trim(), note: personAddress(person) || (hasMapLocation(person) ? 'Map pin recorded' : 'No address or map pin recorded') }))} onselect={row => onOpenProfile ? onOpenProfile(row.id) : goto(`/people/${encodeURIComponent(row.id)}`)} />
+{/snippet}
+
+<DrilldownDialog bind:state={comparison} renderView={comparisonView} />
+
 <FullscreenWrapper title="People comparison">
   <section class="card-base p-5 mb-5"><h2 class="mb-4 pr-12 text-base font-semibold">People comparison</h2>
-    <MetricComparison metrics={[{key:'all',label:'People in this view',total:people.length},{key:'mapped',label:'People with a map pin',total:mapped.length},{key:'missing',label:'People without a map pin',total:missing},{key:'address',label:'People with an address',total:addressed.length}]} periodLabel="Current people snapshot" />
+    <MetricComparison metrics={[{key:'all',label:'People in this view',total:people.length},{key:'mapped',label:'People with a map pin',total:mapped.length},{key:'missing',label:'People without a map pin',total:missing},{key:'address',label:'People with an address',total:addressed.length}]} periodLabel="Current people snapshot" onSelect={inspectPeople} />
     <p class="mt-3 text-xs text-muted-foreground">These are current person counts; a time average does not apply.</p>
   </section>
 </FullscreenWrapper>
@@ -216,7 +229,7 @@
         <ul>
           {#each results as person (person.id || person._id)}
             <li class:focused={focusedId === (person.id || person._id)}>
-              <a class="person-name" href="/people/{encodeURIComponent(person.id || person._id)}">{person.first_name} {person.last_name}</a>
+              <a class="person-name" href="/people/{encodeURIComponent(person.id || person._id)}" onclick={(event) => { if (onOpenProfile) { event.preventDefault(); onOpenProfile(person.id || person._id); } }}>{person.first_name} {person.last_name}</a>
               <p class="journey-status">{peopleService.formatJourneyStatus(person.member_status)}</p>
               <p>{personAddress(person) || "No address recorded"}</p>
               <div class="person-actions">
@@ -225,7 +238,7 @@
                 {:else}
                   <button type="button" onclick={() => onEditPerson?.(person)}>Edit address</button>
                 {/if}
-                <a href="/people/{encodeURIComponent(person.id || person._id)}">View profile →</a>
+                <a href="/people/{encodeURIComponent(person.id || person._id)}" onclick={(event) => { if (onOpenProfile) { event.preventDefault(); onOpenProfile(person.id || person._id); } }}>View profile →</a>
               </div>
               <div class="lookup-actions">
                 {#if mapLookupQuery(person)}
@@ -249,7 +262,7 @@
       </aside>
     </div>
     <footer aria-label="Map legend">
-      <span><i class="leader"></i>Leader</span><span><i class="member"></i>Member</span><span><i class="contact"></i>Outreach Contact</span><span><i class="guest"></i>Guest</span><span><i class="archived"></i>Archived</span>
+      <span><i class="leader"></i>Leader</span><span><i class="member"></i>Member</span><span><i class="contact"></i>Outreach Contact</span><span><i class="guest"></i>Non-member</span><span><i class="archived"></i>Archived</span>
       {#if churchLocation}<span><i class="church"></i>{churchLocation.name}</span>{/if}<span class="map-hint">Select a pin to view a profile. Use + / − to zoom.</span>
     </footer>
   {/if}

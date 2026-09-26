@@ -31,6 +31,9 @@
   import { filterStore } from "$lib/stores/filterStore";
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
+  import { session } from '$lib/auth/session.js';
 
   /**
    * Svelte 5: Props with children snippet for slot replacement
@@ -56,6 +59,17 @@
       filterStore.syncToURL();
       // Save to localStorage for persistence across sessions
       filterStore.saveToStorage();
+    }
+  });
+
+  const leaderRouteAllowed = $derived(
+    $page.url.pathname === '/my-bacenta'
+    || $page.url.pathname.startsWith('/meetings/programmes/')
+    || /^\/people\/[^/]+$/.test($page.url.pathname)
+  );
+  $effect(() => {
+    if (browser && $session.status === 'authenticated' && $session.user?.role === 'leader' && !leaderRouteAllowed) {
+      void goto('/my-bacenta', { replaceState: true });
     }
   });
 </script>
@@ -93,5 +107,11 @@
     Render child route content
     This is where page components will be inserted
   -->
-  <AuthGate>{@render children?.()}</AuthGate>
+  <AuthGate>
+    {#if $session.status === 'authenticated' && $session.user?.role === 'leader' && !leaderRouteAllowed}
+      <main class="p-6 text-sm text-muted-foreground" role="status">Opening My Bacenta…</main>
+    {:else}
+      {@render children?.()}
+    {/if}
+  </AuthGate>
 </div>

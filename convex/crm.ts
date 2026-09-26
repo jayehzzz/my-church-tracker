@@ -1,6 +1,6 @@
 import { candidates, selectGathering, setActualAttendance, reconcilePerson } from "./lib/attendanceWorkflow";
 import { canDiscoverOutreach, cancelPendingOutreach, requireFollowUpAllowed } from "./lib/contactPolicy";
-import { managesAttendance } from "./lib/security";
+import { authenticatedUser, managesAttendance } from "./lib/security";
 import { queryFor, mutationFor } from "./lib/security";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -528,7 +528,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
         const allPeople = peopleByStatus.flat();
         const contactPeople = allPeople.filter(isEvangelismContact);
         const completedSince = `${freshSince}T00:00:00.000Z`;
-        const [allAssignments, openTasks, completedTasks, sundayCommitments, upcomingCommitmentRows, attendancePlans, allVisitations, recentSundayResults] = await Promise.all([
+        const [allAssignments, openTasks, completedTasks, sundayCommitments, upcomingCommitmentRows, attendancePlans, allVisitations, allSundayCommitments] = await Promise.all([
             ctx.db.query("follow_up_assignments").withIndex("by_status", (q) => q.eq("status", "active")).collect(),
             ctx.db.query("follow_up_tasks").withIndex("by_status_due_date", (q) => q.eq("status", "open")).collect(),
             ctx.db.query("follow_up_tasks").withIndex("by_status_completed_at", (q) => q.eq("status", "completed").gte("completed_at", completedSince)).collect(),
@@ -536,7 +536,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
             ctx.db.query("gathering_commitments").withIndex("by_date", (q) => q.gte("gathering_date", todayDate).lte("gathering_date", addUtcDays(todayDate, 7))).collect(),
             ctx.db.query("attendance_plans").withIndex("by_service_date", (q) => q.eq("service_date", serviceDate)).collect(),
             ctx.db.query("visitations").withIndex("by_follow_up", (q) => q.eq("follow_up_required", true)).collect(),
-            ctx.db.query("gathering_commitments").withIndex("by_gathering", (q) => q.eq("gathering_type", "sunday_service")).order("desc").take(40),
+            ctx.db.query("gathering_commitments").withIndex("by_gathering", (q) => q.eq("gathering_type", "sunday_service")).collect(),
         ]);
         const allTasks = [...openTasks, ...completedTasks];
         const [followUpGroups, commitmentGroups] = await Promise.all([
@@ -545,7 +545,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
         ]);
         const allFollowUps = followUpGroups.flat();
         const allCommitments = [...new Map(
-            [...commitmentGroups.flat(), ...sundayCommitments, ...upcomingCommitmentRows, ...recentSundayResults]
+            [...commitmentGroups.flat(), ...sundayCommitments, ...upcomingCommitmentRows, ...allSundayCommitments]
                 .map((commitment) => [commitment._id, commitment]),
         ).values()];
         const followUpsByContact = new Map<Id<"people">, typeof allFollowUps>();
@@ -603,11 +603,47 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 .sort((a, b) => b.due_date.localeCompare(a.due_date))
                 .map((task) => [task.person_id, task]),
         );
+        const sundayCommitmentsByPerson = new Map<Id<"people">, typeof allSundayCommitments>();
+        for (const commitment of allSundayCommitments) {
+            if (commitment.response !== "yes") continue;
+            const rows = sundayCommitmentsByPerson.get(commitment.person_id) ?? [];
+            rows.push(commitment);
+            sundayCommitmentsByPerson.set(commitment.person_id, rows);
+        }
+        const sundayMissedHistory = [...sundayCommitmentsByPerson.entries()]
+            .flatMap(([personId, rows]) => {
+                const person = peopleById.get(personId);
+                if (!person || person.member_status === "archived") return [];
+                const byDate = new Map<string, (typeof rows)[number]>();
+                const resolutionRank: Record<string, number> = { pending: 0, cancelled: 1, no_show: 2, attended: 3 };
+                for (const row of rows) {
+                    const previous = byDate.get(row.gathering_date);
+                    if (!previous || resolutionRank[row.resolution] > resolutionRank[previous.resolution]) {
+                        byDate.set(row.gathering_date, row);
+                    }
+                }
+                const decided = [...byDate.values()].filter(row => ["attended", "no_show"].includes(row.resolution));
+                const missed = [...byDate.values()].filter(row => row.resolution === "no_show");
+                if (!missed.length) return [];
+                const latestMissed = missed.slice().sort((a, b) => b.gathering_date.localeCompare(a.gathering_date))[0];
+                const workerId = ownerByPerson.get(personId) ?? latestMissed.leader_id;
+                if (args.leaderId && workerId !== args.leaderId) return [];
+                return [{
+                    person_id: personId,
+                    person: { ...person, name: personName(person) },
+                    assigned_leader_id: workerId,
+                    assigned_leader: peopleById.get(workerId) ?? null,
+                    missed_count: missed.length,
+                    decided_count: decided.length,
+                    missed_sundays: missed
+                        .sort((a, b) => b.gathering_date.localeCompare(a.gathering_date))
+                        .map(commitment => ({ ...commitment, person: { ...person, name: personName(person) } })),
+                    next_task: openTaskByPerson.get(personId) ?? null,
+                }];
+            })
+            .sort((a, b) => b.missed_sundays[0].gathering_date.localeCompare(a.missed_sundays[0].gathering_date));
         const crmContacts = allPeople
-            .filter((person) =>
-                isEvangelismContact(person)
-                && (!args.leaderId || ownerByPerson.get(person._id) === args.leaderId),
-            )
+            .filter(isEvangelismContact)
             .map((person) => {
                 const personFollowUps = (followUpsByContact.get(person._id) ?? [])
                     .slice()
@@ -809,9 +845,28 @@ export const getDashboard = queryFor("crm:getDashboard")({
                     && person !== undefined
                     && isEvangelismContact(person);
             });
-            const openPersonIds = new Set(
-                leaderTasks.filter((task) => task.status === "open").map((task) => task.person_id),
-            );
+            const meaningfulFollowUps = periodFollowUps.filter((followUp) =>
+                !["no_response", "wrong_number"].includes(followUp.outcome));
+            const uniquePeriodPeople = [...new Set(periodFollowUps.map((followUp) => followUp.contact_id))];
+            const attendedPromises = sundayPromises.filter((commitment) => commitment.resolution === "attended");
+            const missedPromises = sundayPromises.filter((commitment) => commitment.resolution === "no_show");
+            const overdueTasks = leaderTasks.filter((task) => task.status === "open" && Boolean(task.due_date) && task.due_date < todayDate);
+            const seriousPeople = assignedPeople.filter((person) => person.is_serious);
+            const withoutNextAction = assignedPeople.filter((person) => !leaderTasks.some((task) => task.status === "open" && task.person_id === person._id));
+            const evidencePerson = (id: Id<"people">) => {
+                const person = peopleById.get(id);
+                return person ? { person_id: id, person_name: personName(person) } : { person_id: id, person_name: "Person unavailable" };
+            };
+            const followUpEvidence = (followUp: typeof allFollowUps[number]) => ({
+                id: followUp._id, ...evidencePerson(followUp.contact_id), date: followUp.follow_up_date, outcome: followUp.outcome,
+            });
+            const commitmentEvidence = (commitment: typeof allCommitments[number]) => ({
+                id: commitment._id, ...evidencePerson(commitment.person_id), date: commitment.gathering_date,
+                response: commitment.response, resolution: commitment.resolution,
+            });
+            const taskEvidence = (task: typeof allTasks[number]) => ({
+                id: task._id, ...evidencePerson(task.person_id), date: task.due_date, task_type: task.task_type,
+            });
             const completedThisWeek = leaderTasks.filter((task) =>
                 task.status === "completed"
                 && task.completed_at !== undefined
@@ -838,19 +893,26 @@ export const getDashboard = queryFor("crm:getDashboard")({
                     ? Math.round((freshContactedIds.size / freshAssignedIds.size) * 100)
                     : 100,
                 open_tasks: leaderTasks.filter((task) => task.status === "open").length,
-                overdue_tasks: leaderTasks.filter(
-                    (task) => task.status === "open" && task.due_date < todayDate,
-                ).length,
+                overdue_tasks: overdueTasks.length,
                 completed_this_week: completedThisWeek.length,
                 period_follow_ups: periodFollowUps.length,
-                period_unique_contacts: new Set(periodFollowUps.map((followUp) => followUp.contact_id)).size,
-                meaningful_conversations: periodFollowUps.filter((followUp) =>
-                    !["no_response", "wrong_number"].includes(followUp.outcome)).length,
-                serious_candidates: assignedPeople.filter((person) => person.is_serious).length,
+                period_unique_contacts: uniquePeriodPeople.length,
+                meaningful_conversations: meaningfulFollowUps.length,
+                serious_candidates: seriousPeople.length,
                 sunday_promises: sundayPromises.length,
-                promises_attended: sundayPromises.filter((commitment) => commitment.resolution === "attended").length,
-                promises_missed: sundayPromises.filter((commitment) => commitment.resolution === "no_show").length,
-                people_without_next_action: assignedPeople.filter((person) => !openPersonIds.has(person._id)).length,
+                promises_attended: attendedPromises.length,
+                promises_missed: missedPromises.length,
+                people_without_next_action: withoutNextAction.length,
+                evidence: {
+                    period_unique_contacts: uniquePeriodPeople.map(evidencePerson),
+                    meaningful_conversations: meaningfulFollowUps.map(followUpEvidence),
+                    serious_candidates: seriousPeople.map((person) => evidencePerson(person._id)),
+                    sunday_promises: sundayPromises.map(commitmentEvidence),
+                    promises_attended: attendedPromises.map(commitmentEvidence),
+                    promises_missed: missedPromises.map(commitmentEvidence),
+                    overdue_tasks: overdueTasks.map(taskEvidence),
+                    people_without_next_action: withoutNextAction.map((person) => evidencePerson(person._id)),
+                },
                 confirmed_this_sunday: sundayCommitments.filter((commitment) =>
                     commitment.leader_id === leader._id
                     && commitment.response === "yes"
@@ -951,13 +1013,16 @@ export const getDashboard = queryFor("crm:getDashboard")({
             visitation_follow_ups: visitationFollowUps,
             unassigned_contacts: unassignedContacts,
             later_contacts: laterContacts,
-            contacts: crmContacts,
+            contacts: crmContacts.filter((person) => !args.leaderId || ownerByPerson.get(person._id) === args.leaderId),
             member_care_tasks: memberCareTasks,
             visitation_tasks: visitationTasks,
             team_stats: teamStats,
-            recent_sunday_results: recentSundayResults
+            sunday_missed_history: sundayMissedHistory,
+            recent_sunday_results: allSundayCommitments
                 .filter((commitment) => commitment.resolution !== "pending")
                 .filter((commitment) => !args.leaderId || commitment.leader_id === args.leaderId)
+                .sort((a, b) => b.gathering_date.localeCompare(a.gathering_date))
+                .slice(0, 40)
                 .map((commitment) => ({
                     ...commitment,
                     person: peopleById.get(commitment.person_id) ?? null,
@@ -995,6 +1060,38 @@ export const getSundayCommitments = queryFor("crm:getSundayCommitments")({
         return commitments
             .filter((commitment) => commitment.response === "yes")
             .sort((a, b) => b.gathering_date.localeCompare(a.gathering_date));
+    },
+});
+
+export const updateMissedSundayReason = mutationFor("crm:updateMissedSundayReason")({
+    args: {
+        commitmentId: v.id("gathering_commitments"),
+        note: v.string(),
+    },
+    handler: async (ctx, args) => {
+        const commitment = await ctx.db.get(args.commitmentId);
+        if (!commitment) throw new Error("Sunday commitment not found");
+        if (commitment.gathering_type !== "sunday_service" || commitment.response !== "yes" || commitment.resolution !== "no_show") {
+            throw new Error("A reason can only be added to a missed Sunday after someone explicitly said yes");
+        }
+        const note = args.note.trim();
+        if (note.length > 500) throw new Error("Keep the reason to 500 characters or fewer");
+        const actor = authenticatedUser(ctx);
+        const now = isoNow();
+        const hadReason = Boolean(commitment.resolution_note?.trim()
+            && commitment.resolution_note !== "Not in the recorded Sunday attendance.");
+        const action = note ? (hadReason ? "reason_updated" : "reason_added") : "reason_cleared";
+        await ctx.db.patch(commitment._id, {
+            resolution_note: note || undefined,
+            history: [...(commitment.history ?? []), {
+                at: now,
+                ...(actor.person_id ? { leader_id: actor.person_id } : {}),
+                action,
+                ...(note ? { note } : {}),
+            }],
+            updated_at: now,
+        });
+        return await ctx.db.get(commitment._id);
     },
 });
 

@@ -51,13 +51,13 @@ describe("Dashboard Recent Activity and Person Profile Resolution", () => {
         expect(salvationKpi.href).toBe("/services");
     });
 
-    it("labels guest counts as attendance that already includes first timers", async () => {
+    it("labels the combined non-member count with both visit types", async () => {
         const result = await dashboardService.getDashboardKPIs();
         const guestKpi = result.kpis.find((kpi) => kpi.id === "guests");
         const familyKpi = result.kpis.find((kpi) => kpi.id === "family");
 
-        expect(guestKpi.title).toBe("Guest attendances");
-        expect(guestKpi.description).toBe("Includes first-timer visits");
+        expect(guestKpi.title).toBe("Non-member visits");
+        expect(guestKpi.description).toBe("First timers + returning guests");
         expect(familyKpi.description).toBe("Members, including leaders");
     });
 

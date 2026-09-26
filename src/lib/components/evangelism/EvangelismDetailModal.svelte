@@ -6,7 +6,7 @@
   let {
     isOpen = $bindable(false), contact = null, profile = null, profileLoading = false,
     leaders = [], onEdit = null, onDelete = null,
-    onAssign = null, onOpenCrm = null,
+    onAssign = null, onOpenCrm = null, onProfile = null,
   } = $props();
 
   let activeTab = $state("overview");
@@ -64,7 +64,7 @@
   function journeyLabel(person) {
     if (person?.member_status === "leader") return "Leader";
     if (person?.member_status === "member") return "Member";
-    if (person?.member_status === "guest" || person?.first_visit_date || person?.attended_church) return "Guest";
+    if (person?.member_status === "guest" || person?.first_visit_date || person?.attended_church) return "Non-member";
     return "Outreach Contact";
   }
 
@@ -218,7 +218,7 @@
   {#snippet footer()}
     <div class="flex w-full items-center justify-between gap-3">
       <div>{#if onDelete && contact}<Button variant="ghost" class="text-destructive" onclick={() => { isOpen = false; onDelete(contact); }}>Delete</Button>{/if}</div>
-      <div class="flex gap-2"><Button variant="secondary" onclick={() => isOpen = false}>Close</Button>{#if contact}<a class="inline-flex items-center rounded-lg border border-border px-3 text-sm font-medium text-primary hover:underline" href={`/people/${contact.id || contact._id}`}>View People profile</a>{/if}{#if onEdit && contact}<Button onclick={() => { isOpen = false; onEdit(contact); }}>Edit details</Button>{/if}</div>
+      <div class="flex gap-2"><Button variant="secondary" onclick={() => isOpen = false}>Close</Button>{#if contact}<a class="inline-flex items-center rounded-lg border border-border px-3 text-sm font-medium text-primary hover:underline" href={`/people/${contact.id || contact._id}`} onclick={() => onProfile?.(contact)}>View People profile</a>{/if}{#if onEdit && contact}<Button onclick={() => { isOpen = false; onEdit(contact); }}>Edit details</Button>{/if}</div>
     </div>
   {/snippet}
 </Modal>

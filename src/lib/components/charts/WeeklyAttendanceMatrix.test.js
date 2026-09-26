@@ -76,7 +76,21 @@ describe("WeeklyAttendanceMatrix", () => {
         name: "Ama Mensah missed Sun, 30 Aug 2026",
       }),
     );
-    expect(onServiceClick).toHaveBeenCalledWith(services[0]);
+    expect(onServiceClick).toHaveBeenCalledWith(services[0], people[0], expect.arrayContaining([expect.objectContaining({ service: services[0] })]));
+  });
+
+  it("passes the clicked person's record on a direct cell click before opening a summary", async () => {
+    const onServiceClick = vi.fn();
+    const { getByRole } = render(WeeklyAttendanceMatrix, {
+      props: { services, people, onServiceClick },
+    });
+
+    await fireEvent.click(getByRole("button", {
+      name: "Daniel Brown was here on Sun, 30 Aug 2026",
+    }));
+
+    expect(onServiceClick).toHaveBeenCalledTimes(1);
+    expect(onServiceClick).toHaveBeenCalledWith(services[0], people[1], expect.arrayContaining([expect.objectContaining({ service: services[0] })]));
   });
 
   it("offers explicit older and newer controls when more Sundays are loaded than fit", () => {

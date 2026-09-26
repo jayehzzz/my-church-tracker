@@ -32,7 +32,7 @@
     <label>Church status
       <select aria-label="Church status" value={status} disabled={updatingStatus} onchange={(e) => onUpdateStatus(e.currentTarget.value)}>
         <option value="" disabled>Not recorded</option>
-        <option value="contact">Outreach Contact</option><option value="guest">Guest</option><option value="member">Member</option><option value="leader">Leader</option><option value="archived">Archived</option>
+        <option value="contact">Outreach Contact</option><option value="guest">Non-member</option><option value="member">Member</option><option value="leader">Leader</option><option value="archived">Archived</option>
       </select>
     </label>
     <label>Activity
@@ -40,7 +40,7 @@
         <option value="" disabled>Not recorded</option><option value="regular">Regular</option><option value="irregular">Irregular</option><option value="dormant">Dormant</option>
       </select>
     </label>
-    <span class="status-hint">{updatingStatus ? "Saving…" : "First Timer is recorded on attendance, not as a profile status. Activity is manually recorded."}</span>
+    <span class="status-hint">{updatingStatus ? "Saving…" : "First timer and returning guest describe visits; Non-member describes the current profile. Activity is manually recorded."}</span>
   </div>
   {#if person.contact_category === "do_not_contact"}<p class="contact-warning">Do not contact — recorded contact preference.</p>{/if}
   {#if statusUpdateError}<p class="error" role="alert">{statusUpdateError}</p>{/if}

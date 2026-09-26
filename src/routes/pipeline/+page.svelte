@@ -3,14 +3,20 @@
   const confidential = $derived($session.status === "demo" || $session.user?.canViewConfidential === true);
   import GatheringAttendanceDialog from "$lib/components/crm/GatheringAttendanceDialog.svelte";
   import { onMount } from 'svelte';
+  import { tick } from 'svelte';
   import DashboardLayout from '$lib/components/layout/DashboardLayout.svelte';
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import { Button, Modal } from '$lib/components/ui';
   import PersonForm from '$lib/components/forms/PersonForm.svelte';
   import { ExpectedSunday, FollowUpBoard, WorkerAssessment, ContactDrawer } from '$lib/components/crm';
-  import { assignContact, batchAssignContacts, completeTask, getDashboard, quickLogNoAnswer, reactivateContact, resolveCommitment, setAttendancePlan, watchDashboard } from '$lib/services/followUpCrmService.js';
+  import { assignContact, batchAssignContacts, completeTask, createTask, getContactProfile, getDashboard, quickLogNoAnswer, reactivateContact, resolveCommitment, setAttendancePlan, updateMissedSundayReason, watchDashboard } from '$lib/services/followUpCrmService.js';
   import { notificationStore, refreshLiveNotifications } from '$lib/stores/notificationStore.js';
   import { isDemoMode } from '$lib/convex.js';
+  import { goto } from '$app/navigation';
+  import { saveDomainReturn, takeDomainReturn } from '$lib/components/drilldown/domainReturnState.js';
+  import { attentionRows, ATTENTION_LABELS } from '$lib/services/followUpAttention.js';
+  import MissedSundayFollowUp from '$lib/components/crm/MissedSundayFollowUp.svelte';
+  import { recentMissedSundayPeople } from '$lib/utils/missedSundayHistory.js';
 
   let actualAttendance = $state(null);
   let isActualAttendanceOpen = $state(false);
@@ -18,10 +24,19 @@
   let sundayActionNote = $state("");
   let isSundayNoteOpen = $state(false);
   let savingSundayNote = $state(false);
+  let missedReasonAction = $state(null);
+  let missedReasonDraft = $state('');
+  let isMissedReasonOpen = $state(false);
+  let savingMissedReason = $state(false);
+  let missedCallAction = $state(null);
+  let missedCallDate = $state('');
+  let isMissedCallOpen = $state(false);
+  let savingMissedCall = $state(false);
 
   const TABS = [
     { id: 'week', label: 'This week' },
     { id: 'sunday', label: 'Sunday' },
+    { id: 'missed', label: 'Missed after saying yes' },
     { id: 'later', label: 'Later' },
     { id: 'team', label: 'Workers' },
   ];
@@ -60,11 +75,17 @@
   let boardView = $state('list');
   let assessmentPeriod = $state('week');
   let selectedLeaderId = $state('all');
+  let attentionFilter = $state('');
+  let workerMetric = $state(null);
+  let detailRow = $state(null);
+  let evidenceHeading = $state(null);
+  let metricTrigger;
+  let suspendedDrawerId = $state('');
   let loading = $state(true);
   let refreshing = $state(false);
   let errorMessage = $state('');
   let successMessage = $state('');
-  let workspace = $state({ leaders: [], tasks: [], confirmed_commitments: [], sunday_commitments: [], recent_sunday_results: [], attendance_roster: [], attendance_forecast: {}, unassigned_contacts: [], later_contacts: [], contacts: [], team_stats: [], service_date: '', source: 'local' });
+  let workspace = $state({ leaders: [], tasks: [], confirmed_commitments: [], sunday_commitments: [], recent_sunday_results: [], sunday_missed_history: [], attendance_roster: [], attendance_forecast: {}, unassigned_contacts: [], later_contacts: [], contacts: [], team_stats: [], service_date: '', source: 'local' });
   let selectedTask = $state(null);
   let isCompleteModalOpen = $state(false);
   let savingTask = $state(false);
@@ -88,7 +109,52 @@
   const unassignedCount = $derived((workspace.unassigned_contacts || []).length);
   const sundayPending = $derived((workspace.sunday_commitments || workspace.confirmed_commitments || []).filter((item) => (item.resolution || 'pending') === 'pending').length);
   const laterContacts = $derived((workspace.later_contacts || []).filter((contact) => personName(contact).toLowerCase().includes(laterSearch.trim().toLowerCase())));
-  const tabCounts = $derived({ week: weekTasks.length + unassignedCount, sunday: sundayPending, later: (workspace.later_contacts || []).length, team: 0 });
+  const missedCount = $derived(recentMissedSundayPeople(workspace.sunday_missed_history || [], today).length);
+  const tabCounts = $derived({ week: weekTasks.length + unassignedCount, sunday: sundayPending, missed: missedCount, later: (workspace.later_contacts || []).length, team: 0 });
+  const attentionItems = $derived(attentionRows(workspace, attentionFilter, today));
+  const attentionAvailable = $derived(attentionFilter !== 'expected-sunday'
+    || (Array.isArray(workspace.attendance_forecast?.expected_person_ids)
+      && attentionItems.length === Number(workspace.attendance_forecast?.expected_total || 0)));
+  const workerStat = $derived((workspace.team_stats || []).find((stat) => String(stat.leader_id) === String(workerMetric?.leaderId)));
+  const workerRows = $derived(workerMetric?.key === 'attention'
+    ? [...(workerStat?.evidence?.overdue_tasks || []), ...(workerStat?.evidence?.people_without_next_action || [])]
+    : workerStat?.evidence?.[workerMetric?.key] || []);
+  const workerEvidenceAvailable = $derived(!workerMetric || (workerMetric.key === 'attention'
+    ? Array.isArray(workerStat?.evidence?.overdue_tasks) && Array.isArray(workerStat?.evidence?.people_without_next_action)
+    : Array.isArray(workerStat?.evidence?.[workerMetric.key])));
+  const workerCount = $derived(workerMetric?.key === 'attention'
+    ? Number(workerStat?.overdue_tasks || 0) + Number(workerStat?.people_without_next_action || 0)
+    : Number(workerStat?.[workerMetric?.key] || 0));
+  const workerLabels = { period_unique_contacts: 'People worked', meaningful_conversations: 'Real conversations', serious_candidates: 'Serious now', sunday_promises: 'Said yes to Sunday', promises_attended: 'Attended', promises_missed: 'Did not attend', overdue_tasks: 'Overdue calls', people_without_next_action: 'People with no next call', attention: 'Needs attention' };
+  function authKey() {
+    const user = $session.user;
+    return JSON.stringify([$session.status, user?.id || user?.sub || user?.email || user?.externalAuthId, user?.role, user?.canViewConfidential, user?.canViewGiving]);
+  }
+  function returnFrame() { return { auth: authKey(), activeTab, boardView, assessmentPeriod, selectedLeaderId, attentionFilter, workerMetric, detailRowId: detailRow?.id || detailRow?._id, drawerPersonId: personId(drawerPerson), drawerOpen: isDrawerOpen, scrollY: window.scrollY }; }
+  function restoreFrame(frame) {
+    if (!frame || frame.auth !== authKey()) return;
+    activeTab = frame.activeTab; boardView = frame.boardView; assessmentPeriod = frame.assessmentPeriod;
+    selectedLeaderId = frame.selectedLeaderId; attentionFilter = frame.attentionFilter;
+    workerMetric = frame.workerMetric;
+    void loadWorkspace().then(() => {
+      detailRow = [...attentionRows(workspace, frame.attentionFilter, today), ...(frame.workerMetric?.key === 'attention' ? [...(workerStat?.evidence?.overdue_tasks || []), ...(workerStat?.evidence?.people_without_next_action || [])] : workerStat?.evidence?.[frame.workerMetric?.key] || [])]
+        .find((row) => String(row.id || row._id) === String(frame.detailRowId)) || null;
+      if (frame.drawerOpen && frame.drawerPersonId) {
+        const people = [...(workspace.contacts || []), ...(workspace.attendance_roster || []), ...(workspace.unassigned_contacts || [])];
+        const person = people.find((row) => String(personId(row)) === String(frame.drawerPersonId));
+        if (person) openPerson(person);
+      }
+      if (typeof window !== 'undefined') window.scrollTo(0, frame.scrollY || 0);
+    });
+  }
+  export const snapshot = {
+    capture: () => {
+      const token = `pipeline-${crypto.randomUUID()}`;
+      saveDomainReturn(token, returnFrame());
+      return { token };
+    },
+    restore: (value) => restoreFrame(value?.token ? takeDomainReturn(value.token) : null),
+  };
 
   function blankTaskForm() {
     return {
@@ -321,9 +387,10 @@
     workspace = { ...workspace, service_date: addDays(today, diff) };
     await loadWorkspace({ quiet: true });
   }
-  async function handleViewLeader(leaderId) { selectedLeaderId = String(leaderId); activeTab = 'week'; await loadWorkspace({ quiet: true }); }
+  async function handleViewLeader(leaderId) { attentionFilter = ''; workerMetric = null; selectedLeaderId = String(leaderId); activeTab = 'week'; await loadWorkspace({ quiet: true }); }
   async function clearLeader() { selectedLeaderId = 'all'; await loadWorkspace({ quiet: true }); }
   async function handleLeaderChange() {
+    attentionFilter = ''; workerMetric = null;
     activeTab = 'week';
     await loadWorkspace({ quiet: true });
   }
@@ -371,18 +438,95 @@
     }
   }
   async function changeAssessmentPeriod(period) { assessmentPeriod = period; await loadWorkspace({ quiet: true }); }
+  async function openWorkerMetric(stat, key) {
+    metricTrigger = document.activeElement;
+    attentionFilter = ''; workerMetric = { leaderId: String(stat.leader_id), key }; detailRow = null;
+    await tick();
+    evidenceHeading?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    evidenceHeading?.focus();
+  }
+  function closeWorkerMetric() { workerMetric = null; detailRow = null; metricTrigger?.focus?.(); }
+  function selectTab(tab) { attentionFilter = ''; workerMetric = null; activeTab = tab; }
+  function openMissedReason(commitment) {
+    missedReasonAction = commitment;
+    missedReasonDraft = commitment?.resolution_note === 'Not in the recorded Sunday attendance.' ? '' : commitment?.resolution_note || '';
+    isMissedReasonOpen = true;
+  }
+  async function saveMissedReason() {
+    if (!missedReasonAction || missedReasonDraft.trim().length > 500) return;
+    savingMissedReason = true;
+    const result = await updateMissedSundayReason(missedReasonAction._id || missedReasonAction.id, missedReasonDraft);
+    savingMissedReason = false;
+    if (result.error) { errorMessage = result.error.message || 'The reason could not be saved.'; return; }
+    isMissedReasonOpen = false;
+    missedReasonAction = null;
+    await loadWorkspace({ quiet: true });
+  }
+  function openMissedCall(row) {
+    missedCallAction = row;
+    missedCallDate = addDays(today, 2);
+    isMissedCallOpen = true;
+  }
+  async function saveMissedCall() {
+    if (!missedCallAction || !missedCallDate) return;
+    if (missedCallAction.next_task) {
+      errorMessage = 'A follow-up task is already open for this person. Open their profile to review it.';
+      missedCallAction = null;
+      isMissedCallOpen = false;
+      await loadWorkspace({ quiet: true });
+      return;
+    }
+    const person = missedCallAction.person;
+    const leaderId = missedCallAction.assigned_leader_id;
+    if (!personId(person) || !leaderId) { errorMessage = 'Assign a worker before scheduling a call.'; return; }
+    savingMissedCall = true;
+    const result = await createTask({
+      personId: personId(person),
+      assignedLeaderId: leaderId,
+      dueDate: missedCallDate,
+      taskType: 'follow_up',
+      ...(confidential ? { reason: 'Check in after a missed Sunday confirmation' } : {}),
+    });
+    savingMissedCall = false;
+    if (result.error) { errorMessage = result.error.message || 'The call could not be scheduled.'; return; }
+    missedCallAction = null;
+    isMissedCallOpen = false;
+    successMessage = `A follow-up call for ${personName(person)} is planned for ${formatDate(missedCallDate)}.`;
+    await loadWorkspace({ quiet: true });
+  }
+  function viewFullProfile(person) {
+    if (!personId(person)) return;
+    saveDomainReturn('pipeline-profile', returnFrame());
+    isDrawerOpen = false;
+    void goto(`/people/${encodeURIComponent(personId(person))}`);
+  }
   function openPerson(person) {
     if (!personId(person)) return;
     drawerPerson = { ...person, id: person.id || person._id };
     isDrawerOpen = true;
   }
+  async function openEvidencePerson(row) {
+    const id = row?.person_id || personId(row);
+    const people = [...(workspace.contacts || []), ...(workspace.attendance_roster || []), ...(workspace.unassigned_contacts || []), ...(workspace.later_contacts || [])];
+    const person = people.find((candidate) => String(personId(candidate)) === String(id));
+    if (person) openPerson(person);
+    else if (id) {
+      const result = await getContactProfile(id);
+      if (result.error || !result.data?.person) errorMessage = result.error?.message || 'This person is unavailable or access is restricted.';
+      else openPerson(result.data.person);
+    }
+  }
   function openFullProfileEdit() {
     if (!drawerPerson) return;
     selectedPerson = drawerPerson;
+    suspendedDrawerId = String(personId(drawerPerson));
+    isDrawerOpen = false;
     isPersonFormOpen = true;
   }
   function handleLogCallFromDrawer() {
     if (!drawerPerson) return;
+    suspendedDrawerId = String(personId(drawerPerson));
+    isDrawerOpen = false;
     const personTask = (workspace.tasks || []).find((t) => String(t.person_id) === String(personId(drawerPerson)) && t.status === 'open');
     if (personTask) {
       openCompleteTask(personTask);
@@ -402,8 +546,25 @@
     await loadWorkspace({ quiet: true });
   }
 
+  $effect(() => {
+    if (suspendedDrawerId && !isCompleteModalOpen && !isPersonFormOpen) {
+      const id = suspendedDrawerId;
+      suspendedDrawerId = '';
+      queueMicrotask(() => {
+        const person = [...(workspace.contacts || []), ...(workspace.attendance_roster || []), ...(workspace.unassigned_contacts || [])]
+          .find((row) => String(personId(row)) === id);
+        if (person) openPerson(person);
+      });
+    }
+  });
+
   onMount(() => {
-    void loadWorkspace();
+    const params = new URLSearchParams(window.location.search);
+    const filter = params.get('filter');
+    if (filter && ATTENTION_LABELS[filter]) attentionFilter = filter;
+    const prior = takeDomainReturn('pipeline-profile');
+    if (prior && prior.auth === authKey()) restoreFrame(prior);
+    else void loadWorkspace();
     return () => stopDashboardWatch();
   });
 </script>
@@ -424,7 +585,7 @@
   <div class="my-6 flex flex-col gap-3 border-b border-border sm:flex-row sm:items-end sm:justify-between">
     <nav class="flex gap-1 overflow-x-auto" aria-label="Follow-up sections">
       {#each TABS as tab (tab.id)}
-        <button type="button" class="flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold {activeTab === tab.id ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}" onclick={() => activeTab = tab.id} aria-current={activeTab === tab.id ? 'page' : undefined}>{tab.label}{#if tabCounts[tab.id]}<span class="rounded-full px-2 py-0.5 text-xs {tab.id === 'week' && overdueCount ? 'bg-destructive/10 text-destructive' : 'bg-secondary'}">{tabCounts[tab.id]}</span>{/if}</button>
+        <button type="button" class="flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold {activeTab === tab.id ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}" onclick={() => selectTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined}>{tab.label}{#if tabCounts[tab.id]}<span class="rounded-full px-2 py-0.5 text-xs {tab.id === 'week' && overdueCount ? 'bg-destructive/10 text-destructive' : 'bg-secondary'}">{tabCounts[tab.id]}</span>{/if}</button>
       {/each}
     </nav>
     {#if activeTab === 'week'}<div class="mb-2 flex self-start rounded-lg border border-border bg-secondary/40 p-1 sm:self-auto" aria-label="This week layout"><button type="button" class="rounded-md px-3 py-1.5 text-xs font-semibold {boardView === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}" onclick={() => boardView = 'list'}>List</button><button type="button" class="rounded-md px-3 py-1.5 text-xs font-semibold {boardView === 'board' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}" onclick={() => boardView = 'board'}>Board</button></div>{/if}
@@ -432,6 +593,27 @@
 
   {#if loading}
     <div class="rounded-xl border border-border bg-card py-20 text-center text-sm text-muted-foreground">Loading follow-up…</div>
+  {:else if attentionFilter && !errorMessage}
+    <section class="rounded-xl border border-border bg-card" aria-label={ATTENTION_LABELS[attentionFilter]}>
+      <div class="flex items-center justify-between gap-3 border-b border-border p-5">
+        <div><h2 class="text-lg font-semibold">{ATTENTION_LABELS[attentionFilter]}</h2><p class="text-sm text-muted-foreground">{attentionItems.length} matching {attentionItems.length === 1 ? 'record' : 'records'}{attentionFilter === 'expected-sunday' ? ` · ${formatDate(workspace.service_date)}` : ''}</p></div>
+        <Button size="sm" variant="secondary" onclick={() => attentionFilter = ''}>Clear filter</Button>
+      </div>
+      {#if !attentionAvailable}<p class="p-8 text-sm text-destructive" role="alert">Details are unavailable. Refresh to try again.</p>
+      {:else if attentionItems.length}
+        <div class="divide-y divide-border">
+          {#each attentionItems as row, index (`${row._id || row.id || row.person_id}-${index}`)}
+            <div class="flex items-center justify-between gap-3 px-5 py-3">
+              <div><p class="font-medium">{row.person ? personName(row.person) : row.unavailable ? 'Person unavailable' : personName(row)}</p><p class="text-xs text-muted-foreground">{row.attention_kind === 'task' ? `${String(row.task_type || 'Task').replaceAll('_', ' ')} · ${row.due_date ? formatDate(row.due_date) : 'No due date'}` : attentionFilter === 'expected-sunday' ? 'Expected for this Sunday' : 'Needs a worker'}</p></div>
+              {#if !row.unavailable}<Button size="sm" variant="ghost" onclick={() => row.attention_kind === 'task' ? detailRow = row : openEvidencePerson(row.person || row)}>{row.attention_kind === 'task' ? 'Task details' : 'View person'}</Button>{/if}
+            </div>
+          {/each}
+        </div>
+      {:else}<p class="p-8 text-sm text-muted-foreground">No matching records.</p>{/if}
+      {#if detailRow}
+        <div class="border-t border-border bg-secondary/20 p-5"><button type="button" class="mb-3 text-sm font-semibold text-primary" onclick={() => detailRow = null}>← Back to matching records</button><h3 class="font-semibold">{String(detailRow.task_type || 'Task').replaceAll('_', ' ')}</h3><p class="text-sm text-muted-foreground">Due {detailRow.due_date ? formatDate(detailRow.due_date) : 'date not set'} · {personName(detailRow.person)}</p><Button size="sm" variant="secondary" onclick={() => openEvidencePerson(detailRow.person || detailRow)}>View person</Button></div>
+      {/if}
+    </section>
   {:else if activeTab === 'week'}
     <FollowUpBoard
       unassigned={selectedLeaderId === 'all' ? workspace.unassigned_contacts || [] : []}
@@ -464,6 +646,14 @@
       onNextSunday={() => changeSunday(7)}
       onCurrentSunday={resetSundayToCurrent}
     />
+  {:else if activeTab === 'missed'}
+    <MissedSundayFollowUp
+      history={workspace.sunday_missed_history || []}
+      {today}
+      onOpen={openPerson}
+      onEditReason={openMissedReason}
+      onPlanCall={openMissedCall}
+    />
   {:else if activeTab === 'later'}
     <section class="overflow-hidden rounded-xl border border-border bg-card">
       <div class="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -487,7 +677,14 @@
       {/if}
     </section>
   {:else}
-    <WorkerAssessment stats={workspace.team_stats || []} period={assessmentPeriod} onPeriodChange={changeAssessmentPeriod} onViewLeader={handleViewLeader} />
+    <WorkerAssessment stats={workspace.team_stats || []} period={assessmentPeriod} onPeriodChange={changeAssessmentPeriod} onViewLeader={handleViewLeader} onMetric={openWorkerMetric} />
+    {#if workerMetric}
+      <section class="mt-4 rounded-xl border border-border bg-card" aria-label="Worker metric evidence">
+        <div class="flex items-center justify-between gap-3 border-b border-border p-5"><div><h3 bind:this={evidenceHeading} tabindex="-1" class="font-semibold">{workerStat?.leader_name || 'Worker'} · {workerLabels[workerMetric.key]}</h3><p class="text-sm text-muted-foreground">{periodRange().periodStart} to {periodRange().periodEnd} · {workerCount} matching {workerCount === 1 ? 'record' : 'records'}{['serious_candidates', 'overdue_tasks', 'people_without_next_action', 'attention'].includes(workerMetric.key) ? ' · current snapshot' : ''}</p></div><Button size="sm" variant="secondary" onclick={closeWorkerMetric}>Close</Button></div>
+        {#if !workerEvidenceAvailable}<p class="p-8 text-sm text-destructive" role="alert">Details are unavailable. Refresh to try again.</p>{:else if workerRows.length}<div class="divide-y divide-border">{#each workerRows as row, index (`${row.id || row.person_id}-${index}`)}<div class="flex items-center justify-between gap-3 px-5 py-3"><div><p class="font-medium">{row.person_name}</p><p class="text-xs text-muted-foreground">{row.date ? formatDate(row.date) : 'Current person'}{row.outcome ? ` · ${String(row.outcome).replaceAll('_', ' ')}` : ''}{row.resolution ? ` · ${String(row.resolution).replaceAll('_', ' ')}` : ''}{row.task_type ? ` · ${String(row.task_type).replaceAll('_', ' ')}` : ''}</p></div><Button size="sm" variant="ghost" onclick={() => row.task_type ? detailRow = row : openEvidencePerson(row)}>{row.task_type ? 'Task details' : 'View person'}</Button></div>{/each}</div>{:else}<p class="p-8 text-sm text-muted-foreground">No matching evidence for this measure.</p>{/if}
+        {#if detailRow}<div class="border-t border-border bg-secondary/20 p-5"><button type="button" class="mb-3 text-sm font-semibold text-primary" onclick={() => detailRow = null}>← Back to evidence</button><h4 class="font-semibold">{detailRow.person_name} · {String(detailRow.task_type || 'Task').replaceAll('_', ' ')}</h4><p class="text-sm text-muted-foreground">Due {detailRow.date ? formatDate(detailRow.date) : 'date not set'}</p><Button size="sm" variant="secondary" onclick={() => openEvidencePerson(detailRow)}>View person</Button></div>{/if}
+      </section>
+    {/if}
   {/if}
 
   <Modal bind:isOpen={isCompleteModalOpen} title={selectedTask ? `Log call — ${personName(selectedTask.person)}` : 'Log call'} size="lg">
@@ -585,9 +782,31 @@
     </form>
     {#snippet footer()}<Button variant="secondary" disabled={savingSundayNote} onclick={() => isSundayNoteOpen = false}>Cancel</Button><Button loading={savingSundayNote} onclick={submitSundayNoteAction}>Save update</Button>{/snippet}
   </Modal>
+
+  <Modal bind:isOpen={isMissedReasonOpen} title={missedReasonAction ? `Sunday follow-up note — ${personName(missedReasonAction.person)}` : 'Sunday follow-up note'} size="md">
+    <form class="space-y-4" onsubmit={(event) => { event.preventDefault(); saveMissedReason(); }}>
+      <p class="text-sm text-muted-foreground">Add the reason you learned for this missed Sunday. The history will keep the previous note changes.</p>
+      <label class="block text-sm font-medium text-foreground">Reason or context <span class="font-normal text-muted-foreground">(optional)</span>
+        <textarea bind:value={missedReasonDraft} maxlength="500" rows="3" placeholder="For example, transport fell through" class="mt-1.5 w-full resize-none rounded-lg border border-border bg-secondary px-3 py-2 text-sm"></textarea>
+      </label>
+    </form>
+    {#snippet footer()}<Button variant="secondary" disabled={savingMissedReason} onclick={() => isMissedReasonOpen = false}>Cancel</Button><Button loading={savingMissedReason} onclick={saveMissedReason}>Save reason</Button>{/snippet}
+  </Modal>
+
+  <Modal bind:isOpen={isMissedCallOpen} title={missedCallAction ? `Plan a call — ${personName(missedCallAction.person)}` : 'Plan a call'} size="md">
+    {#if missedCallAction}
+      <div class="space-y-4">
+        <p class="text-sm text-muted-foreground">This adds one follow-up task for {personName(missedCallAction.assigned_leader)}. No task will be created until you save.</p>
+        <label class="block text-sm font-medium text-foreground">Call due date
+          <input type="date" min={today} bind:value={missedCallDate} class="mt-1.5 w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm" />
+        </label>
+      </div>
+    {/if}
+    {#snippet footer()}<Button variant="secondary" disabled={savingMissedCall} onclick={() => { missedCallAction = null; isMissedCallOpen = false; }}>Cancel</Button><Button loading={savingMissedCall} onclick={saveMissedCall}>Schedule call</Button>{/snippet}
+  </Modal>
 </DashboardLayout>
 
-<ContactDrawer bind:isOpen={isDrawerOpen} person={drawerPerson} onLogCall={handleLogCallFromDrawer} onEditProfile={openFullProfileEdit} />
+<ContactDrawer bind:isOpen={isDrawerOpen} person={drawerPerson} onLogCall={handleLogCallFromDrawer} onEditProfile={openFullProfileEdit} onViewProfile={viewFullProfile} />
 
 <PersonForm bind:isOpen={isPersonFormOpen} person={selectedPerson} onsave={handlePersonSaved} />
 

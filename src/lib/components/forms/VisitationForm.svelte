@@ -1,6 +1,7 @@
 <script>
   import { Modal, Button, Input, Select, SearchableSelect } from "$lib/components/ui";
   import { fullName, localDate, recordId } from "$lib/utils/pastoralCare.js";
+  import { formatJourneyStatus } from "$lib/services/peopleService.js";
 
   let {
     isOpen = $bindable(false),
@@ -8,6 +9,7 @@
     task = null,
     people = [],
     initialPersonId = "",
+    initialLeaderId = "",
     onsave = null,
     ...restProps
   } = $props();
@@ -63,7 +65,7 @@
   ];
 
   const purposeOptions = [
-    { value: "new_guest", label: "New guest care" },
+    { value: "new_guest", label: "First-timer care" },
     { value: "attendance_concern", label: "Attendance concern" },
     { value: "welfare", label: "Welfare" },
     { value: "prayer", label: "Prayer" },
@@ -89,7 +91,7 @@
     const existing = visitation;
     formData = {
       person_id: existing?.person_id || task?.person_id || initialPersonId || "",
-      visited_by_id: existing?.visited_by_id || task?.assigned_leader_id || "",
+      visited_by_id: existing?.visited_by_id || task?.assigned_leader_id || initialLeaderId || "",
       visit_date: existing?.visit_date || localDate(),
       interaction_type: existing?.interaction_type || "home_visit",
       purpose: existing?.purpose
@@ -196,7 +198,7 @@
       <div class="grid grid-cols-1 gap-3 rounded-xl border border-border bg-secondary/20 p-4 text-sm sm:grid-cols-3">
         <div>
           <span class="block text-xs text-muted-foreground">Status</span>
-          <span class="font-medium capitalize text-foreground">{selectedPerson.member_status || "Unknown"}</span>
+          <span class="font-medium text-foreground">{formatJourneyStatus(selectedPerson.member_status, "Unknown")}</span>
         </div>
         <div>
           <span class="block text-xs text-muted-foreground">Phone</span>

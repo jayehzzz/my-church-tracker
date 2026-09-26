@@ -8,6 +8,7 @@
   import { Modal } from "$lib/components/ui";
   import SundayReliabilitySummary from "$lib/components/shared/SundayReliabilitySummary.svelte";
   import { summarizeSundayCommitments } from "$lib/utils/sundayReliability.js";
+  import { formatJourneyStatus } from "$lib/services/peopleService.js";
 
   let {
     services = [],
@@ -679,8 +680,8 @@
                       <span class="block truncate text-sm font-medium text-foreground">
                         {fullName(row.person)}
                       </span>
-                      <span class="block text-[11px] capitalize text-muted-foreground">
-                        {row.person.member_status}
+                      <span class="block text-[11px] text-muted-foreground">
+                        {formatJourneyStatus(row.person.member_status)}
                       </span>
                     </span>
                   </button>
@@ -691,7 +692,7 @@
                       type="button"
                       onclick={(event) => {
                         event.stopPropagation();
-                        onServiceClick?.(status.service);
+                        onServiceClick?.(status.service, row.person, row.statuses);
                       }}
                       class="mx-auto flex h-9 w-9 items-center justify-center rounded-lg text-sm font-semibold transition-all {onServiceClick ? 'cursor-pointer hover:scale-105' : 'cursor-default'} {status.state === 'present' ? 'bg-success/10 text-success hover:bg-success/20' : status.state === 'missed' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20' : 'bg-secondary/40 text-muted-foreground'}"
                       aria-label={statusLabel(status, row.person)}
@@ -759,7 +760,7 @@
           <span class="flex h-11 w-11 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold text-primary ring-1 ring-primary/20" aria-hidden="true">{initials(selectedAttendanceRow.person)}</span>
           <div>
             <p class="font-semibold text-foreground">{fullName(selectedAttendanceRow.person)}</p>
-            <p class="text-xs capitalize text-muted-foreground">{selectedAttendanceRow.person.member_status}</p>
+            <p class="text-xs text-muted-foreground">{formatJourneyStatus(selectedAttendanceRow.person.member_status)}</p>
           </div>
         </div>
         <a href="/people/{recordId(selectedAttendanceRow.person)}" onclick={(event) => openProfile(selectedAttendanceRow.person, event)} class="text-sm font-semibold text-primary hover:underline">View profile →</a>
@@ -820,7 +821,7 @@
               class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-secondary/30"
               onclick={() => {
                 showAttendanceSummary = false;
-                onServiceClick?.(status.service);
+                onServiceClick?.(status.service, selectedAttendanceRow.person, modalStatuses());
               }}
             >
               <span class="text-sm text-foreground">{formatFullDate(status.service.service_date)}</span>

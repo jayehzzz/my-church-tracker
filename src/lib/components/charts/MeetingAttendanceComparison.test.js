@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, fireEvent, cleanup } from '@testing-library/svelte';
 import MeetingAttendanceComparison from './MeetingAttendanceComparison.svelte';
 afterEach(cleanup);
@@ -11,7 +11,7 @@ describe('meeting comparison details', () => {
     const {getByLabelText,getByText,getByRole} = render(MeetingAttendanceComparison,{series});
     await fireEvent.change(getByLabelText('Chart time scale'),{target:{value:'month'}});
     expect(getByText('Meetings shown', {selector:'p'}).previousElementSibling).toHaveTextContent('3');
-    expect(getByText('Average attendance').previousElementSibling).toHaveTextContent('50');
+    expect(getByText('Average attendance (rounded)').previousElementSibling).toHaveTextContent('50');
     await fireEvent.click(getByRole('button',{name:'Bar',exact:true}));
     await fireEvent.click(getByRole('button',{name:'Bacenta, Sept 2026, 30 average attendance per meeting'}));
     expect(getByRole('dialog',{name:'Sept 2026'})).toHaveTextContent('30');
@@ -32,4 +32,13 @@ it('plots the same programme as total and average without doubling meeting summa
   expect(getByRole('button',{name:'Bacenta, Sept 2026, 60 total attendance'})).toBeDefined();
   expect(getByRole('button',{name:'Bacenta, Sept 2026, 30 average attendance per meeting'})).toBeDefined();
   expect(getByText('Meetings shown',{selector:'p'}).previousElementSibling).toHaveTextContent('2');
+});
+
+it('passes the selected grouped programme and original meeting IDs to the page callback', async () => {
+  const onDrilldown = vi.fn();
+  const { getByLabelText, getByRole } = render(MeetingAttendanceComparison, { series, onDrilldown });
+  await fireEvent.change(getByLabelText('Chart time scale'), { target: { value: 'month' } });
+  await fireEvent.click(getByRole('button', { name: 'Bacenta, Sept 2026, 30 average attendance per meeting' }));
+  expect(onDrilldown).toHaveBeenCalledTimes(1);
+  expect(onDrilldown.mock.lastCall[0].choices[0]).toMatchObject({ programmeId: 'b', mode: 'average', sourceIds: ['two', 'three'] });
 });

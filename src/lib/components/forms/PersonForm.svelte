@@ -12,6 +12,7 @@
 <script>
   import { session } from "$lib/auth/session.js";
   const confidential = $derived($session.status === "demo" || $session.user?.canViewConfidential === true);
+  const giving = $derived($session.status === "demo" || $session.user?.canViewGiving === true);
   import { untrack } from "svelte";
   import {
     Modal,
@@ -97,7 +98,7 @@
   // Status options
   const statusOptions = [
     { value: "contact", label: "Outreach Contact" },
-    { value: "guest", label: "Guest" },
+    { value: "guest", label: "Non-member" },
     { value: "member", label: "Member" },
     { value: "leader", label: "Leader" },
     { value: "archived", label: "Archived" },
@@ -413,7 +414,8 @@
             ? { lat: "", lng: "" }
             : {}),
       };
-      if (!confidential) { delete payload.is_tither; delete payload.notes; }
+      if (!giving) delete payload.is_tither;
+      if (!confidential) delete payload.notes;
       if (mode === "edit") {
         result = await peopleService.update(person.id || person._id, payload);
       } else {
@@ -726,7 +728,7 @@
       </div>
 
       <p class="text-xs text-muted-foreground">
-        Outreach Contact = collected through evangelism but has not attended yet. Guest = has attended but is not yet a member. Choose Member only when membership is confirmed. First timer is recorded on the person's first attendance, not as a permanent status.
+        Outreach contact = collected through evangelism but has not attended yet. Non-member = has attended but has not joined. Choose Member only when membership is confirmed. Attendance records mark the first visit as First timer and later visits before membership as Returning guest; these are visit types, not permanent profile statuses.
       </p>
 
       {#if showMoreDetails}
@@ -815,7 +817,7 @@
             class="h-4 w-4 rounded border-border text-primary focus:ring-primary"
           />
         </label>
-        {#if confidential}
+        {#if giving}
         <div class="rounded-lg border border-border/60 bg-secondary/20 p-4">
           <label for="person-tither-status" class="block text-sm font-medium text-foreground">Manually recorded tither status</label>
           <p class="text-xs text-muted-foreground">A profile note, not evidence of giving. Dated records appear in Development.</p>

@@ -13,7 +13,7 @@ it('distinguishes similar names and expands to contacts explicitly', async () =>
   await fireEvent.click(screen.getByRole('button',{name:'Invited by'}));
   expect(screen.getByRole('button',{name:'Jayden Ayeh · Leader'})).toBeInTheDocument();
   expect(screen.queryByRole('button',{name:'Jayden · Outreach contact'})).not.toBeInTheDocument();
-  await fireEvent.click(screen.getByRole('button',{name:'Include outreach contacts and guests'}));
+  await fireEvent.click(screen.getByRole('button',{name:'Include outreach contacts and non-members'}));
   await fireEvent.click(screen.getByRole('button',{name:'Jayden · Outreach contact'}));
   expect(onchange).toHaveBeenCalledWith({value:'contact'});
   expect(screen.getByText('Jayden · Outreach contact')).toBeInTheDocument();

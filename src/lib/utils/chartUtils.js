@@ -33,9 +33,10 @@ export const DEFAULT_CHART_DIMENSIONS = {
  * @param {number} maxValue - Maximum data value in dataset
  * @param {number} [targetIntervals=4] - Target number of divisions
  * @param {number} [headroom=1.2] - Multiplier for headroom above peak value
+ * @param {boolean} [wholeCounts=false] - Use whole-number ticks for people/count charts
  * @returns {{ max: number, ticks: number[], interval: number }}
  */
-export function getNiceYScale(maxValue, targetIntervals = 4, headroom = 1.2) {
+export function getNiceYScale(maxValue, targetIntervals = 4, headroom = 1.2, wholeCounts = false) {
   if (maxValue <= 0) {
     return { max: 4, ticks: [0, 1, 2, 3, 4], interval: 1 };
   }
@@ -50,6 +51,7 @@ export function getNiceYScale(maxValue, targetIntervals = 4, headroom = 1.2) {
   else if (residual <= 2.5) niceInterval = 2.5 * magnitude;
   else if (residual <= 5) niceInterval = 5 * magnitude;
   else niceInterval = 10 * magnitude;
+  if (wholeCounts) niceInterval = Math.max(1, Math.ceil(niceInterval));
 
   const tickMax = Math.max(
     niceInterval * 3,
@@ -169,10 +171,11 @@ export function formatChartDate(dateStr, variant = 'short') {
  * @returns {Array<Record<string, any>>}
  */
 export function groupChartPoints(points = [], granularity = 'day', aggregation = 'average') {
-  if (granularity === 'day') return points;
+  const sourceInput = points.flatMap(point => point.sourcePoints || [point]);
+  if (granularity === 'day') return sourceInput;
 
   const buckets = new Map();
-  for (const point of points) {
+  for (const point of sourceInput) {
     const date = new Date(`${point.date}T12:00:00`);
     if (Number.isNaN(date.getTime())) continue;
     const key = granularity === 'month'
@@ -190,22 +193,40 @@ export function groupChartPoints(points = [], granularity = 'day', aggregation =
 
   return [...buckets.values()].sort((a, b) => a.key.localeCompare(b.key)).map(({ key, points: bucketPoints }) => {
     const first = bucketPoints[0];
-    const numericKeys = Object.keys(first).filter((field) =>
-      field !== 'id' && field !== 'date' && field !== 'label' && typeof first[field] === 'number',
+    const sourceRows = bucketPoints.flatMap(point => point.sourcePoints || [point]);
+    const numericKeys = Object.keys(sourceRows[0]).filter((field) =>
+      !['id', 'date', 'label', 'sourcePoints', 'sourceIds', 'sourceCount', 'bucketStart', 'bucketEnd'].includes(field) && typeof sourceRows[0][field] === 'number',
     );
     const result = { ...first, date: granularity === 'month' ? `${key}-01` : key };
     for (const field of numericKeys) {
-      const total = bucketPoints.reduce((sum, item) => sum + (Number(item[field]) || 0), 0);
-      result[field] = aggregation === 'sum' ? total : Math.round(total / bucketPoints.length * 10) / 10;
+      const total = sourceRows.reduce((sum, item) => sum + (Number(item[field]) || 0), 0);
+      result[field] = aggregation === 'sum' ? total : total / sourceRows.length;
     }
     result.id = bucketPoints.length === 1 ? first.id : undefined;
     result.topic = bucketPoints.length === 1 ? first.topic : undefined;
+    // Keep source rows intact: callers need both identity and the unrounded
+    // numerator/denominator, especially when several events share a date.
+    result.sourcePoints = sourceRows;
+    result.sourceIds = result.sourcePoints.map(point => point.id ?? point._id).filter(id => id != null);
+    result.sourceCount = result.sourcePoints.length;
+    result.bucketStart = granularity === 'month' ? `${key}-01` : key;
+    if (granularity === 'month') {
+      const lastDay = new Date(datePartsYear(key), datePartsMonth(key), 0).getDate();
+      result.bucketEnd = `${key}-${String(lastDay).padStart(2, '0')}`;
+    } else {
+      const sunday = new Date(`${key}T12:00:00`);
+      sunday.setDate(sunday.getDate() + 6);
+      result.bucketEnd = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, '0')}-${String(sunday.getDate()).padStart(2, '0')}`;
+    }
     result.label = granularity === 'month'
       ? new Date(`${key}-01T12:00:00`).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
       : `Week of ${new Date(`${key}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
     return result;
   });
 }
+
+function datePartsYear(key) { return Number(key.slice(0, 4)); }
+function datePartsMonth(key) { return Number(key.slice(5, 7)); }
 
 /**
  * Resolves a semantic color name into an HSL color string supported by the design tokens.

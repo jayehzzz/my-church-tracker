@@ -1,8 +1,9 @@
 <script>
+  import { createChoice, createSelection } from '$lib/components/drilldown/selection.js';
   import ComparisonControls from './ComparisonControls.svelte';
   import ChartPointDetails from './ChartPointDetails.svelte';
-  import { roundedAverage } from '$lib/utils/comparisonMetrics.js';
-  let {metrics=[],periodLabel='Selected period',onSelect=null,wholeNumberAverages=false}=$props();
+  import { roundedAverage, wholeCountAverage } from '$lib/utils/comparisonMetrics.js';
+  let {metrics=[],periodLabel='Selected period',onSelect=null,onDrilldown=null,domain=null,filters={},wholeNumberAverages=true}=$props();
   let primaryKey=$state(''),comparisonKey=$state('');
   let primaryMode=$state('total'),comparisonMode=$state('average');
   let detail=$state(null);
@@ -12,15 +13,20 @@
     if(comparisonKey&&!options.some(option=>option.key===comparisonKey))comparisonKey='';
   });
   const averageValue=(metric)=>{
-    const value=roundedAverage(metric?.total,metric?.denominator);
-    return wholeNumberAverages && value!=null ? Math.round(value) : value;
+    return wholeNumberAverages ? wholeCountAverage(metric?.total,metric?.denominator) : roundedAverage(metric?.total,metric?.denominator);
   };
   const selections=$derived([{key:primaryKey,mode:primaryMode,role:'A'},...(comparisonKey?[{key:comparisonKey,mode:comparisonMode,role:'B'}]:[])].map(selection=>{
     const metric=metrics.find(metric=>metric.key===selection.key);
     return {...selection,metric,value:selection.mode==='total'?metric?.total:averageValue(metric)};
   }));
   function inspect(selection){
-    if(onSelect)onSelect(selection.metric);
+    const choice = createChoice({ domain: domain || selection.metric.domain || null, metricKey: selection.key, mode: selection.mode,
+      role: selection.role, value: selection.value, filters, point: { date: selection.metric.startDate || null,
+        bucketStart: selection.metric.startDate || null, bucketEnd: selection.metric.endDate || null,
+        sourcePoints: selection.metric.sourcePoints || [], sourceIds: selection.metric.sourceIds || [] } });
+    choice.sourceIds = selection.metric.sourceIds || choice.sourceIds;
+    if(onDrilldown)onDrilldown(createSelection([choice], selection.role));
+    else if(onSelect)onSelect(selection.metric, createSelection([choice], selection.role));
     else detail={title:selection.metric.label,subtitle:selection.metric.periodLabel || periodLabel,metrics:[{label:'Actual total count',value:selection.metric.total ?? 'Unavailable'},...(selection.metric.denominator!=null?[{label:selection.metric.averageLabel,value:averageValue(selection.metric)},{label:'Denominator',value:selection.metric.denominator}]:[])]};
   }
 </script>
@@ -33,7 +39,7 @@
         <button type="button" class="rounded-xl border border-border p-4 text-left hover:bg-secondary/25" onclick={()=>inspect(selection)}>
           <span class="block text-xs text-muted-foreground">Series {selection.role} · {selection.metric.label}</span>
           <strong class="mt-1 block text-2xl" class:text-primary={selection.role==='A'} class:text-warning={selection.role==='B'}>{selection.value ?? 'Unavailable'}</strong>
-          <span class="mt-1 block text-xs text-muted-foreground">{selection.mode==='total'?'Actual total count':`${selection.metric.averageLabel} · divisor ${selection.metric.denominator}`}</span>
+          <span class="mt-1 block text-xs text-muted-foreground">{selection.mode==='total'?'Actual total count':`${selection.metric.averageLabel} · rounded to a whole count · divisor ${selection.metric.denominator}`}</span>
           <span class="mt-1 block text-xs text-muted-foreground">{selection.metric.periodLabel || periodLabel}</span>
         </button>
       {/if}

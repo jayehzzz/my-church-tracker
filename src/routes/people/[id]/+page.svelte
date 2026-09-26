@@ -6,6 +6,10 @@
     import * as peopleService from "$lib/services/peopleService";
     import * as attendanceService from "$lib/services/attendanceService";
     import * as meetingsService from "$lib/services/meetingsService";
+    import * as servicesService from '$lib/services/servicesService.js';
+    import ProfileAttendanceDrilldown from '$lib/components/drilldown/ProfileAttendanceDrilldown.svelte';
+    import { openDrilldown, pushDrilldown } from '$lib/components/drilldown/selection.js';
+    import { peekMeetingReturn } from '$lib/components/drilldown/meetingReturnState.js';
     import * as evangelismService from "$lib/services/evangelismService";
     import * as visitationsService from "$lib/services/visitationsService";
     import * as followUpCrmService from "$lib/services/followUpCrmService.js";
@@ -18,11 +22,11 @@
     import ProfileDetails from "$lib/components/people/ProfileDetails.svelte";
     import ProfileHistoryTabs from "$lib/components/people/ProfileHistoryTabs.svelte";
     import PersonForm from "$lib/components/forms/PersonForm.svelte";
-    import ServiceDetailModal from "$lib/components/people/ServiceDetailModal.svelte";
     import EvangelismDetailModal from "$lib/components/evangelism/EvangelismDetailModal.svelte";
     import VisitationDetailModal from "$lib/components/visitation/VisitationDetailModal.svelte";
     import CareSummary from "$lib/components/people/CareSummary.svelte";
     import SundayReliabilitySummary from "$lib/components/shared/SundayReliabilitySummary.svelte";
+    import { session } from "$lib/auth/session.js";
 
     let { data } = $props();
 
@@ -37,8 +41,13 @@
     let mergeError = $state(null);
     let mergeLoading = $state(false);
     let mergeConfirmed = $state(false);
-    let showServiceDetailModal = $state(false);
-    let selectedAttendanceRecord = $state(null);
+    let attendanceDrilldown = $state(null);
+    let inspectedEvent = $state(null);
+    let inspectedAttendees = $state([]);
+    let inspectedStatus = $state('loading');
+    let inspectedError = $state('');
+    let inspectedRecord = $state(null);
+    let inspectGeneration = 0;
     let showOutreachDetailModal = $state(false);
     let selectedOutreachRecord = $state(null);
     let showVisitationDetailModal = $state(false);
@@ -57,6 +66,33 @@
     let requestGeneration = 0;
     let totalAttendance = $derived(attendanceHistory.length);
     let lastAttended = $derived(attendanceHistory.length ? attendanceDate(attendanceHistory[0]) : null);
+    function recordEvent(record) { return record?.meeting || record?.services; }
+    function eventId(record) { const event = recordEvent(record); return String(event?._id || event?.id || ''); }
+    function openAttendance(record = null) {
+      attendanceDrilldown = openDrilldown({ kind: 'history', title: `${person?.first_name || 'Person'} · attendance history` });
+      if (record) {
+        attendanceDrilldown = pushDrilldown(attendanceDrilldown, { kind: 'event', title: 'Gathering details', record });
+        void inspectAttendance(record);
+      }
+    }
+    async function inspectAttendance(record) {
+      const generation = ++inspectGeneration;
+      inspectedRecord = record;
+      inspectedStatus = 'loading'; inspectedError = ''; inspectedEvent = null; inspectedAttendees = [];
+      const id = eventId(record);
+      if (!id) { inspectedStatus = 'unavailable'; inspectedError = 'This attendance record has no linked event.'; return; }
+      const result = await (record.meeting ? meetingsService.getById(id) : servicesService.getById(id));
+      if (generation !== inspectGeneration) return;
+      if (result.error || !result.data || String(result.data.id || result.data._id) !== id) {
+        inspectedStatus = 'unavailable'; inspectedError = result.error?.message || 'The event is unavailable or restricted.'; return;
+      }
+      inspectedEvent = result.data;
+      const attendeeResult = await (record.meeting ? meetingsService.getAttendees(id) : attendanceService.getByService(id));
+      if (generation !== inspectGeneration) return;
+      if (attendeeResult.error) { inspectedStatus = 'unavailable'; inspectedError = attendeeResult.error.message || 'Attendance details are unavailable.'; return; }
+      inspectedAttendees = attendeeResult.data || [];
+      inspectedStatus = 'ready';
+    }
     let usingMockData = isDemoMode();
     let isGuest = $derived(["guest", "visitor", "new_believer"].includes(person?.member_status));
 
@@ -75,6 +111,10 @@
 
     async function loadProfile(id) {
         const generation = ++requestGeneration;
+        inspectGeneration++;
+        attendanceDrilldown = null;
+        inspectedEvent = null;
+        inspectedAttendees = [];
         loading = true;
         error = null;
         person = null;
@@ -264,6 +304,7 @@
             {/if}
 
             <Motion delay={0}>
+                {#if peekMeetingReturn()}<a href="/meetings" class="mb-3 inline-block text-sm text-primary">← Back to meeting details</a>{/if}
                 <ProfileHeader
                     {person}
                     onUpdateStatus={updateMemberStatus}
@@ -280,7 +321,7 @@
                 onsave={handleEditSave}
             />
 
-            <Modal bind:isOpen={showMergeModal} title="Review duplicate merge" size="lg">
+            <Modal bind:isOpen={showMergeModal} title="Review duplicate merge" size="lg" tone="warning">
                 <div class="space-y-4">
                     <p class="text-sm text-muted-foreground">
                         Keep one record and archive this profile as its duplicate. The preview lists every linked record that would move; it refuses ambiguous attendance, programme, commitment, plan, leader, or account relationships.
@@ -337,12 +378,12 @@
                 {/snippet}
             </Modal>
 
-            <PeopleStatsGrid {totalAttendance} {lastAttended} unavailable={sectionErrors.attendance} />
+            <PeopleStatsGrid {totalAttendance} {lastAttended} unavailable={sectionErrors.attendance} onhistory={() => openAttendance()} onlatest={() => attendanceHistory.length && openAttendance(attendanceHistory[0])} />
 
             {#if sectionErrors.care}
                 <p class="rounded-xl border border-border p-4 text-sm text-muted-foreground">Sunday commitment history is unavailable. Retry profile history to see expected-Sunday follow-through.</p>
             {:else}
-                <SundayReliabilitySummary commitments={careProfile?.commitments || []} summary={careProfile?.sunday_reliability || null} />
+                <SundayReliabilitySummary commitments={careProfile?.commitments || []} summary={careProfile?.sunday_reliability || null} showRate={$session.user?.role !== 'leader'} />
             {/if}
 
             <a class="development-entry" href="/development?person={encodeURIComponent(person._id || person.id)}">Open Development assessment <span aria-hidden="true">→</span><small>Participation evidence, leader review and growth agreements</small></a>
@@ -367,12 +408,7 @@
                     {attendanceHistory} {outreachContacts} {visitations}
                     errors={sectionErrors}
                     storageKey={null}
-                    onRecordClick={(record) => {
-                        if (!record.meeting) {
-                            selectedAttendanceRecord = record;
-                            showServiceDetailModal = true;
-                        }
-                    }}
+                    onRecordClick={openAttendance}
                     onOutreachClick={(record) => {
                         selectedOutreachRecord = record;
                         showOutreachDetailModal = true;
@@ -386,10 +422,7 @@
                 <ProfileDetails {person} {currentAge} {isGuest} onEdit={() => showEditModal = true} onMerge={openMergeReview} />
             {/if}
 
-            <ServiceDetailModal
-                bind:isOpen={showServiceDetailModal}
-                attendanceRecord={selectedAttendanceRecord}
-            />
+            <ProfileAttendanceDrilldown bind:state={attendanceDrilldown} history={attendanceHistory} {person} event={inspectedEvent} attendees={inspectedAttendees} status={inspectedStatus} error={inspectedError} onretry={() => inspectedRecord && inspectAttendance(inspectedRecord)} onrecord={inspectAttendance} />
             <EvangelismDetailModal
                 bind:isOpen={showOutreachDetailModal}
                 contact={selectedOutreachRecord}

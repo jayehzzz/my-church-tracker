@@ -14,8 +14,14 @@
 -->
 
 <script>
-  import { roundedAverage } from "$lib/utils/comparisonMetrics.js";
+  import { roundedAverage, wholeCountAverage } from "$lib/utils/comparisonMetrics.js";
   import MetricComparison from "$lib/components/charts/MetricComparison.svelte";
+  import ServiceDrilldown from "$lib/components/drilldown/ServiceDrilldown.svelte";
+  import { saveDomainReturn, takeDomainReturn } from "$lib/components/drilldown/domainReturnState.js";
+  import { openDrilldown, createChoice, createSelection } from "$lib/components/drilldown/selection.js";
+  import { metricLabels, serviceId } from "$lib/components/drilldown/serviceAdapter.js";
+  import { periodServiceSelection, bindServiceSources } from "$lib/components/drilldown/serviceSelection.js";
+  import { goto } from "$app/navigation";
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { page } from "$app/state";
@@ -31,13 +37,24 @@
     FullscreenWrapper,
   } from "$lib/components/ui";
   import ServiceForm from "$lib/components/forms/ServiceForm.svelte";
+  import { formatJourneyStatus } from "$lib/services/peopleService.js";
 
   // Import filter store for reactive date range
   import { dateRange } from "$lib/stores/filterStore";
 
   // Import chart components
-  import ChartPointDetails from "$lib/components/charts/ChartPointDetails.svelte";
-  let chartDetail = $state(null);
+  let drilldown = $state(null);
+  export const snapshot = { capture: () => { const token = `services-${crypto.randomUUID()}`; saveDomainReturn(token, { drilldown, activeView, serviceTypeFilter, serviceMetricFilter, searchQuery, range: [$dateRange.startDate, $dateRange.endDate] }); return { token }; }, restore: value => { const frame = value?.token ? takeDomainReturn(value.token) : null; if (!frame || frame.range[0] !== $dateRange.startDate || frame.range[1] !== $dateRange.endDate) return; drilldown = frame.drilldown; activeView = frame.activeView; serviceTypeFilter = frame.serviceTypeFilter; serviceMetricFilter = frame.serviceMetricFilter || "all"; searchQuery = frame.searchQuery; previousDrilldownFilters = JSON.stringify([$dateRange.startDate, $dateRange.endDate, serviceTypeFilter, serviceMetricFilter, searchQuery]); } };
+  function openSelection(selection, title = null) {
+    const choice = selection.choices.find((item) => item.role === selection.selectedRole) || selection.choices[0];
+    drilldown = openDrilldown({ kind: "selection", title: title || metricLabels[choice?.metricKey] || choice?.metricKey || "Service breakdown", selection });
+  }
+  function openMetric(metricKey, source = analyticsServices(), mode = "total") {
+    openSelection(periodServiceSelection(metricKey, source, { mode, range: $dateRange, filters: { serviceType: serviceTypeFilter } }));
+  }
+  function openPersonHistoryService(service, person, statuses) {
+    handleServiceClick(service);
+  }
   import AttendanceTrend from "$lib/components/charts/AttendanceTrend.svelte";
   import WeeklyAttendanceMatrix from "$lib/components/charts/WeeklyAttendanceMatrix.svelte";
   import ServiceMemories from "$lib/components/services/ServiceMemories.svelte";
@@ -72,7 +89,8 @@
 
   // Filter state
   let serviceTypeFilter = $state("all");
-  let attendanceRingVisibility = $state({ members: true, guests: true, firstTimers: true, tithers: true });
+  let serviceMetricFilter = $state("all");
+  let attendanceRingVisibility = $state({ members: true, guests: true, firstTimers: true, unclassified: true, tithers: true });
 
   function toggleAttendanceRing(key) {
     attendanceRingVisibility = {
@@ -98,8 +116,7 @@
   let isDeleteModalOpen = $state(false);
   let isDetailsModalOpen = $state(false);
   let isIndividualsModalOpen = $state(false);
-  let isOutcomeModalOpen = $state(false);
-  let selectedOutcome = $state(null);
+
   let selectedService = $state(null);
   let deleting = $state(false);
 
@@ -110,6 +127,12 @@
 
   // Search state
   let searchQuery = $state("");
+  let previousDrilldownFilters = null;
+  $effect(() => {
+    const signature = JSON.stringify([$dateRange.startDate, $dateRange.endDate, serviceTypeFilter, serviceMetricFilter, searchQuery]);
+    if (previousDrilldownFilters !== null && signature !== previousDrilldownFilters) drilldown = null;
+    previousDrilldownFilters = signature;
+  });
 
   // Sort state
   let sortKey = $state("service_date");
@@ -121,6 +144,15 @@
     { value: "sunday_service", label: "Sunday Service" },
     { value: "midweek_service", label: "Midweek Service" },
     { value: "special_service", label: "Special Service" },
+  ];
+  const serviceMetricOptions = [
+    { value: "all", label: "All attendance & outcomes" },
+    { value: "nonMemberVisits", label: "Has non-member visits" },
+    { value: "firstTimers", label: "Has first timers" },
+    { value: "returningGuests", label: "Has returning guests" },
+    { value: "unclassifiedNonMembers", label: "Has unclassified non-member visits" },
+    { value: "decisions", label: "Has salvation decisions" },
+    { value: "photos", label: "Has photos" },
   ];
 
   // Get person by ID - use centralized function
@@ -141,10 +173,15 @@
 
   function getServiceIndividuals(service) {
     if (!Array.isArray(service?.individuals)) return [];
-    return service.individuals.map(getPersonById).filter(Boolean).map(person => ({
-      ...person,
-      first_timer: attendanceRecords.some(row => recordId(row.service_id) === recordId(service) && recordId(row.person_id) === recordId(person) && row.first_timer === true),
-    }));
+    return service.individuals.map(getPersonById).filter(Boolean).map(person => {
+      const row = attendanceRecords.find(item => recordId(item.service_id) === recordId(service) && recordId(item.person_id) === recordId(person));
+      const firstTimer = row?.first_timer === true;
+      return {
+        ...person,
+        first_timer: firstTimer,
+        returning_guest: !firstTimer && ["contact", "guest", "visitor"].includes(person.member_status),
+      };
+    });
   }
 
   function serviceFirstTimerCount(service) {
@@ -209,6 +246,10 @@
       filtered = filtered.filter((s) => s.service_type === serviceTypeFilter);
     }
 
+    if (serviceMetricFilter !== "all") {
+      filtered = filtered.filter(matchesServiceMetricFilter);
+    }
+
     // Search filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -249,6 +290,19 @@
     return serviceAttendanceMetrics(service, attendanceRecords, people);
   }
 
+  function matchesServiceMetricFilter(service) {
+    const metrics = serviceMetrics(service);
+    switch (serviceMetricFilter) {
+      case "nonMemberVisits": return metrics.guestAttendance > 0;
+      case "firstTimers": return metrics.firstTimers > 0;
+      case "returningGuests": return metrics.returningGuestAttendance > 0;
+      case "unclassifiedNonMembers": return metrics.unclassifiedNonMemberAttendance > 0;
+      case "decisions": return metrics.decisions > 0;
+      case "photos": return Array.isArray(service.photos) && service.photos.length > 0;
+      default: return true;
+    }
+  }
+
   // Calculate KPIs based on filtered data
   const kpis = $derived(() => {
     const filtered = analyticsServices();
@@ -256,6 +310,7 @@
     const totalAttendance = period.totalAttendance;
     const totalGuests = period.guestAttendance;
     const totalReturningGuests = period.returningGuestAttendance;
+    const totalUnclassifiedNonMembers = period.unclassifiedNonMemberAttendance;
     const totalFirstTimers = period.firstTimers;
     const totalDecisions = period.decisions;
     const totalTithers = period.tithers;
@@ -275,6 +330,7 @@
       totalAttendance,
       totalGuests,
       totalReturningGuests,
+      totalUnclassifiedNonMembers,
       totalFirstTimers,
       totalDecisions,
       totalTithers,
@@ -307,6 +363,7 @@
           total: metrics.totalAttendance,
           guests: metrics.guestAttendance,
           returningGuests: metrics.returningGuestAttendance,
+          unclassifiedNonMembers: metrics.unclassifiedNonMemberAttendance,
           decisions: metrics.decisions,
           firstTimers: metrics.firstTimers,
           tithers: metrics.tithers,
@@ -317,33 +374,42 @@
       });
   });
 
-  // Handle chart point click - find service and open modal
-  function handleChartPointClick(point) {
-    if (!point.id) return;
-    const service = filteredServices().find((s) => s.id === point.id);
-    if (service) {
-      handleServiceClick(service);
+  // A grouped chart point represents all of its recorded services.
+  function handleTrendDrilldown(selection) {
+    const choice = selection.choices[0];
+    const bounds = choice?.pointBounds;
+    if (selection.choices.length === 1 && bounds?.startDate === bounds?.endDate && choice.sourceIds?.length === 1) {
+      const service = analyticsServices().find((item) => serviceId(item) === serviceId(choice.sourceIds[0]));
+      if (service) {
+        handleServiceClick(service);
+        return;
+      }
     }
+
+    const start = bounds?.startDate;
+    const end = bounds?.endDate;
+    const date = start ? new Date(`${start}T12:00:00`) : null;
+    const label = date && !Number.isNaN(date.getTime())
+      ? start === end
+        ? `Services on ${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+        : start?.slice(8) === '01' && start?.slice(0, 7) === end?.slice(0, 7) && end?.slice(8) === String(new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()).padStart(2, '0')
+          ? `Services in ${date.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`
+          : `Services in week of ${date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+      : 'Services';
+    drilldown = openDrilldown({ kind: 'trend-services', title: label, choice });
   }
 
-  function openOutcomeModal(key) {
-    selectedOutcome = key;
-    isOutcomeModalOpen = true;
-  }
+  function openServiceTypeSummary(type) {
+    const query = searchQuery.trim().toLowerCase();
+    const matching = services
+      .filter(service => isWithinDateRange(service.service_date, $dateRange))
+      .filter(service => !query || service.sermon_topic?.toLowerCase().includes(query) || service.sermon_speaker?.toLowerCase().includes(query) || service.location?.toLowerCase().includes(query))
+      .filter(service => service.service_type === type)
+      .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)));
+    const attendance = matching.reduce((sum, service) => sum + serviceMetrics(service).totalAttendance, 0);
+    openMetric("total", matching);
 
-  const outcomeModalData = $derived(() => {
-    const isTithers = selectedOutcome === "tithers";
-    return {
-      title: isTithers ? "Tithers by service" : "Salvation decisions by service",
-      total: isTithers ? kpis().totalTithers : kpis().totalDecisions,
-      rows: [...analyticsServices()]
-        .sort((a, b) => String(b.service_date).localeCompare(String(a.service_date)))
-        .map((service) => ({
-          service,
-          count: isTithers ? serviceMetrics(service).tithers : serviceMetrics(service).decisions,
-        })),
-    };
-  });
+  }
 
   // Dashboard insights - sorted services by attendance
   const sortedByAttendance = $derived(() => {
@@ -364,14 +430,18 @@
   // Donut chart data
   const donutData = $derived(() => {
     const mix = attendanceMix();
+    const counts = kpis();
+    const perService = total => wholeCountAverage(total, counts.serviceCount) ?? 0;
     return {
-      members: mix.averageMembers,
-      returningGuests: mix.averageReturningGuests,
-      firstTimers: mix.averageFirstTimers,
-      tithers: mix.averageTithers,
-      total: mix.averageAttendance,
+      members: perService(counts.totalAttendance - counts.totalGuests),
+      returningGuests: perService(counts.totalReturningGuests),
+      unclassifiedNonMembers: perService(counts.totalUnclassifiedNonMembers),
+      firstTimers: perService(counts.totalFirstTimers),
+      tithers: perService(counts.totalTithers),
+      total: perService(counts.totalAttendance),
       memberPct: mix.memberPct,
       returningGuestPct: mix.returningGuestPct,
+      unclassifiedNonMemberPct: mix.unclassifiedNonMemberPct,
       firstTimerPct: mix.firstTimerPct,
       titherRate: mix.titherRate,
     };
@@ -385,6 +455,7 @@
     const query = searchQuery.trim().toLowerCase();
     const servicesInScope = services.filter((service) => {
       if (!isWithinDateRange(service.service_date, range)) return false;
+      if (serviceMetricFilter !== "all" && !matchesServiceMetricFilter(service)) return false;
       return !query || service.sermon_topic?.toLowerCase().includes(query) ||
         service.sermon_speaker?.toLowerCase().includes(query) ||
         service.location?.toLowerCase().includes(query);
@@ -608,6 +679,7 @@
       attendance: serviceMetrics(service).totalAttendance,
       returningGuests: serviceMetrics(service).returningGuestAttendance,
       firstTimers: serviceMetrics(service).firstTimers,
+      unclassifiedNonMembers: serviceMetrics(service).unclassifiedNonMemberAttendance,
       decisions: serviceMetrics(service).decisions,
       individuals: Array.isArray(service.individuals)
         ? service.individuals.length
@@ -725,6 +797,16 @@
         class="min-w-40 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
       >
         {#each serviceTypeOptions as option}
+          <option value={option.value}>{option.label}</option>
+        {/each}
+      </select>
+      <label for="shared-metric-filter" class="sr-only">Filter by attendance or outcome</label>
+      <select
+        id="shared-metric-filter"
+        bind:value={serviceMetricFilter}
+        class="min-w-52 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+      >
+        {#each serviceMetricOptions as option}
           <option value={option.value}>{option.label}</option>
         {/each}
       </select>
@@ -866,10 +948,10 @@
                     <button
                       type="button"
                       class="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                      aria-label="Sort services by returning guest count"
+                      aria-label="Sort visit types by returning guest count"
                       onclick={() => handleSort("returning_guests")}
                     >
-                      Returning Guests
+                      Visit types
                     </button>
                   </th>
                 {/if}
@@ -950,9 +1032,11 @@
                       >
                     {/if}
                     {#if columnVisibility.guests}
-                      <td class="px-4 py-3 text-sm text-info"
-                        >{serviceMetrics(service).returningGuestAttendance || "—"}</td
-                      >
+                      <td class="px-4 py-3 text-sm text-foreground">
+                        <span class="block">{serviceMetrics(service).firstTimers} first timers</span>
+                        <span class="block">{serviceMetrics(service).returningGuestAttendance} returning guests</span>
+                        {#if serviceMetrics(service).unclassifiedNonMemberAttendance}<span class="block text-xs text-muted-foreground">{serviceMetrics(service).unclassifiedNonMemberAttendance} visit type unknown</span>{/if}
+                      </td>
                     {/if}
                     {#if columnVisibility.decisions}
                       <td class="px-4 py-3 text-sm text-success"
@@ -1077,17 +1161,17 @@
             <div class="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
               <div class="px-5 py-5">
                 <p class="text-xs font-medium text-muted-foreground">Latest attendance</p>
-                <p class="mt-3 text-3xl font-semibold tracking-tight text-foreground">{serviceMetrics(latestService()).totalAttendance}</p>
+                <button type="button" class="mt-3 text-3xl font-semibold tracking-tight text-foreground" onclick={() => handleServiceClick(latestService())}>{serviceMetrics(latestService()).totalAttendance}</button>
                 <p class="mt-1 text-xs text-muted-foreground">{formatShortDate(latestService().service_date)}</p>
               </div>
               <div class="px-5 py-5">
                 <p class="text-xs font-medium text-muted-foreground">First-timer visits</p>
-                <p class="mt-3 text-3xl font-semibold tracking-tight text-foreground">{kpis().totalFirstTimers}</p>
+                <button type="button" class="mt-3 text-3xl font-semibold tracking-tight text-foreground" onclick={() => openMetric("firstTimers")}>{kpis().totalFirstTimers}</button>
                 <p class="mt-1 text-xs text-muted-foreground">Period total</p>
               </div>
               <div class="px-5 py-5">
                 <p class="text-xs font-medium text-muted-foreground">Salvation decisions</p>
-                <p class="mt-3 text-3xl font-semibold tracking-tight text-foreground">{kpis().totalDecisions}</p>
+                <button type="button" class="mt-3 text-3xl font-semibold tracking-tight text-foreground" onclick={() => openMetric("decisions")}>{kpis().totalDecisions}</button>
                 <p class="mt-1 text-xs text-muted-foreground">Period total</p>
               </div>
             </div>
@@ -1104,11 +1188,11 @@
                   title="Attendance trend"
                   itemLabel="services"
                   periodLabel={$dateRange.label}
-                  wholeNumberValues={true}
                   showSummaryFooter={false}
-                  onPointClick={handleChartPointClick}
+                  onDrilldown={handleTrendDrilldown}
                   comparisonOptions={[
                     { key: "returningGuests", label: "Returning guests", color: "warning" },
+                    { key: "unclassifiedNonMembers", label: "Unclassified non-member visits", color: "secondary" },
                     { key: "decisions", label: "Salvation decisions", color: "success" },
                     { key: "firstTimers", label: "First-timer visits", color: "warning" },
                     { key: "tithers", label: "Tithers", color: "warning" },
@@ -1174,7 +1258,7 @@
             <section class="card-base p-5" aria-labelledby="attendance-mix-title">
               <div>
                 <h2 id="attendance-mix-title" class="pr-12 text-base font-semibold text-foreground">Attendance &amp; outcomes</h2>
-                <p class="mt-1 text-xs text-muted-foreground">Average attendance per gathering. Members, returning guests and first timers are shown as separate groups.</p>
+                <p class="mt-1 text-xs text-muted-foreground">Average attendance per gathering. First timers and returning guests are separate; non-member visits without a recorded visit type are shown as unknown.</p>
               </div>
 
 
@@ -1182,16 +1266,18 @@
                 {key:'attendance',label:'Attendance',total:kpis().totalAttendance},
                 {key:'returning',label:'Returning guest visits',total:kpis().totalReturningGuests},
                 {key:'first',label:'First timers',total:kpis().totalFirstTimers},
+                {key:'unknown',label:'Non-member visit type unknown',total:kpis().totalUnclassifiedNonMembers},
                 {key:'decisions',label:'Salvation decisions',total:kpis().totalDecisions},
                 {key:'tithers',label:'Tither attendances',total:kpis().totalTithers},
-              ].map(metric=>({...metric,denominator:kpis().serviceCount,averageLabel:'Average per service'}))} periodLabel={$dateRange.label} /></div>
+              ].map(metric=>({...metric,denominator:kpis().serviceCount,averageLabel:'Average per service'}))} periodLabel={$dateRange.label} domain="service" onDrilldown={selection => openSelection(bindServiceSources(selection, analyticsServices()))} /></div>
               <div class="mt-5 flex flex-col items-center gap-6 sm:flex-row">
-                <button type="button" onclick={() => chartDetail = {title: 'Attendance mix', subtitle: $dateRange.label, metrics: [{label:'Average members per gathering',value:wholePerson(donutData().members)},{label:'Average returning guests per gathering',value:wholePerson(donutData().returningGuests)},{label:'Average first timers per gathering',value:wholePerson(donutData().firstTimers)},{label:'Average tithers per gathering (subset of members)',value:wholePerson(donutData().tithers)}]}} class="relative h-36 w-36 shrink-0 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary" aria-label="View average attendance mix details: {donutData().memberPct}% members, {donutData().returningGuestPct}% returning guests, {donutData().firstTimerPct}% first timers, and {donutData().titherRate}% tither attendances among members">
+                <div role="img" class="relative h-36 w-36 shrink-0" aria-label="Average attendance mix: {donutData().memberPct}% members, {donutData().returningGuestPct}% returning guests, {donutData().firstTimerPct}% first timers, {donutData().unclassifiedNonMemberPct}% non-member visits with unknown type, and {donutData().titherRate}% tither attendances among members">
                   <svg viewBox="0 0 36 36" class="h-full w-full -rotate-90">
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-secondary" />
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-primary" style="opacity: {attendanceRingVisibility.members ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.members ? `${donutData().memberPct} ${100 - donutData().memberPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-linecap="round" />
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-info" style="opacity: {attendanceRingVisibility.guests ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.guests ? `${donutData().returningGuestPct} ${100 - donutData().returningGuestPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-dashoffset="-{donutData().memberPct}" stroke-linecap="round" />
                     <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-success" style="opacity: {attendanceRingVisibility.firstTimers ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.firstTimers ? `${donutData().firstTimerPct} ${100 - donutData().firstTimerPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-dashoffset="-{donutData().memberPct + donutData().returningGuestPct}" stroke-linecap="round" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" stroke-width="3" class="text-muted-foreground" style="opacity: {attendanceRingVisibility.unclassified ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.unclassified ? `${donutData().unclassifiedNonMemberPct} ${100 - donutData().unclassifiedNonMemberPct}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-dashoffset="-{donutData().memberPct + donutData().returningGuestPct + donutData().firstTimerPct}" stroke-linecap="round" />
                     <circle cx="18" cy="18" r="11.5" fill="none" stroke="currentColor" stroke-width="2.5" class="text-secondary" pathLength="100" />
                     <circle cx="18" cy="18" r="11.5" fill="none" stroke="currentColor" stroke-width="2.5" class="text-warning" pathLength="100" style="opacity: {attendanceRingVisibility.tithers ? 1 : 0}; stroke-dasharray: {attendanceRingVisibility.tithers ? `${donutData().titherRate} ${100 - donutData().titherRate}` : '0 100'}; transition: stroke-dasharray 420ms ease, opacity 260ms ease;" stroke-linecap="round" />
                   </svg>
@@ -1199,7 +1285,7 @@
                     <span class="text-xl font-semibold text-foreground">{wholePerson(donutData().total)}</span>
                     <span class="text-center text-[9px] uppercase leading-tight tracking-wide text-muted-foreground">avg / gathering</span>
                   </div>
-                </button>
+                </div>
                 <div class="w-full space-y-2">
                   <button type="button" aria-pressed={attendanceRingVisibility.members} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.members ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('members')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-primary"></span>Avg members / gathering</span>
@@ -1213,16 +1299,21 @@
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-success"></span>Avg first timers / gathering</span>
                     <span class="text-sm font-semibold text-foreground">{wholePerson(donutData().firstTimers)} <span class="font-normal text-muted-foreground">({donutData().firstTimerPct}%)</span></span>
                   </button>
+                  <button type="button" aria-pressed={attendanceRingVisibility.unclassified} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.unclassified ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('unclassified')}>
+                    <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-muted-foreground"></span>Avg non-member visit type unknown / gathering</span>
+                    <span class="text-sm font-semibold text-foreground">{wholePerson(donutData().unclassifiedNonMembers)} <span class="font-normal text-muted-foreground">({donutData().unclassifiedNonMemberPct}%)</span></span>
+                  </button>
                   <button type="button" aria-pressed={attendanceRingVisibility.tithers} class="flex w-full items-center justify-between gap-4 rounded-lg px-2 py-2 text-left transition-colors hover:bg-secondary/35 {attendanceRingVisibility.tithers ? '' : 'opacity-45'}" onclick={() => toggleAttendanceRing('tithers')}>
                     <span class="flex items-center gap-2 text-sm text-foreground"><span class="h-2.5 w-2.5 rounded-full bg-warning"></span>Avg tithers / gathering <span class="text-[10px] text-muted-foreground">inner ring</span></span>
                     <span class="text-sm font-semibold text-foreground">{wholePerson(donutData().tithers)} <span class="font-normal text-muted-foreground">({donutData().titherRate}% of member attendance)</span></span>
                   </button>
+                  <div class="flex flex-wrap gap-2 text-xs">{#each [{ key: "members", label: "Members" }, { key: "returningGuests", label: "Returning guests" }, { key: "firstTimers", label: "First timers" }, { key: "unclassifiedNonMembers", label: "Unclassified non-member visits" }, { key: "tithers", label: "Tithers" }] as category}<button type="button" class="rounded border border-border px-2 py-1 text-primary" onclick={() => openMetric(category.key)}>View {category.label} breakdown</button>{/each}</div>
                   <p class="px-2 text-[11px] text-muted-foreground">Attendance averages are rounded to the nearest whole person for display; recorded totals remain exact. Tithers remain a subset of member attendance.</p>
                 </div>
               </div>
 
               <div class="mt-6 grid grid-cols-2 gap-3 border-t border-border pt-4">
-                <button type="button" class="rounded-xl bg-secondary/25 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openOutcomeModal('decisions')}>
+                <button type="button" class="rounded-xl bg-secondary/25 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openMetric("decisions")}>
                   <div class="flex items-center justify-between gap-2">
                     <span class="text-xs text-muted-foreground">Salvation decisions</span>
                     <span class="h-2 w-2 rounded-full bg-success"></span>
@@ -1231,7 +1322,7 @@
                   <p class="mt-1 text-[11px] text-muted-foreground">{kpis().decisionRate}% of attendances</p>
                   <span class="mt-2 block text-[10px] font-semibold text-primary">View service breakdown →</span>
                 </button>
-                <button type="button" class="rounded-xl bg-secondary/25 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openOutcomeModal('tithers')}>
+                <button type="button" class="rounded-xl bg-secondary/25 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:bg-secondary/40 hover:shadow-md focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openMetric("tithers")}>
                   <div class="flex items-center justify-between gap-2">
                     <span class="text-xs text-muted-foreground">Tither attendances · period total</span>
                     <span class="h-2 w-2 rounded-full bg-warning"></span>
@@ -1253,7 +1344,7 @@
               <div class="mt-5 space-y-4">
                 {#each typeDistribution().typeEntries as [type, count]}
                   {@const pct = Math.round((count / Math.max(typeDistribution().total, 1)) * 100)}
-                  <button type="button" class="w-full rounded-lg text-left outline-none transition-colors hover:bg-secondary/30 focus-visible:ring-2 focus-visible:ring-primary" onclick={() => chartDetail = {title: formatServiceType(type), subtitle: $dateRange.label, metrics: [{label:"Gatherings",value:count},{label:"Share of selected period",value:`${pct}%`}]}}>
+                  <button type="button" class="w-full rounded-lg text-left outline-none transition-colors hover:bg-secondary/30 focus-visible:ring-2 focus-visible:ring-primary" onclick={() => openServiceTypeSummary(type)}>
                     <span class="mb-2 flex items-center justify-between text-sm">
                       <span class="font-medium text-foreground">{formatServiceType(type)}</span>
                       <span class="text-muted-foreground">{count} · {pct}%</span>
@@ -1280,7 +1371,7 @@
             </summary>
             <div class="border-t border-border p-4">
               <FullscreenWrapper title="Weekly attendance by person">
-                <WeeklyAttendanceMatrix services={services} {people} commitments={sundayCommitments} commitmentsUnavailable={sundayCommitmentsUnavailable} maxServices={24} initialServiceCount={16} onServiceClick={handleServiceClick} />
+                <WeeklyAttendanceMatrix services={services} {people} commitments={sundayCommitments} commitmentsUnavailable={sundayCommitmentsUnavailable} maxServices={24} initialServiceCount={16} onServiceClick={openPersonHistoryService} />
               </FullscreenWrapper>
             </div>
           </details>
@@ -1290,42 +1381,7 @@
   {/if}
 </DashboardLayout>
 
-<Modal bind:isOpen={isOutcomeModalOpen} title={outcomeModalData().title} size="md">
-  <div class="space-y-4">
-    <div class="rounded-xl border border-primary/20 bg-primary/10 p-4">
-      <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Selected period total</p>
-      <p class="mt-1 text-3xl font-semibold text-foreground">{outcomeModalData().total}</p>
-    </div>
-    <div>
-      <h3 class="mb-2 text-sm font-semibold text-foreground">Service breakdown</h3>
-      {#if outcomeModalData().rows.length}
-        <div class="max-h-[360px] divide-y divide-border overflow-y-auto rounded-xl border border-border">
-          {#each outcomeModalData().rows as row (row.service.id)}
-            <button
-              type="button"
-              class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-secondary/35"
-              onclick={() => {
-                isOutcomeModalOpen = false;
-                handleServiceClick(row.service);
-              }}
-            >
-              <span class="min-w-0">
-                <span class="block text-sm font-medium text-foreground">{formatShortDate(row.service.service_date)}</span>
-                <span class="mt-0.5 block truncate text-xs text-muted-foreground">{row.service.sermon_topic || formatServiceType(row.service.service_type)}</span>
-              </span>
-              <span class="flex items-center gap-2 text-lg font-semibold {selectedOutcome === 'tithers' ? 'text-warning' : 'text-success'}">
-                {row.count}
-                <svg class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 5 7 7-7 7" /></svg>
-              </span>
-            </button>
-          {/each}
-        </div>
-      {:else}
-        <p class="rounded-xl border border-border p-5 text-sm text-muted-foreground">No services match the selected period.</p>
-      {/if}
-    </div>
-  </div>
-</Modal>
+
 
 <!-- Service Details Modal -->
 <Modal bind:isOpen={isDetailsModalOpen} title="Service Details" size="lg">
@@ -1380,7 +1436,7 @@
       {/if}
 
       <!-- Stats Grid -->
-      <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div class="p-3 bg-secondary/20 rounded-lg text-center">
           <div class="text-2xl font-bold text-foreground">
             {serviceMetrics(selectedService).totalAttendance}
@@ -1400,6 +1456,12 @@
           <div class="text-xs text-muted-foreground">First-timer visits</div>
         </div>
         <div class="p-3 bg-secondary/20 rounded-lg text-center">
+          <div class="text-2xl font-bold text-muted-foreground">
+            {serviceMetrics(selectedService).unclassifiedNonMemberAttendance}
+          </div>
+          <div class="text-xs text-muted-foreground">Unclassified non-member visits</div>
+        </div>
+        <div class="p-3 bg-secondary/20 rounded-lg text-center">
           <div class="text-2xl font-bold text-success">
             {serviceMetrics(selectedService).decisions}
           </div>
@@ -1414,6 +1476,7 @@
           <div class="text-xs text-muted-foreground">Individuals</div>
         </div>
       </div>
+      <p class="text-xs text-muted-foreground">An unclassified non-member visit is attendance recorded as a non-member visit without enough information to tell whether it was a first visit or a returning visit.</p>
 
       <!-- Individuals List -->
       {#if Array.isArray(selectedService.individuals) && selectedService.individuals.length > 0}
@@ -1425,7 +1488,7 @@
             {#each getServiceIndividuals(selectedService) as person}
               <a
                 href="/people/{person.id}"
-                class="flex items-center gap-2 px-3 py-1.5 {person.first_timer ? 'bg-success/10 border border-success/40' : 'bg-secondary/30'} rounded-full hover:bg-secondary/50 transition-colors group"
+                class="flex items-center gap-2 px-3 py-1.5 {person.first_timer ? 'bg-success/10 border border-success/40' : person.returning_guest ? 'bg-warning/10 border border-warning/40' : 'bg-secondary/30'} rounded-full hover:bg-secondary/50 transition-colors group"
                 onclick={(e) => e.stopPropagation()}
               >
                 <div
@@ -1438,6 +1501,7 @@
                   >{person.first_name} {person.last_name}</span
                 >
                 {#if person.first_timer}<span class="text-xs font-medium text-success">First-timer visit</span>{/if}
+                {#if person.returning_guest}<span class="text-xs font-medium text-warning">Returning guest</span>{/if}
               </a>
             {/each}
           </div>
@@ -1544,7 +1608,7 @@
             {#each getServiceIndividuals(selectedService) as person}
               <a
                 href="/people/{person.id}"
-                class="flex items-center justify-between p-3 {person.first_timer ? 'bg-success/10 border border-success/40' : 'bg-secondary/20'} rounded-lg hover:bg-secondary/40 transition-colors group"
+                class="flex items-center justify-between p-3 {person.first_timer ? 'bg-success/10 border border-success/40' : person.returning_guest ? 'bg-warning/10 border border-warning/40' : 'bg-secondary/20'} rounded-lg hover:bg-secondary/40 transition-colors group"
               >
                 <div class="flex items-center gap-3">
                   <div
@@ -1560,9 +1624,10 @@
                       {person.last_name}
                     </div>
                     <div class="text-xs text-muted-foreground">
-                      {person.member_status}
+                      {formatJourneyStatus(person.member_status)}
                     </div>
                     {#if person.first_timer}<span class="text-xs font-medium text-success">First-timer visit</span>{/if}
+                    {#if person.returning_guest}<span class="text-xs font-medium text-warning">Returning guest</span>{/if}
                   </div>
                 </div>
               </a>
@@ -1613,7 +1678,7 @@
 />
 
 <!-- Delete Confirmation Modal -->
-<Modal bind:isOpen={isDeleteModalOpen} title="Delete Service" size="sm">
+<Modal bind:isOpen={isDeleteModalOpen} title="Delete Service" size="sm" tone="destructive">
   <div class="text-center">
     <div
       class="w-12 h-12 mx-auto mb-4 bg-destructive/10 rounded-full flex items-center justify-center"
@@ -1654,4 +1719,4 @@
   {/snippet}
 </Modal>
 
-<ChartPointDetails bind:detail={chartDetail} />
+<ServiceDrilldown bind:state={drilldown} {services} attendance={attendanceRecords} {people} status={loading ? "loading" : error ? "unavailable" : "ready"} error={error || ""} onretry={loadServices} wholeNumberAverages={true} onedit={service => { drilldown = null; handleServiceClick(service); }} onprofile={(id) => goto(`/people/${encodeURIComponent(id)}`)} />

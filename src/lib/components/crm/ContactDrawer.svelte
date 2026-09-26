@@ -18,11 +18,15 @@
     person = null,
     onLogCall = () => {},
     onEditProfile = () => {},
+    onViewProfile = null,
     onClose = () => {},
+    showSundayRate = true,
   } = $props();
 
   let loadingProfile = $state(false);
   let profileData = $state(null);
+  let profileError = $state('');
+  let retryProfile = $state(0);
   let drawerElement = $state(null);
   let previousActiveElement = $state(null);
 
@@ -51,7 +55,7 @@
   function journeyLabel(target) {
     if (target?.member_status === 'leader') return 'Leader';
     if (target?.member_status === 'member') return 'Member';
-    if (target?.member_status === 'guest' || target?.first_visit_date || (target?.attended_meetings || target?.promises_kept || 0) > 0) return 'Guest';
+    if (target?.member_status === 'guest' || target?.first_visit_date || (target?.attended_meetings || target?.promises_kept || 0) > 0) return 'Non-member';
     return 'Outreach Contact';
   }
 
@@ -142,17 +146,24 @@
 
   $effect(() => {
     const id = personId(person);
+    retryProfile;
     if (isOpen && id) {
+      let active = true;
       loadingProfile = true;
+      profileError = '';
+      profileData = null;
       getContactProfile(id)
         .then((res) => {
+          if (!active) return;
           if (res?.data) {
             profileData = res.data;
-          }
+          } else profileError = res?.error?.message || 'Profile history could not be loaded.';
         })
+        .catch((error) => { if (active) profileError = error?.message || 'Profile history could not be loaded.'; })
         .finally(() => {
-          loadingProfile = false;
+          if (active) loadingProfile = false;
         });
+      return () => { active = false; };
     } else if (!isOpen) {
       profileData = null;
     }
@@ -305,7 +316,8 @@
           </div>
         </section>
 
-        <SundayReliabilitySummary commitments={profileData?.commitments || []} summary={profileData?.sunday_reliability || null} compact />
+        <SundayReliabilitySummary commitments={profileData?.commitments || []} summary={profileData?.sunday_reliability || null} compact showRate={showSundayRate} />
+        {#if profileError}<div role="alert" class="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{profileError} <button type="button" class="font-semibold underline" onclick={() => retryProfile += 1}>Try again</button></div>{/if}
 
         <!-- Sunday Commitment History -->
         <section class="space-y-2.5">
@@ -408,6 +420,7 @@
       <div class="flex items-center justify-between border-t border-border p-4 bg-secondary/20">
         <a
           href="/people/{personId(person)}"
+          onclick={(event) => { if (onViewProfile) { event.preventDefault(); onViewProfile(person); } }}
           class="text-xs font-semibold text-primary hover:underline"
         >
           View full directory profile →

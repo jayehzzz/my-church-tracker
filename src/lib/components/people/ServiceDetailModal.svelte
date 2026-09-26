@@ -3,6 +3,7 @@
     import { goto } from "$app/navigation";
     import * as attendanceService from "$lib/services/attendanceService";
     import { getServiceById } from "$lib/data/mockData.js";
+    import { serviceAttendanceMetrics } from "$lib/utils/serviceAnalytics.js";
 
     let {
         isOpen = $bindable(false),
@@ -17,8 +18,9 @@
                 : attendanceRecord)
     );
     let attendees = $state([]);
+    let attendanceRows = $state([]);
     let loadingAttendees = $state(false);
-    let firstTimerCount = $derived(attendees.filter((attendee) => attendee.first_timer).length);
+    let metrics = $derived(serviceAttendanceMetrics(service, attendanceRows));
 
     // Load attendees when service changes
     $effect(() => {
@@ -26,6 +28,7 @@
             loadAttendees();
         } else {
             attendees = [];
+            attendanceRows = [];
         }
     });
 
@@ -34,6 +37,7 @@
         try {
             const result = await attendanceService.getByService(service._id || service.id);
             if (result.data) {
+                attendanceRows = result.data;
                 // Each attendance record has a .people property with the person details
                 attendees = result.data
                     .filter((r) => r.people)
@@ -48,6 +52,7 @@
             }
         } catch (e) {
             console.warn("Failed to load attendees:", e);
+            attendanceRows = [];
         } finally {
             loadingAttendees = false;
         }
@@ -151,21 +156,33 @@
                         </p>
                     </div>
                 {/if}
-                {#if service.guests_count}
+                {#if metrics.guestAttendance}
                     <div>
-                        <span class="text-muted-foreground">Guest Attendance</span>
+                        <span class="text-muted-foreground">Non-member attendance</span>
                         <p class="font-medium text-foreground">
-                            {service.guests_count}
+                            {metrics.guestAttendance}
                         </p>
                     </div>
                 {/if}
-                {#if firstTimerCount}
+                {#if metrics.firstTimers}
                     <div>
                         <span class="text-muted-foreground">First-timer Visits</span>
                         <p class="font-medium text-foreground">
-                            {firstTimerCount}
-                            <span class="block text-xs font-normal text-muted-foreground">Included in guest attendance</span>
+                            {metrics.firstTimers}
+                            <span class="block text-xs font-normal text-muted-foreground">Part of non-member attendance</span>
                         </p>
+                    </div>
+                {/if}
+                {#if metrics.returningGuestAttendance}
+                    <div>
+                        <span class="text-muted-foreground">Returning guest visits</span>
+                        <p class="font-medium text-foreground">{metrics.returningGuestAttendance}</p>
+                    </div>
+                {/if}
+                {#if metrics.unclassifiedNonMemberAttendance}
+                    <div>
+                        <span class="text-muted-foreground">Non-member visit type unknown</span>
+                        <p class="font-medium text-foreground">{metrics.unclassifiedNonMemberAttendance}</p>
                     </div>
                 {/if}
             </div>

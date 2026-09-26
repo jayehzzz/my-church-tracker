@@ -10,7 +10,7 @@ function localDate(value = new Date()) {
 }
 
 describe("VisitationCalendar", () => {
-  it("shows the care recorded on a selected day and opens its detail", async () => {
+  it("routes a selected day and its care metric to the page-owned drilldown", async () => {
     const date = localDate();
     const visit = {
       id: "visit-1",
@@ -22,15 +22,15 @@ describe("VisitationCalendar", () => {
       outcome: "prayer_request_received",
       notes: "Prayed together and agreed a follow-up call.",
     };
-    const onVisitSelect = vi.fn();
-    const { getByRole, getByText } = render(VisitationCalendar, {
-      props: { data: [visit], onVisitSelect },
+    const onDaySelect = vi.fn();
+    const onDrilldown = vi.fn();
+    const { getByRole } = render(VisitationCalendar, {
+      props: { data: [visit], onDaySelect, onDrilldown },
     });
 
     await fireEvent.click(getByRole("button", { name: /1 care interaction$/ }));
-    expect(getByText("Ama Owusu")).toBeDefined();
-    expect(getByText("Prayed together and agreed a follow-up call.")).toBeDefined();
-    await fireEvent.click(getByRole("button", { name: /Ama Owusu/ }));
-    expect(onVisitSelect).toHaveBeenCalledWith(visit);
+    expect(onDaySelect).toHaveBeenCalledWith(date);
+    await fireEvent.click(getByRole('button', { name: /Series A · Care interactions/ }));
+    expect(onDrilldown).toHaveBeenCalledWith(expect.objectContaining({ choices: [expect.objectContaining({ metricKey: 'interactions', sourceIds: ['visit-1'] })] }));
   });
 });

@@ -13,6 +13,8 @@
 
 <script>
   import { goto } from "$app/navigation";
+  import { browser } from '$app/environment';
+  import { replaceState } from '$app/navigation';
 
   import DashboardLayout from "$lib/components/layout/DashboardLayout.svelte";
   import { page } from "$app/state";
@@ -23,6 +25,7 @@
   import PeopleDashboard from "./PeopleDashboard.svelte";
   import * as peopleService from "$lib/services/peopleService";
   import { getConfigurationError, getDataSource, isDemoMode } from "$lib/convex.js";
+  import { savePeopleDirectory, takePeopleDirectory } from '$lib/components/drilldown/peopleReturnState.js';
 
   // Live databases start empty until their first response. Demo data is loaded
   // only after the explicitly selected demo service responds.
@@ -34,6 +37,23 @@
   let statusFilter = $state("all");
   let roleFilter = $state("all");
   let activityFilter = $state("all");
+  let peopleComparison = $state(null);
+  let mapQuery = $state('');
+  let mapLocationFilter = $state('all');
+  let mapFocusedId = $state(null);
+  const returned = browser ? takePeopleDirectory() : null;
+  if (returned) { statusFilter = returned.statusFilter; roleFilter = returned.roleFilter; activityFilter = returned.activityFilter; peopleComparison = returned.comparison || null; mapQuery = returned.mapQuery || ''; mapLocationFilter = returned.mapLocationFilter || 'all'; mapFocusedId = returned.mapFocusedId || null; }
+  let comparisonScope = $state(returned ? `${returned.statusFilter}|${returned.roleFilter}|${returned.activityFilter}` : null);
+  $effect(() => {
+    const next = `${statusFilter}|${roleFilter}|${activityFilter}`;
+    if (comparisonScope !== null && comparisonScope !== next) peopleComparison = null;
+    comparisonScope = next;
+  });
+  if (returned?.view === 'map' && browser) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('view', 'map');
+    replaceState(url, {});
+  }
 
   // Modal state
   let isFormOpen = $state(false);
@@ -58,7 +78,7 @@
     { value: "all", label: "All Statuses" },
     { value: "church_family", label: "Church Members (Members + Leaders)" },
     { value: "contact", label: "Outreach Contacts" },
-    { value: "guest", label: "Guests" },
+    { value: "guest", label: "Non-members" },
     { value: "member", label: "Members" },
     { value: "leader", label: "Leaders" },
     { value: "archived", label: "Archived" },
@@ -253,7 +273,13 @@
 
   // Handle row click
   function handleRowClick(person) {
+    savePeopleDirectory({ statusFilter, roleFilter, activityFilter, view: activeView, comparison: peopleComparison, mapQuery, mapLocationFilter, mapFocusedId });
     goto(`/people/${person.id}`);
+  }
+
+  function openProfile(id) {
+    savePeopleDirectory({ statusFilter, roleFilter, activityFilter, view: activeView, comparison: peopleComparison, mapQuery, mapLocationFilter, mapFocusedId });
+    goto(`/people/${encodeURIComponent(id)}`);
   }
 </script>
 
@@ -377,7 +403,7 @@
   <div class="mb-6 flex flex-wrap items-center gap-4">
     <div class="flex items-center gap-2">
       <label for="status-filter" class="text-sm text-muted-foreground"
-        >Journey:</label
+        >Church Journey:</label
       >
       <select
         id="status-filter"
@@ -493,7 +519,7 @@
       </div>
     {:else}
       <!-- MAP VIEW -->
-      <PeopleDashboard people={filteredPeople} {loading} onEditPerson={handleEditPerson} />
+      <PeopleDashboard people={filteredPeople} {loading} onEditPerson={handleEditPerson} onOpenProfile={openProfile} bind:comparison={peopleComparison} bind:query={mapQuery} bind:locationFilter={mapLocationFilter} bind:focusedId={mapFocusedId} />
     {/if}
   {/if}
 </DashboardLayout>
@@ -507,7 +533,7 @@
 />
 
 <!-- Archive Confirmation Modal -->
-<Modal bind:isOpen={isDeleteModalOpen} title="Archive Person" size="sm">
+<Modal bind:isOpen={isDeleteModalOpen} title="Archive Person" size="sm" tone="destructive">
   <div class="text-center">
     <div
       class="w-12 h-12 mx-auto mb-4 bg-destructive/10 rounded-full flex items-center justify-center"

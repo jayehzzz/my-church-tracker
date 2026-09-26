@@ -6,7 +6,7 @@ it('supplies explicit dated demo tithe examples with different monthly patterns 
  const services=['05-03','06-07','06-14','07-05','08-02'].map((d,i)=>({id:String(i),service_date:`2026-${d}`,service_type:'sunday_service',total_attendance:10,tithers_count:5}));
  const attendance=services.flatMap(s=>['1','2','4'].map(person_id=>({service_id:s.id,person_id})));
  addDemoTitheExamples(services,attendance);
- const profile=id=>({opportunities:developmentGatherings(services),attendance:attendance.filter(r=>r.person_id===id).map(r=>({...r,event_id:r.service_id,present:true}))});
+ const profile=id=>({givingAvailable:true,opportunities:developmentGatherings(services),attendance:attendance.filter(r=>r.person_id===id).map(r=>({...r,event_id:r.service_id,present:true}))});
  const range={from:'2026-06-01',to:'2026-08-31'},now=new Date('2026-09-08T12:00:00Z');
  expect(developmentEvidence(profile('1'),range,null,now).tithing.recorded).toBe(3);
  expect(developmentEvidence(profile('2'),range,null,now).tithing.recorded).toBe(2);
