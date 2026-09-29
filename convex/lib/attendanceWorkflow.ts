@@ -125,8 +125,8 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
     const person = await ctx.db.get(personId);
     if (!person) return;
     const events = await personGatherings(ctx, personId);
-    const commitments = await ctx.db.query("gathering_commitments").withIndex("by_person", q => q.eq("person_id", personId)).collect();
-    const interactions = await ctx.db.query("follow_ups").withIndex("by_contact", q => q.eq("contact_id", personId)).collect();
+    const commitments = (await ctx.db.query("gathering_commitments").withIndex("by_person", q => q.eq("person_id", personId)).collect()).filter(c => !c.entered_in_error);
+    const interactions = (await ctx.db.query("follow_ups").withIndex("by_contact", q => q.eq("contact_id", personId)).collect()).filter(f => !f.entered_in_error);
     for (const c of commitments) {
         let event = c.service_id || c.meeting_id ? events.find(e => c.service_id ? e.serviceId === c.service_id : e.meetingId === c.meeting_id) : undefined;
         if (!c.service_id && !c.meeting_id && c.resolution !== "cancelled") {
@@ -161,8 +161,8 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
             coveredDays.add(event.date);
         }
     }
-    const refreshed = await ctx.db.query("gathering_commitments").withIndex("by_person", q => q.eq("person_id", personId)).collect();
-    const followUps = await ctx.db.query("follow_ups").withIndex("by_contact", q => q.eq("contact_id", personId)).collect();
+    const refreshed = (await ctx.db.query("gathering_commitments").withIndex("by_person", q => q.eq("person_id", personId)).collect()).filter(c => !c.entered_in_error);
+    const followUps = (await ctx.db.query("follow_ups").withIndex("by_contact", q => q.eq("contact_id", personId)).collect()).filter(f => !f.entered_in_error);
     for (const f of followUps.filter(f => f.promised_date)) {
         const matches = events.filter(e => e.date === f.promised_date && (e.type === (f.gathering_type ?? "sunday_service") || ((!f.gathering_type || f.gathering_type === "sunday_service") && e.sunday)));
         const choices = await candidates(ctx, f.gathering_type ?? "sunday_service", f.promised_date!);
@@ -258,7 +258,7 @@ async function finalizeRecordedSundayExpectations(ctx: MutationCtx, serviceId: I
     const resolvedAt = now();
 
     for (const commitment of commitments) {
-        if (commitment.response !== "yes" || commitment.resolution !== "pending" || attendedIds.has(commitment.person_id)) continue;
+        if (commitment.entered_in_error || commitment.response !== "yes" || commitment.resolution !== "pending" || attendedIds.has(commitment.person_id)) continue;
         await ctx.db.patch(commitment._id, {
             resolution: "no_show",
             attendance_previous_status: commitment.attendance_previous_status ?? commitment.resolution,

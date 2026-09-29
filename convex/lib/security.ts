@@ -66,6 +66,7 @@ const leaderMutations = new Set([
   "people:createGrowthAgreement", "people:reviewGrowthAgreement",
   "crm:createTask", "crm:completeTask", "crm:moveToLater", "crm:recordCommitment",
   "crm:resolveCommitment", "crm:setAttendancePlan", "crm:updateMissedSundayReason",
+  "corrections:correctFollowUp", "corrections:correctCommitment",
   "follow_ups:create", "follow_ups:resolvePromise", "follow_ups:bulkResolvePromises",
   "visitations:create", "visitations:update",
   "meetingPrograms:update", "meetingPrograms:syncPeople", "meetings:record", "meetings:syncAttendance",
@@ -235,7 +236,19 @@ function authenticateBuilder(builder: any, name: string, write: boolean) {
       if (input.resolution !== "cancelled" || commitment?.gathering_type !== "sunday_service" || commitment?.resolution !== "pending") forbidden();
     }
     if (!isAdmin(user) && name === "crm:setAttendancePlan" && ["attended", "absent"].includes(input.status)) forbidden();
-    if (write && !user.can_view_confidential && hasRestrictedInput(name === "meetingPrograms:update" ? { ...input, description: undefined } : input, careKeys)) forbidden();
+    if (!isAdmin(user) && name === "corrections:correctCommitment") {
+      const commitment = await ctx.db.get(input.commitmentId);
+      if (commitment?.resolution === "attended") forbidden();
+      if (commitment) {
+        const serviceRows = await ctx.db.query("attendance").withIndex("by_person", (q: any) => q.eq("person_id", commitment.person_id)).collect();
+        for (const row of serviceRows) if ((await ctx.db.get(row.service_id))?.service_date === commitment.gathering_date) forbidden();
+        const meetingRows = await ctx.db.query("meeting_attendance").withIndex("by_person", (q: any) => q.eq("person_id", commitment.person_id)).collect();
+        for (const row of meetingRows) if ((row.status ? row.status === "present" : row.attended !== false) && (await ctx.db.get(row.meeting_id))?.meeting_date === commitment.gathering_date) forbidden();
+      }
+    }
+    const careInput = name === "meetingPrograms:update" ? { ...input, description: undefined }
+      : name.startsWith("corrections:") ? { ...input, reason: undefined } : input;
+    if (write && !user.can_view_confidential && hasRestrictedInput(careInput, careKeys)) forbidden();
     if (write && !canViewGiving(user) && hasRestrictedInput(input, givingKeys)) forbidden();
     if (name.startsWith("visitations:") && !user.can_view_confidential) forbidden();
     if (["people:getMergePreview", "people:mergeReviewed", "people:remove"].includes(name)) {

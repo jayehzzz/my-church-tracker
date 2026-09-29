@@ -494,6 +494,12 @@ export default defineSchema({
     follow_ups: defineTable({
         commitment_id: v.optional(v.id("gathering_commitments")),
         source_task_id: v.optional(v.id("follow_up_tasks")),
+        next_task_id: v.optional(v.id("follow_up_tasks")),
+        completion_effects: v.optional(v.any()),
+        correction_revision: v.optional(v.number()),
+        corrected_at: v.optional(v.string()),
+        entered_in_error: v.optional(v.boolean()),
+        correction_history: v.optional(v.array(v.object({ at: v.string(), actor_id: v.optional(v.id("people")), reason: v.string(), before: v.any(), after: v.any() }))),
         source_visitation_id: v.optional(v.id("visitations")),
         care_status: v.optional(v.string()),
         contact_id: v.id("people"),         // The evangelism contact being followed up
@@ -592,6 +598,9 @@ export default defineSchema({
       .index("by_status_completed_at", ["status", "completed_at"]),
 
     gathering_commitments: defineTable({
+        correction_revision: v.optional(v.number()),
+        entered_in_error: v.optional(v.boolean()),
+        correction_history: v.optional(v.array(v.object({ at: v.string(), actor_id: v.optional(v.id("people")), reason: v.string(), before: v.any(), after: v.any() }))),
         service_id: v.optional(v.id("services")),
         meeting_id: v.optional(v.id("meetings")),
         attendance_previous_status: v.optional(v.string()),

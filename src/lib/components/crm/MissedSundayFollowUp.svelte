@@ -9,13 +9,19 @@
     onOpen = () => {},
     onEditReason = () => {},
     onPlanCall = () => {},
+    onCorrect = () => {},
   } = $props();
 
   let view = $state('recent');
   let search = $state('');
+  let missFilter = $state('all');
   const window = $derived(completedSundayWindow(today));
-  const recentPeople = $derived(recentMissedSundayPeople(history, today));
+  const recentPeople = $derived(recentMissedSundayPeople(history, today).map(person => ({
+    ...person,
+    missed_sundays: (person.missed_sundays || []).filter(item => item.gathering_date >= window.start && item.gathering_date <= window.end),
+  })).map(person => ({ ...person, missed_count: new Set(person.missed_sundays.map(item => item.gathering_date)).size })));
   const repeatedCount = $derived(recentPeople.filter(person => person.missed_count > 1).length);
+  const displayedPeople = $derived(recentPeople.filter(person => missFilter === 'all' || person.missed_count > 1));
   const historyRows = $derived(history.flatMap(person => (person.missed_sundays || []).map(commitment => ({ person, commitment }))));
   const matchingHistory = $derived(historyRows.filter(row => {
     const query = search.trim().toLowerCase();
@@ -51,6 +57,7 @@
       <button type="button" aria-pressed={view === 'recent'} class="rounded-md px-3 py-1.5 text-sm font-semibold {view === 'recent' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}" onclick={() => view = 'recent'}>Recent</button>
       <button type="button" aria-pressed={view === 'history'} class="rounded-md px-3 py-1.5 text-sm font-semibold {view === 'history' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}" onclick={() => view = 'history'}>History</button>
     </div>
+    {#if view === 'recent'}<div class="flex rounded-lg border border-border bg-secondary/40 p-1" role="group" aria-label="Missed Sunday filter"><button type="button" aria-pressed={missFilter === 'all'} class="rounded-md px-3 py-1.5 text-sm {missFilter === 'all' ? 'bg-background font-semibold' : ''}" onclick={() => missFilter = 'all'}>All misses</button><button type="button" aria-pressed={missFilter === 'repeated'} class="rounded-md px-3 py-1.5 text-sm {missFilter === 'repeated' ? 'bg-background font-semibold' : ''}" onclick={() => missFilter = 'repeated'}>Repeated misses</button></div>{/if}
     {#if view === 'history'}
       <label class="w-full sm:w-72"><span class="sr-only">Search missed Sunday history</span><input type="search" bind:value={search} placeholder="Search person, worker, date or reason" class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary" /></label>
     {/if}
@@ -61,9 +68,9 @@
       <span><strong class="text-foreground">{recentPeople.length}</strong> {recentPeople.length === 1 ? 'person' : 'people'} missed in the last four completed Sundays</span>
       <span class="text-muted-foreground">{repeatedCount} missed more than once</span>
     </div>
-    {#if recentPeople.length}
+    {#if displayedPeople.length}
       <div class="divide-y divide-border">
-        {#each recentPeople as row (row.person_id)}
+        {#each displayedPeople as row (row.person_id)}
           {@const latest = row.missed_sundays.find(item => item.gathering_date >= window.start && item.gathering_date <= window.end)}
           {@const nextTask = row.next_task}
           <article class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
@@ -72,12 +79,13 @@
                 <button type="button" class="text-left font-semibold text-foreground hover:underline" onclick={() => onOpen(row.person)}>{personName(row.person)}</button>
                 {#if row.missed_count > 1}<Badge size="sm" variant="warning">Repeated miss</Badge>{/if}
               </div>
-              <p class="mt-1 text-sm text-muted-foreground">Missed {row.missed_count} of {row.decided_count} confirmed Sundays · latest {dateLabel(latest?.gathering_date)}</p>
+              <p class="mt-1 text-sm text-muted-foreground">Missed {row.missed_count} {row.missed_count === 1 ? 'Sunday' : 'Sundays'} in the last four completed Sundays · latest {dateLabel(latest?.gathering_date)}</p>
               <p class="mt-1 text-sm text-foreground">Reason: {displayedReason(latest)}</p>
               <p class="mt-1 text-xs text-muted-foreground">Worker: {personName(row.assigned_leader)}{nextTask ? ` · ${String(nextTask.task_type || 'Follow-up').replaceAll('_', ' ')} due ${dateLabel(nextTask.due_date)}` : ' · No next call planned'}</p>
             </div>
             <div class="flex shrink-0 flex-wrap gap-2">
               <Button size="sm" variant="secondary" onclick={() => onEditReason(latest)}> {displayedReason(latest) === 'Reason not recorded' ? 'Add reason' : 'Edit reason'}</Button>
+              <Button size="sm" variant="ghost" onclick={() => onCorrect(latest, 'mistake')}>Correct result</Button>
               {#if nextTask}
                 <Button size="sm" variant="ghost" onclick={() => onOpen(row.person)}>View person</Button>
               {:else if canPlan(row.person) && row.assigned_leader_id}
@@ -88,7 +96,7 @@
         {/each}
       </div>
     {:else}
-      <p class="px-5 py-12 text-center text-sm text-muted-foreground">No confirmed Sunday misses in the last four completed Sundays.</p>
+      <p class="px-5 py-12 text-center text-sm text-muted-foreground">{missFilter === 'repeated' ? 'No one missed more than one confirmed Sunday in this period.' : 'No confirmed Sunday misses in the last four completed Sundays.'}</p>
     {/if}
   {:else if matchingHistory.length}
     <div class="divide-y divide-border">
@@ -99,7 +107,7 @@
             <p class="mt-0.5 text-sm text-muted-foreground">{dateLabel(row.commitment.gathering_date)} · Worker: {personName(row.person.assigned_leader)}</p>
             <p class="mt-1 text-sm text-foreground">Reason: {displayedReason(row.commitment)}</p>
           </div>
-          <Button size="sm" variant="secondary" onclick={() => onEditReason(row.commitment)}>{displayedReason(row.commitment) === 'Reason not recorded' ? 'Add reason' : 'Edit reason'}</Button>
+          <div class="flex gap-2"><Button size="sm" variant="secondary" onclick={() => onEditReason(row.commitment)}>{displayedReason(row.commitment) === 'Reason not recorded' ? 'Add reason' : 'Edit reason'}</Button><Button size="sm" variant="ghost" onclick={() => onCorrect(row.commitment, 'mistake')}>Correct result</Button></div>
         </article>
       {/each}
     </div>

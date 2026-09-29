@@ -34,7 +34,7 @@ async function getProspects(ctx: MutationCtx | QueryCtx) {
  * - Number of follow-ups with no progress
  * - Promise-to-attendance ratio
  */
-function computeWarmthScore(contact: any, followUps: any[]): string {
+export function computeWarmthScore(contact: any, followUps: any[]): string {
     // If paused, warmth is frozen
     if (contact.is_paused) return contact.warmth_score || "warm";
 
@@ -316,6 +316,7 @@ export const getPromisedThisWeek = queryFor("follow_ups:getPromisedThisWeek")({
         const allFollowUps = await ctx.db.query("follow_ups").collect();
 
         const promises = allFollowUps.filter(f =>
+            !f.entered_in_error &&
             f.outcome === "promised_to_come" &&
             f.promised_date &&
             f.promised_date >= mondayStr &&

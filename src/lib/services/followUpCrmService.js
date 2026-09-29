@@ -1471,3 +1471,35 @@ export async function getGatheringChoices(gatheringType, gatheringDate) {
   try { return { data: await client.query(api.crm.getGatheringChoices, { gatheringType, gatheringDate }), error: null }; }
   catch (error) { return { data: null, error }; }
 }
+
+export async function previewFollowUpCorrection(followUpId) {
+  const client = getClient();
+  if (!client || !isRemoteId(followUpId)) return { data: null, error: unavailableError('Follow-up corrections require the connected church database.') };
+  try {
+    return { data: await client.query(api.corrections.previewFollowUp, { followUpId }), error: null };
+  } catch (error) { return { data: null, error }; }
+}
+
+export async function correctFollowUp(details) {
+  const client = getClient();
+  if (!client || !isRemoteId(details.followUpId)) return { data: null, error: unavailableError('Follow-up corrections require the connected church database.') };
+  try {
+    return { data: await client.mutation(api.corrections.correctFollowUp, details), error: null };
+  } catch (error) { return { data: null, error }; }
+}
+
+export async function correctCommitment(details) {
+  const client = getClient();
+  if (!client || !isRemoteId(details.commitmentId)) return { data: null, error: unavailableError('Confirmation corrections require the connected church database.') };
+  try {
+    return { data: await client.mutation(api.corrections.correctCommitment, details), error: null };
+  } catch (error) { return { data: null, error }; }
+}
+
+export async function previewCommitmentCorrection(commitmentId) {
+  const client = getClient();
+  if (!client || !isRemoteId(commitmentId)) return { data: null, error: unavailableError('Confirmation corrections require the connected church database.') };
+  try {
+    return { data: await client.query(api.corrections.previewCommitment, { commitmentId }), error: null };
+  } catch (error) { return { data: null, error }; }
+}

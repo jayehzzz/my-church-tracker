@@ -29,6 +29,12 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 ## Handoffs
 
+### Follow-up corrections and repeated Sunday misses — Practice preparation (29 September 2026)
+
+- Added audited corrections for gathering responses and follow-up calls, with explicit entered-in-error handling, stale-edit checks, scoped worker permissions, and opt-in repair of linked tasks or contact status. Actual attendance remains an administrator action. Older tasks without verified links are shown for manual review, not changed by guesswork.
+- The existing missed-after-saying-yes tab now filters repeated misses across the latest four completed Sundays. Sunday and person history expose correction actions and distinguish No, Maybe, cancellations, and mistaken entries. Invalidated records are excluded from Sunday counts and active follow-up statistics while their history remains visible.
+- Local checks: `npm run verify` (368 frontend and 101 backend tests, backend TypeScript and build), `npm run test:coverage`, `npm run test:e2e`, and local demo browser checks of the Sunday and missed-Sunday sections at desktop and phone width. Authenticated Practice correction checks and owner acceptance remain. State: `codex/clear-church-statuses`, stacked on the earlier clear-status work; source commit and Practice deployment details follow publication. No live release.
+
 ### Clear church status and connection source — Practice review pending (29 September 2026)
 
 - Removed Regular/Irregular/Dormant editing and filtering. Preserved historical labels in export for review; they no longer set Sunday expectations. Profiles show recorded Sunday visits across the six latest past Sunday services, and a missing data request is shown as unavailable rather than zero.

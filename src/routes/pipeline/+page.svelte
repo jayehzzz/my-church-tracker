@@ -9,7 +9,7 @@
   import { Button, Modal } from '$lib/components/ui';
   import PersonForm from '$lib/components/forms/PersonForm.svelte';
   import { ExpectedSunday, FollowUpBoard, WorkerAssessment, ContactDrawer } from '$lib/components/crm';
-  import { assignContact, batchAssignContacts, completeTask, createTask, getContactProfile, getDashboard, quickLogNoAnswer, reactivateContact, resolveCommitment, setAttendancePlan, updateMissedSundayReason, watchDashboard } from '$lib/services/followUpCrmService.js';
+  import { assignContact, batchAssignContacts, completeTask, createTask, getContactProfile, getDashboard, quickLogNoAnswer, reactivateContact, resolveCommitment, setAttendancePlan, updateMissedSundayReason, watchDashboard, previewFollowUpCorrection, previewCommitmentCorrection, correctFollowUp, correctCommitment } from '$lib/services/followUpCrmService.js';
   import { notificationStore, refreshLiveNotifications } from '$lib/stores/notificationStore.js';
   import { isDemoMode } from '$lib/convex.js';
   import { goto } from '$app/navigation';
@@ -32,6 +32,18 @@
   let missedCallDate = $state('');
   let isMissedCallOpen = $state(false);
   let savingMissedCall = $state(false);
+  let commitmentCorrection = $state(null);
+  let commitmentCorrectionOpen = $state(false);
+  let commitmentCorrectionSaving = $state(false);
+  let commitmentCorrectionError = $state('');
+  let commitmentCorrectionPreview = $state(null);
+  let commitmentCorrectionLoading = $state(false);
+  let callCorrection = $state(null);
+  let callCorrectionPreview = $state(null);
+  let callCorrectionOpen = $state(false);
+  let callCorrectionLoading = $state(false);
+  let callCorrectionSaving = $state(false);
+  let callCorrectionError = $state('');
 
   const TABS = [
     { id: 'week', label: 'This week' },
@@ -447,6 +459,52 @@
   }
   function closeWorkerMetric() { workerMetric = null; detailRow = null; metricTrigger?.focus?.(); }
   function selectTab(tab) { attentionFilter = ''; workerMetric = null; activeTab = tab; }
+  async function openCommitmentCorrection(commitment, mode = 'response') {
+    const selected = { ...commitment, person: commitment.person || drawerPerson };
+    isDrawerOpen = false;
+    commitmentCorrection = { commitment: selected, mode, date: commitment.gathering_date, response: commitment.response || 'yes', enteredInError: false, reason: '' };
+    commitmentCorrectionError = '';
+    commitmentCorrectionPreview = null;
+    commitmentCorrectionLoading = true;
+    commitmentCorrectionOpen = true;
+    const result = await previewCommitmentCorrection(commitment._id || commitment.id);
+    commitmentCorrectionLoading = false;
+    if (result.error) { commitmentCorrectionError = result.error.message || 'Related records could not be loaded.'; return; }
+    commitmentCorrectionPreview = result.data;
+  }
+  async function saveCommitmentCorrection() {
+    if (!commitmentCorrectionPreview || !commitmentCorrection?.reason.trim()) { commitmentCorrectionError = 'Add a reason and wait for related records.'; return; }
+    commitmentCorrectionSaving = true;
+    const { commitment, date, response, enteredInError, reason } = commitmentCorrection;
+    const result = await correctCommitment({ commitmentId: commitment._id || commitment.id, expectedVersion: `${commitment.updated_at}:${commitment.correction_revision || 0}`, date, response, enteredInError, reason: reason.trim() });
+    commitmentCorrectionSaving = false;
+    if (result.error) { commitmentCorrectionError = result.error.message || 'The confirmation could not be corrected.'; return; }
+    commitmentCorrectionOpen = false;
+    successMessage = enteredInError ? 'The mistaken confirmation is excluded from Sunday counts.' : 'The response and Sunday counts have been updated.';
+    await loadWorkspace({ quiet: true });
+  }
+  async function openCallCorrection(item) {
+    isDrawerOpen = false;
+    callCorrection = { followUpId: item._id || item.id, expectedVersion: `${item.corrected_at || item.created_at}:${item.correction_revision || 0}`, date: item.follow_up_date, method: item.method || 'call', outcome: item.outcome || 'positive_conversation', notes: item.notes || '', enteredInError: item.entered_in_error === true, cancelNextTask: false, reopenSourceTask: false, revertPersonStatus: false, restoreAffectedTasks: false, reason: '' };
+    callCorrectionPreview = null;
+    callCorrectionError = '';
+    callCorrectionLoading = true;
+    callCorrectionOpen = true;
+    const result = await previewFollowUpCorrection(item._id || item.id);
+    callCorrectionLoading = false;
+    if (result.error) { callCorrectionError = result.error.message || 'The related records could not be loaded.'; return; }
+    callCorrectionPreview = result.data;
+  }
+  async function saveCallCorrection() {
+    if (!callCorrectionPreview || !callCorrection?.reason.trim()) { callCorrectionError = 'Add a reason and wait for the related records.'; return; }
+    callCorrectionSaving = true;
+    const result = await correctFollowUp({ ...callCorrection, ...(confidential ? {} : { notes: undefined }), reason: callCorrection.reason.trim() });
+    callCorrectionSaving = false;
+    if (result.error) { callCorrectionError = result.error.message || 'The follow-up could not be corrected.'; return; }
+    callCorrectionOpen = false;
+    successMessage = 'Follow-up corrected. Its history has been preserved.';
+    await loadWorkspace({ quiet: true });
+  }
   function openMissedReason(commitment) {
     missedReasonAction = commitment;
     missedReasonDraft = commitment?.resolution_note === 'Not in the recorded Sunday attendance.' ? '' : commitment?.resolution_note || '';
@@ -641,6 +699,7 @@
       savingIds={savingAttendanceIds}
       onStatusChange={requestAttendanceStatus}
       onResolve={requestCommitmentResolution}
+      onCorrectCommitment={openCommitmentCorrection}
       onOpen={openPerson}
       onPreviousSunday={() => changeSunday(-7)}
       onNextSunday={() => changeSunday(7)}
@@ -653,6 +712,7 @@
       onOpen={openPerson}
       onEditReason={openMissedReason}
       onPlanCall={openMissedCall}
+      onCorrect={openCommitmentCorrection}
     />
   {:else if activeTab === 'later'}
     <section class="overflow-hidden rounded-xl border border-border bg-card">
@@ -806,7 +866,47 @@
   </Modal>
 </DashboardLayout>
 
-<ContactDrawer bind:isOpen={isDrawerOpen} person={drawerPerson} onLogCall={handleLogCallFromDrawer} onEditProfile={openFullProfileEdit} onViewProfile={viewFullProfile} />
+<Modal bind:isOpen={commitmentCorrectionOpen} title={commitmentCorrection?.mode === 'mistake' ? 'Correct a confirmation mistake' : 'Change a response'} size="lg">
+  {#if commitmentCorrection}
+    <div class="space-y-4 text-sm">
+      <p class="text-muted-foreground">{personName(commitmentCorrection.commitment.person)} · {formatDate(commitmentCorrection.commitment.gathering_date)} · currently {commitmentCorrection.commitment.entered_in_error ? 'entered in error' : commitmentCorrection.commitment.response === 'yes' ? 'Yes' : commitmentCorrection.commitment.response === 'maybe' ? 'Maybe' : 'No'}.</p>
+      <p class="text-muted-foreground">Changing a response preserves its history. Marking an entry as a mistake removes it from promises and missed-Sunday counts. Actual attendance is corrected separately.</p>
+      {#if commitmentCorrectionLoading}<p>Loading related records…</p>{:else if commitmentCorrectionPreview}<div class="rounded-lg border border-border bg-secondary/40 p-3"><p class="font-semibold">Related records</p><p>{commitmentCorrectionPreview.linked_calls?.length || 0} linked follow-up calls · {commitmentCorrectionPreview.linked_tasks?.length || 0} related tasks</p>{#if commitmentCorrectionPreview.actual_attendance}<p>Actual attendance is recorded for this date.</p>{/if}<p>These calls and tasks remain in place. Review them in the person’s history if they also need correction.</p></div>{/if}
+      <label class="block">Gathering date<input type="date" bind:value={commitmentCorrection.date} class="mt-1 w-full rounded-lg border border-border bg-secondary px-3 py-2" /></label>
+      <label class="block">Response<select bind:value={commitmentCorrection.response} disabled={commitmentCorrection.enteredInError} class="mt-1 w-full rounded-lg border border-border bg-secondary px-3 py-2"><option value="yes">Yes</option><option value="maybe">Maybe</option><option value="no">No</option></select></label>
+      {#if commitmentCorrection.mode === 'mistake'}<label class="flex items-center gap-2"><input type="checkbox" bind:checked={commitmentCorrection.enteredInError} />This confirmation was entered by mistake</label>{/if}
+      <label class="block">Reason for correction<textarea rows="2" maxlength="500" bind:value={commitmentCorrection.reason} class="mt-1 w-full rounded-lg border border-border bg-secondary px-3 py-2"></textarea></label>
+      {#if commitmentCorrectionError}<p role="alert" class="text-danger">{commitmentCorrectionError}</p>{/if}
+      {#if ['owner', 'admin'].includes($session.user?.role)}<Button variant="secondary" size="sm" onclick={() => { actualAttendance = { commitment: commitmentCorrection.commitment, person: commitmentCorrection.commitment.person, gatheringType: commitmentCorrection.commitment.gathering_type, gatheringDate: commitmentCorrection.commitment.gathering_date }; commitmentCorrectionOpen = false; isActualAttendanceOpen = true; }}>Correct actual attendance</Button>{/if}
+    </div>
+  {/if}
+  {#snippet footer()}<Button variant="secondary" onclick={() => commitmentCorrectionOpen = false}>Cancel</Button><Button loading={commitmentCorrectionSaving} disabled={!commitmentCorrectionPreview} onclick={saveCommitmentCorrection}>Save correction</Button>{/snippet}
+</Modal>
+
+<Modal bind:isOpen={callCorrectionOpen} title="Edit follow-up" size="lg">
+  {#if callCorrection}
+    <div class="space-y-4 text-sm">
+      {#if callCorrectionLoading}<p>Loading related records…</p>{:else if callCorrectionPreview}
+        <div class="rounded-lg border border-border bg-secondary/40 p-3"><p class="font-semibold">Related records</p><p>Confirmation: {callCorrectionPreview.commitment ? `${formatDate(callCorrectionPreview.commitment.gathering_date)} · ${callCorrectionPreview.commitment.response}` : 'None linked'}</p><p>Completed task: {callCorrectionPreview.source_task ? `${callCorrectionPreview.source_task.task_type} · ${callCorrectionPreview.source_task.status}` : 'None linked'}</p><p>Next task: {callCorrectionPreview.next_task ? `${callCorrectionPreview.next_task.task_type} · ${callCorrectionPreview.next_task.status}` : 'None linked'}</p><p>Tasks cancelled when this call closed follow-up: {callCorrectionPreview.affected_tasks?.length || 0}</p><p>Current status: {callCorrectionPreview.person_status?.pipeline_stage || 'Not recorded'}</p>{#if callCorrectionPreview.legacy_links_unavailable}<p>Older next task could not be linked safely. Review current tasks on this person’s profile.</p>{/if}</div>
+      {/if}
+      <label class="block">Follow-up date<input type="date" bind:value={callCorrection.date} class="mt-1 w-full rounded-lg border border-border bg-secondary px-3 py-2" /></label>
+      <label class="block">Contact method<select bind:value={callCorrection.method} class="mt-1 w-full rounded-lg border border-border bg-secondary px-3 py-2">{#each METHODS as method}<option value={method.value}>{method.label}</option>{/each}</select></label>
+      <label class="block">Outcome<select bind:value={callCorrection.outcome} class="mt-1 w-full rounded-lg border border-border bg-secondary px-3 py-2">{#each OUTCOMES as outcome}<option value={outcome.value}>{outcome.label}</option>{/each}</select></label>
+      {#if confidential}<label class="block">Notes<textarea rows="3" bind:value={callCorrection.notes} class="mt-1 w-full rounded-lg border border-border bg-secondary px-3 py-2"></textarea></label>{/if}
+      <label class="flex items-center gap-2"><input type="checkbox" bind:checked={callCorrection.enteredInError} />This follow-up was entered by mistake</label>
+      {#if callCorrectionPreview?.can_reopen_source_task && callCorrection.enteredInError}<label class="flex items-center gap-2"><input type="checkbox" bind:checked={callCorrection.reopenSourceTask} />Reopen the completed task</label>{/if}
+      {#if callCorrectionPreview?.can_cancel_next_task}<label class="flex items-center gap-2"><input type="checkbox" bind:checked={callCorrection.cancelNextTask} />Cancel the linked next task</label>{/if}
+      {#if callCorrectionPreview?.can_restore_affected_tasks && callCorrection.enteredInError}<label class="flex items-center gap-2"><input type="checkbox" bind:checked={callCorrection.restoreAffectedTasks} />Reopen the tasks this completion cancelled</label>{/if}
+      {#if callCorrectionPreview?.can_revert_person_status}<label class="flex items-center gap-2"><input type="checkbox" bind:checked={callCorrection.revertPersonStatus} />Restore the person’s previous Later/closed status</label>{/if}
+      <p class="text-muted-foreground">The linked confirmation has its own Change response and Correct a mistake actions in the person’s history.</p>
+      <label class="block">Reason for correction<textarea rows="2" maxlength="500" bind:value={callCorrection.reason} class="mt-1 w-full rounded-lg border border-border bg-secondary px-3 py-2"></textarea></label>
+      {#if callCorrectionError}<p role="alert" class="text-danger">{callCorrectionError}</p>{/if}
+    </div>
+  {/if}
+  {#snippet footer()}<Button variant="secondary" onclick={() => callCorrectionOpen = false}>Cancel</Button><Button loading={callCorrectionSaving} disabled={!callCorrectionPreview} onclick={saveCallCorrection}>Save correction</Button>{/snippet}
+</Modal>
+
+<ContactDrawer bind:isOpen={isDrawerOpen} person={drawerPerson} onLogCall={handleLogCallFromDrawer} onEditProfile={openFullProfileEdit} onViewProfile={viewFullProfile} onCorrectCommitment={openCommitmentCorrection} onEditFollowUp={openCallCorrection} />
 
 <PersonForm bind:isOpen={isPersonFormOpen} person={selectedPerson} onsave={handlePersonSaved} />
 

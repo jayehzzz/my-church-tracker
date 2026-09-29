@@ -18,6 +18,7 @@
     savingIds = [],
     onStatusChange = () => {},
     onResolve = () => {},
+    onCorrectCommitment = () => {},
     onOpen = () => {},
     onPreviousSunday = () => {},
     onNextSunday = () => {},
@@ -330,6 +331,7 @@
             {:else}
               <Badge size="sm" variant={statusVariant(row.status)} dot>{row.status}</Badge>
             {/if}
+            <div class="flex shrink-0 gap-2"><Button size="sm" variant="ghost" onclick={() => onCorrectCommitment(row.commitment, 'response')}>Change response</Button><Button size="sm" variant="ghost" onclick={() => onCorrectCommitment(row.commitment, 'mistake')}>Correct a mistake</Button></div>
           </div>
         {/each}
       </div>

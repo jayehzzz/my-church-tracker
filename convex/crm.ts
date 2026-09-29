@@ -89,7 +89,7 @@ function sundayReliability(commitments: Doc<"gathering_commitments">[]) {
     const byDate = new Map<string, Doc<"gathering_commitments">>();
     const resolutionRank: Record<string, number> = { pending: 0, cancelled: 1, no_show: 2, attended: 3 };
     for (const commitment of commitments) {
-        if (commitment.gathering_type !== "sunday_service" || commitment.response !== "yes") continue;
+        if (commitment.entered_in_error || commitment.gathering_type !== "sunday_service" || commitment.response !== "yes") continue;
         const current = byDate.get(commitment.gathering_date);
         if (!current || (resolutionRank[commitment.resolution] ?? 0) > (resolutionRank[current.resolution] ?? 0)) {
             byDate.set(commitment.gathering_date, commitment);
@@ -225,10 +225,19 @@ async function upsertCommitment(
         .collect();
     const existing = matching
         .filter((commitment) => commitment.gathering_type === args.gatheringType)
-        .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
+        .sort((a, b) => Number(Boolean(a.entered_in_error)) - Number(Boolean(b.entered_in_error)) || b.updated_at.localeCompare(a.updated_at))[0];
 
     if (existing) {
         const history = [...(existing.history ?? [])];
+        if (existing.entered_in_error) {
+            history.push({ at: now, leader_id: args.leaderId, action: "recorded_again", ...(note ? { note } : {}) });
+            await ctx.db.patch(existing._id, {
+                leader_id: args.leaderId, response: args.response, resolution: "pending",
+                entered_in_error: false, confirmation_note: note,
+                resolution_note: undefined, resolved_at: undefined, history, updated_at: now,
+            });
+            return { id: existing._id, becameYes: args.response === "yes" };
+        }
         if (existing.resolution === "cancelled" && args.response === "yes") {
             history.push({ at: now, leader_id: args.leaderId, action: "reconfirmed", ...(note ? { note } : {}) });
             await ctx.db.patch(existing._id, {
@@ -304,7 +313,7 @@ async function resolvePendingSundayCommitment(
         .withIndex("by_person_date", q => q.eq("person_id", personId).eq("gathering_date", gatheringDate))
         .collect();
     const commitment = matching
-        .filter(item => item.gathering_type === "sunday_service" && item.response === "yes" && item.resolution === "pending")
+        .filter(item => !item.entered_in_error && item.gathering_type === "sunday_service" && item.response === "yes" && item.resolution === "pending")
         .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0];
     if (!commitment) return null;
     const now = isoNow();
@@ -537,11 +546,11 @@ export const getDashboard = queryFor("crm:getDashboard")({
             Promise.all(contactPeople.map((person) => ctx.db.query("follow_ups").withIndex("by_contact", (q) => q.eq("contact_id", person._id)).collect())),
             Promise.all(contactPeople.map((person) => ctx.db.query("gathering_commitments").withIndex("by_person", (q) => q.eq("person_id", person._id)).collect())),
         ]);
-        const allFollowUps = followUpGroups.flat();
+        const allFollowUps = followUpGroups.flat().filter(row => !row.entered_in_error);
         const allCommitments = [...new Map(
             [...commitmentGroups.flat(), ...sundayCommitments, ...upcomingCommitmentRows, ...allSundayCommitments]
                 .map((commitment) => [commitment._id, commitment]),
-        ).values()];
+        ).values()].filter(row => !row.entered_in_error);
         const followUpsByContact = new Map<Id<"people">, typeof allFollowUps>();
         for (const followUp of allFollowUps) {
             const values = followUpsByContact.get(followUp.contact_id) ?? [];
@@ -599,7 +608,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
         );
         const sundayCommitmentsByPerson = new Map<Id<"people">, typeof allSundayCommitments>();
         for (const commitment of allSundayCommitments) {
-            if (commitment.response !== "yes") continue;
+            if (commitment.entered_in_error || commitment.response !== "yes") continue;
             const rows = sundayCommitmentsByPerson.get(commitment.person_id) ?? [];
             rows.push(commitment);
             sundayCommitmentsByPerson.set(commitment.person_id, rows);
@@ -710,6 +719,8 @@ export const getDashboard = queryFor("crm:getDashboard")({
             .sort((a, b) => a.person_name.localeCompare(b.person_name));
         const sundayExpectedCommitments = sundayCommitments
             .filter((commitment) =>
+                !commitment.entered_in_error
+                &&
                 commitment.response === "yes"
                 && (!args.leaderId || commitment.leader_id === args.leaderId),
             )
@@ -1040,7 +1051,7 @@ export const getSundayCommitments = queryFor("crm:getSundayCommitments")({
             .withIndex("by_gathering", (q) => q.eq("gathering_type", "sunday_service"))
             .collect();
         return commitments
-            .filter((commitment) => commitment.response === "yes")
+            .filter((commitment) => !commitment.entered_in_error && commitment.response === "yes")
             .sort((a, b) => b.gathering_date.localeCompare(a.gathering_date));
     },
 });
@@ -1114,6 +1125,8 @@ export const getContactProfile = queryFor("crm:getContactProfile")({
         tasks.forEach((item) => leaderIds.add(item.assigned_leader_id));
         followUps.forEach((item) => leaderIds.add(item.leader_id));
         commitments.forEach((item) => leaderIds.add(item.leader_id));
+        followUps.forEach(item => item.correction_history?.forEach(change => { if (change.actor_id) leaderIds.add(change.actor_id); }));
+        commitments.forEach(item => item.correction_history?.forEach(change => { if (change.actor_id) leaderIds.add(change.actor_id); }));
         const leaders = await Promise.all([...leaderIds].map((id) => ctx.db.get(id)));
         const leaderById = new Map(
             leaders.filter((leader): leader is Doc<"people"> => leader !== null)
@@ -1148,12 +1161,14 @@ export const getContactProfile = queryFor("crm:getContactProfile")({
                 .map((followUp) => ({
                     ...followUp,
                     leader: leaderById.get(followUp.leader_id) ?? null,
+                    correction_history: followUp.correction_history?.map(change => ({ ...change, actor_name: personName(change.actor_id ? leaderById.get(change.actor_id) : null) })),
                 }))
                 .sort((a, b) => b.follow_up_date.localeCompare(a.follow_up_date)),
             commitments: commitments
                 .map((commitment) => ({
                     ...commitment,
                     leader: leaderById.get(commitment.leader_id) ?? null,
+                    correction_history: commitment.correction_history?.map(change => ({ ...change, actor_name: personName(change.actor_id ? leaderById.get(change.actor_id) : null) })),
                 }))
                 .sort((a, b) => b.gathering_date.localeCompare(a.gathering_date)),
             meeting_attendance: meetingAttendance
@@ -1305,6 +1320,11 @@ export const completeTask = mutationFor("crm:completeTask")({
         if (!task) throw new Error("Task not found");
         if (task.status !== "open") throw new Error("Only an open task can be completed");
         const person = await requirePerson(ctx, task.person_id);
+        const beforePersonEffect = {
+            pipeline_stage: person.pipeline_stage, is_paused: person.is_paused,
+            pause_reason: person.pause_reason, resume_date: person.resume_date,
+            contact_category: person.contact_category,
+        };
         requireFollowUpAllowed(person);
         const completedById = args.completedById ?? args.leaderId ?? task.assigned_leader_id;
         await requireLeader(ctx, completedById);
@@ -1385,6 +1405,7 @@ export const completeTask = mutationFor("crm:completeTask")({
         const followUpId = await ctx.db.insert("follow_ups", {
             contact_id: task.person_id,
             source_task_id: task._id,
+            next_task_id: nextTaskId ?? undefined,
             commitment_id: commitmentId ?? undefined,
             leader_id: completedById,
             follow_up_date: followUpDate,
@@ -1423,6 +1444,7 @@ export const completeTask = mutationFor("crm:completeTask")({
             );
         }
 
+        const cancelledTaskIds: Id<"follow_up_tasks">[] = [];
         if (args.closeContact && args.closeReason === "do_not_contact") {
             await cancelPendingOutreach(ctx, person._id);
         } else if (args.closeContact) {
@@ -1432,6 +1454,7 @@ export const completeTask = mutationFor("crm:completeTask")({
                 .collect();
             for (const openTask of openTasks) {
                 if (openTask._id === args.taskId) continue;
+                cancelledTaskIds.push(openTask._id);
                 await ctx.db.patch(openTask._id, {
                     status: "cancelled",
                     outcome: "contact_closed",
@@ -1473,6 +1496,20 @@ export const completeTask = mutationFor("crm:completeTask")({
             ...(args.closeContact && args.closeReason === "do_not_contact"
                 ? { contact_category: "do_not_contact", pipeline_stage: "closed" }
                 : {}),
+        });
+
+        const changedPerson = await ctx.db.get(task.person_id);
+        const personEffect = (row: Doc<"people"> | null) => ({
+            pipeline_stage: row?.pipeline_stage, is_paused: row?.is_paused,
+            pause_reason: row?.pause_reason, resume_date: row?.resume_date,
+            contact_category: row?.contact_category,
+        });
+        await ctx.db.patch(followUpId, {
+            completion_effects: {
+                before: beforePersonEffect, after: personEffect(changedPerson),
+                move_to_later: Boolean(args.moveToLater), close_contact: Boolean(args.closeContact),
+                cancelled_task_ids: cancelledTaskIds,
+            },
         });
 
         if (normalizedCommitment && managesAttendance(ctx)) await reconcilePerson(ctx, task.person_id);
@@ -1598,6 +1635,7 @@ export const resolveCommitment = mutationFor("crm:resolveCommitment")({
     handler: async (ctx, args) => {
         const commitment = await ctx.db.get(args.commitmentId);
         if (!commitment) throw new Error("Gathering commitment not found");
+        if (commitment.entered_in_error) throw new Error("Record a new response before resolving a confirmation entered in error");
         if (args.leaderId) await requireLeader(ctx, args.leaderId);
         if (args.resolution === "no_show" && commitment.response !== "yes") throw new Error("Only an explicit yes can be resolved as a no-show");
         const actorId = args.leaderId ?? commitment.leader_id;
