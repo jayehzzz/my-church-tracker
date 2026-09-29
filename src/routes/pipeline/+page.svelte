@@ -877,7 +877,15 @@
       {#if commitmentCorrection.mode === 'mistake'}<label class="flex items-center gap-2"><input type="checkbox" bind:checked={commitmentCorrection.enteredInError} />This confirmation was entered by mistake</label>{/if}
       <label class="block">Reason for correction<textarea rows="2" maxlength="500" bind:value={commitmentCorrection.reason} class="mt-1 w-full rounded-lg border border-border bg-secondary px-3 py-2"></textarea></label>
       {#if commitmentCorrectionError}<p role="alert" class="text-danger">{commitmentCorrectionError}</p>{/if}
-      {#if ['owner', 'admin'].includes($session.user?.role)}<Button variant="secondary" size="sm" onclick={() => { actualAttendance = { commitment: commitmentCorrection.commitment, person: commitmentCorrection.commitment.person, gatheringType: commitmentCorrection.commitment.gathering_type, gatheringDate: commitmentCorrection.commitment.gathering_date }; commitmentCorrectionOpen = false; isActualAttendanceOpen = true; }}>Correct actual attendance</Button>{/if}
+      {#if ['owner', 'admin'].includes($session.user?.role)}
+        <div class="flex flex-wrap gap-2">
+          <Button variant="secondary" size="sm" onclick={() => { actualAttendance = { commitment: commitmentCorrection.commitment, person: commitmentCorrection.commitment.person, gatheringType: commitmentCorrection.commitment.gathering_type, gatheringDate: commitmentCorrection.commitment.gathering_date }; commitmentCorrectionOpen = false; isActualAttendanceOpen = true; }}>Record attended</Button>
+          {#if commitmentCorrection.commitment.resolution === 'attended'}
+            {#if commitmentCorrection.commitment.response === 'yes'}<Button variant="secondary" size="sm" onclick={() => { const current = commitmentCorrection.commitment; commitmentCorrectionOpen = false; requestCommitmentResolution(current, 'no_show'); }}>Remove check-in · missed</Button>{/if}
+            <Button variant="secondary" size="sm" onclick={() => { const current = commitmentCorrection.commitment; commitmentCorrectionOpen = false; requestCommitmentResolution(current, 'cancelled'); }}>Remove check-in · cancelled</Button>
+          {/if}
+        </div>
+      {/if}
     </div>
   {/if}
   {#snippet footer()}<Button variant="secondary" onclick={() => commitmentCorrectionOpen = false}>Cancel</Button><Button loading={commitmentCorrectionSaving} disabled={!commitmentCorrectionPreview} onclick={saveCommitmentCorrection}>Save correction</Button>{/snippet}
