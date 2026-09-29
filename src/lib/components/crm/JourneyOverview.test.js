@@ -20,6 +20,12 @@ const overview = {
   unnamed_decisions: [{ date: '2026-09-13', label: 'special service', count: 2 }],
 };
 
+it('shows a loading status while the overview request is pending', () => {
+  const view = render(JourneyOverview, { props: { data: overview, loading: true } });
+  expect(view.getByRole('status').textContent).toContain('Loading recorded first visits and salvation decisions');
+  expect(view.queryByText('Ama Mensah')).not.toBeInTheDocument();
+});
+
 it('shows first visits and service decisions with people, gathering details and unnamed totals', async () => {
   const onOpen = vi.fn();
   const view = render(JourneyOverview, { props: { data: overview, onOpen } });
