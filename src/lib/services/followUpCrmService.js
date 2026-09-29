@@ -6,6 +6,8 @@ import {
   mockEvangelismContacts,
   mockMeetings,
   mockPeople,
+  mockServices,
+  mockAttendance,
   mockVisitations,
 } from "$lib/data/mockData.js";
 import {
@@ -768,6 +770,50 @@ export async function getDashboard(options = {}) {
     async (client) => await client.query(api.crm.getDashboard, args),
     () => buildLocalDashboard(options),
   );
+}
+
+export async function getJourneyOverview(options = {}) {
+  const client = getClient();
+  if (!client) {
+    if (!isDemoMode()) return { data: null, error: unavailableError(), source: "unavailable" };
+    const eventsByPerson = new Map();
+    const peopleById = new Map(mockPeople.map(person => [String(person._id || person.id), person]));
+    for (const row of mockAttendance) {
+      const service = mockServices.find(item => String(item._id || item.id) === String(row.service_id));
+      const person = peopleById.get(String(row.person_id));
+      if (!service || !person) continue;
+      const events = eventsByPerson.get(String(row.person_id)) || [];
+      events.push({ id: service.id, date: service.service_date, label: service.service_type.replaceAll("_", " "), time: service.service_time, location: service.location });
+      eventsByPerson.set(String(row.person_id), events);
+    }
+    for (const meeting of mockMeetings) {
+      for (const id of meeting.attendees || []) {
+        const events = eventsByPerson.get(String(id)) || [];
+        events.push({ id: meeting.id, date: meeting.meeting_date, label: meeting.title || meeting.meeting_type.replaceAll("_", " "), time: meeting.start_time, location: meeting.location });
+        eventsByPerson.set(String(id), events);
+      }
+    }
+    const firstTimers = [...eventsByPerson.entries()].flatMap(([id, events]) => {
+      const person = peopleById.get(id);
+      const first = events.sort((a, b) => a.date.localeCompare(b.date))[0];
+      if (!person || !first) return [];
+      return [{ person: { id, first_name: person.first_name, last_name: person.last_name, phone: person.phone, email: person.email, member_status: person.member_status }, events: [first], assigned_worker: null, date_only: false }];
+    });
+    return {
+      data: {
+        first_timers: options.leaderId ? [] : firstTimers,
+        new_converts: [],
+        unnamed_decisions: options.leaderId ? [] : mockServices.filter(service => service.salvation_decisions > 0).map(service => ({ date: service.service_date, label: service.service_type.replaceAll("_", " "), count: service.salvation_decisions })),
+        unnamed_decisions_available: !options.leaderId,
+      }, error: null, source: "demo",
+    };
+  }
+  try {
+    const data = await withTimeout(client.query(api.crm.getJourneyOverview, options.leaderId ? { leaderId: options.leaderId } : {}), 10000);
+    return { data, error: null, source: "convex" };
+  } catch (error) {
+    return { data: null, error, source: "convex" };
+  }
 }
 
 // Convex subscriptions give active workers timely shared updates. The caller

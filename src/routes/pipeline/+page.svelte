@@ -8,8 +8,8 @@
   import PageHeader from '$lib/components/shared/PageHeader.svelte';
   import { Button, Modal } from '$lib/components/ui';
   import PersonForm from '$lib/components/forms/PersonForm.svelte';
-  import { ExpectedSunday, FollowUpBoard, WorkerAssessment, ContactDrawer } from '$lib/components/crm';
-  import { assignContact, batchAssignContacts, completeTask, createTask, getContactProfile, getDashboard, quickLogNoAnswer, reactivateContact, resolveCommitment, setAttendancePlan, updateMissedSundayReason, watchDashboard, previewFollowUpCorrection, previewCommitmentCorrection, correctFollowUp, correctCommitment } from '$lib/services/followUpCrmService.js';
+  import { ExpectedSunday, FollowUpBoard, WorkerAssessment, ContactDrawer, JourneyOverview } from '$lib/components/crm';
+  import { assignContact, batchAssignContacts, completeTask, createTask, getContactProfile, getDashboard, getJourneyOverview, quickLogNoAnswer, reactivateContact, resolveCommitment, setAttendancePlan, updateMissedSundayReason, watchDashboard, previewFollowUpCorrection, previewCommitmentCorrection, correctFollowUp, correctCommitment } from '$lib/services/followUpCrmService.js';
   import { notificationStore, refreshLiveNotifications } from '$lib/stores/notificationStore.js';
   import { isDemoMode } from '$lib/convex.js';
   import { goto } from '$app/navigation';
@@ -49,6 +49,7 @@
     { id: 'week', label: 'This week' },
     { id: 'sunday', label: 'Sunday' },
     { id: 'missed', label: 'Missed after saying yes' },
+    { id: 'journey', label: 'First visits & salvation' },
     { id: 'later', label: 'Later' },
     { id: 'team', label: 'Workers' },
   ];
@@ -98,6 +99,9 @@
   let errorMessage = $state('');
   let successMessage = $state('');
   let workspace = $state({ leaders: [], tasks: [], confirmed_commitments: [], sunday_commitments: [], recent_sunday_results: [], sunday_missed_history: [], attendance_roster: [], attendance_forecast: {}, unassigned_contacts: [], later_contacts: [], contacts: [], team_stats: [], service_date: '', source: 'local' });
+  let journeyData = $state(null);
+  let journeyLoading = $state(false);
+  let journeyError = $state('');
   let selectedTask = $state(null);
   let isCompleteModalOpen = $state(false);
   let savingTask = $state(false);
@@ -122,7 +126,7 @@
   const sundayPending = $derived((workspace.sunday_commitments || workspace.confirmed_commitments || []).filter((item) => (item.resolution || 'pending') === 'pending').length);
   const laterContacts = $derived((workspace.later_contacts || []).filter((contact) => personName(contact).toLowerCase().includes(laterSearch.trim().toLowerCase())));
   const missedCount = $derived(recentMissedSundayPeople(workspace.sunday_missed_history || [], today).length);
-  const tabCounts = $derived({ week: weekTasks.length + unassignedCount, sunday: sundayPending, missed: missedCount, later: (workspace.later_contacts || []).length, team: 0 });
+  const tabCounts = $derived({ week: weekTasks.length + unassignedCount, sunday: sundayPending, missed: missedCount, journey: journeyData ? (journeyData.first_timers || []).length + (journeyData.new_converts || []).length : 0, later: (workspace.later_contacts || []).length, team: 0 });
   const attentionItems = $derived(attentionRows(workspace, attentionFilter, today));
   const attentionAvailable = $derived(attentionFilter !== 'expected-sunday'
     || (Array.isArray(workspace.attendance_forecast?.expected_person_ids)
@@ -400,11 +404,12 @@
     await loadWorkspace({ quiet: true });
   }
   async function handleViewLeader(leaderId) { attentionFilter = ''; workerMetric = null; selectedLeaderId = String(leaderId); activeTab = 'week'; await loadWorkspace({ quiet: true }); }
-  async function clearLeader() { selectedLeaderId = 'all'; await loadWorkspace({ quiet: true }); }
+  async function clearLeader() { selectedLeaderId = 'all'; await loadWorkspace({ quiet: true }); if (journeyData) await loadJourneyOverview(); }
   async function handleLeaderChange() {
     attentionFilter = ''; workerMetric = null;
     activeTab = 'week';
     await loadWorkspace({ quiet: true });
+    if (journeyData) await loadJourneyOverview();
   }
   async function handleReactivate(contact) {
     const leaderId = currentLeaderId(contact.assigned_leader_id || personId(contact.assigned_leader));
@@ -458,7 +463,23 @@
     evidenceHeading?.focus();
   }
   function closeWorkerMetric() { workerMetric = null; detailRow = null; metricTrigger?.focus?.(); }
-  function selectTab(tab) { attentionFilter = ''; workerMetric = null; activeTab = tab; }
+  function selectTab(tab) {
+    attentionFilter = ''; workerMetric = null; activeTab = tab;
+    if (tab === 'journey' && !journeyData && !journeyLoading) void loadJourneyOverview();
+  }
+  async function loadJourneyOverview() {
+    journeyLoading = true;
+    journeyError = '';
+    try {
+      const result = await getJourneyOverview(selectedLeaderId !== 'all' ? { leaderId: selectedLeaderId } : {});
+      if (result.error || !result.data) throw result.error || new Error('Journey records are unavailable.');
+      journeyData = result.data;
+    } catch (error) {
+      journeyError = error?.message || 'First visits and salvation records could not be loaded.';
+    } finally {
+      journeyLoading = false;
+    }
+  }
   async function openCommitmentCorrection(commitment, mode = 'response') {
     const selected = { ...commitment, person: commitment.person || drawerPerson };
     isDrawerOpen = false;
@@ -623,6 +644,7 @@
     const prior = takeDomainReturn('pipeline-profile');
     if (prior && prior.auth === authKey()) restoreFrame(prior);
     else void loadWorkspace();
+    if (activeTab === 'journey') void loadJourneyOverview();
     return () => stopDashboardWatch();
   });
 </script>
@@ -714,6 +736,8 @@
       onPlanCall={openMissedCall}
       onCorrect={openCommitmentCorrection}
     />
+  {:else if activeTab === 'journey'}
+    <JourneyOverview data={journeyData} loading={journeyLoading} error={journeyError} onRetry={loadJourneyOverview} onOpen={openPerson} />
   {:else if activeTab === 'later'}
     <section class="overflow-hidden rounded-xl border border-border bg-card">
       <div class="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">

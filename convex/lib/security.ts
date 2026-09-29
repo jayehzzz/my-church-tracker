@@ -75,7 +75,7 @@ const leaderMutations = new Set([
   "meetingPrograms:addGuest",
 ]);
 
-async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users">, write: boolean, developmentSummary = false, outreachCreate = false, meetingAttendanceWrite = false) {
+async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users">, write: boolean, developmentSummary = false, outreachCreate = false, meetingAttendanceWrite = false, journeyOverview = false) {
   const admin = isAdmin(user);
   const assignments = user.person_id && !admin ? await ctx.db.query("follow_up_assignments")
     .withIndex("by_leader_status", q => q.eq("assigned_leader_id", user.person_id!).eq("status", "active")).collect() : [];
@@ -147,8 +147,8 @@ async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users"
     // Development's purpose-built summary query may read the minimum gathering
     // metadata needed to interpret already-scoped attendance. It returns no
     // rosters, financial amounts, or general gathering records.
-    services: developmentSummary ? { read: async () => true, modify: adminOnly.modify, insert: adminOnly.insert } : adminOnly,
-    meetings: developmentSummary ? { read: async () => true, modify: async (_, doc) => canMeeting(String(doc._id)), insert: async (_, doc) => canProgramme(String(doc.program_id)) } : {
+    services: developmentSummary || journeyOverview ? { read: async () => true, modify: adminOnly.modify, insert: adminOnly.insert } : adminOnly,
+    meetings: developmentSummary || journeyOverview ? { read: async () => true, modify: async (_, doc) => canMeeting(String(doc._id)), insert: async (_, doc) => canProgramme(String(doc.program_id)) } : {
       read: async (_, doc) => canMeeting(String(doc._id)), modify: async (_, doc) => canMeeting(String(doc._id)), insert: async (_, doc) => canProgramme(String(doc.program_id)),
     },
     meeting_programs: developmentSummary ? { read: async () => true, modify: async (_, doc) => canProgramme(String(doc._id)), insert: adminOnly.insert } : {
@@ -291,8 +291,9 @@ function authenticateBuilder(builder: any, name: string, write: boolean) {
       }
     }
     const developmentSummary = name === "people:getDevelopmentSummary";
+    const journeyOverview = name === "crm:getJourneyOverview";
     const meetingAttendanceWrite = ["meetings:record", "meetings:syncAttendance"].includes(name);
-    const guardedContext = await securedContext(ctx, user, write, developmentSummary, outreachCreate, meetingAttendanceWrite);
+    const guardedContext = await securedContext(ctx, user, write, developmentSummary, outreachCreate, meetingAttendanceWrite, journeyOverview);
     authenticatedUsers.set(guardedContext, user);
     if (isAdmin(user)) attendanceContexts.add(guardedContext);
     if (developmentSummary) developmentSummaryContexts.add(guardedContext);

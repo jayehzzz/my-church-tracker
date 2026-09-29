@@ -1,4 +1,4 @@
-import { candidates, selectGathering, setActualAttendance, reconcilePerson } from "./lib/attendanceWorkflow";
+import { candidates, selectGathering, setActualAttendance, reconcilePerson, present } from "./lib/attendanceWorkflow";
 import { canDiscoverOutreach, cancelPendingOutreach, requireFollowUpAllowed } from "./lib/contactPolicy";
 import { authenticatedUser, managesAttendance } from "./lib/security";
 import { queryFor, mutationFor } from "./lib/security";
@@ -1039,6 +1039,126 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 expected_total: allExpectedIds.size,
                 expected_person_ids: [...allExpectedIds],
             },
+        };
+    },
+});
+
+// A read-only, row-scoped view of recorded first visits and service decisions.
+// Gathering reads are enabled for this exact query so workers can see only
+// details joined to attendance rows for people already in their RLS scope.
+export const getJourneyOverview = queryFor("crm:getJourneyOverview")({
+    args: { leaderId: v.optional(v.id("people")) },
+    handler: async (ctx, args) => {
+        const user = authenticatedUser(ctx);
+        const [people, serviceAttendance, meetingAttendance, activeAssignments] = await Promise.all([
+            ctx.db.query("people").collect(),
+            ctx.db.query("attendance").collect(),
+            ctx.db.query("meeting_attendance").collect(),
+            ctx.db.query("follow_up_assignments").withIndex("by_status", q => q.eq("status", "active")).collect(),
+        ]);
+        const peopleById = new Map(people.map(person => [String(person._id), person]));
+        const assignmentsByPerson = new Map(activeAssignments.map(row => [String(row.person_id), row]));
+        const inSelectedScope = (personId: Id<"people">) => !args.leaderId
+            || String(assignmentsByPerson.get(String(personId))?.assigned_leader_id || "") === String(args.leaderId);
+        const workerCache = new Map<string, Promise<Doc<"people"> | null>>();
+        const workerFor = (personId: Id<"people">) => {
+            const assignment = assignmentsByPerson.get(String(personId));
+            if (!assignment) return Promise.resolve(null);
+            const key = String(assignment.assigned_leader_id);
+            if (!workerCache.has(key)) workerCache.set(key, ctx.db.get(assignment.assigned_leader_id));
+            return workerCache.get(key)!;
+        };
+        const firstTimers = new Map<string, { person: Doc<"people">; events: any[]; dateOnly: boolean; assignedWorker: Doc<"people"> | null }>();
+        const newConverts = new Map<string, { person: Doc<"people">; events: any[]; assignedWorker: Doc<"people"> | null }>();
+        const knownGatheringsByPerson = new Map<string, any[]>();
+        const serviceIds = [...new Set(serviceAttendance.map(row => String(row.service_id)))];
+        const meetingIds = [...new Set(meetingAttendance.filter(present).map(row => String(row.meeting_id)))];
+        const [serviceDocs, meetingDocs] = await Promise.all([
+            Promise.all(serviceIds.map(id => ctx.db.get(id as Id<"services">))),
+            Promise.all(meetingIds.map(id => ctx.db.get(id as Id<"meetings">))),
+        ]);
+        const servicesById = new Map(serviceDocs.filter(Boolean).map(service => [String(service!._id), service!]));
+        const meetingsById = new Map(meetingDocs.filter(meeting => meeting && meeting.status !== "cancelled").map(meeting => [String(meeting!._id), meeting!]));
+
+        for (const row of serviceAttendance) {
+            const person = peopleById.get(String(row.person_id));
+            const service = servicesById.get(String(row.service_id));
+            if (!person || !service || !inSelectedScope(person._id)) continue;
+            const event = {
+                id: String(service._id), date: service.service_date,
+                label: service.service_type.replaceAll("_", " "),
+                time: service.service_time, location: service.location,
+            };
+            const key = String(person._id);
+            const known = knownGatheringsByPerson.get(key) || [];
+            known.push(event);
+            knownGatheringsByPerson.set(key, known);
+            if (row.first_timer === true) {
+                const current = firstTimers.get(key) || { person, events: [], dateOnly: false, assignedWorker: null };
+                current.events.push(event);
+                firstTimers.set(key, current);
+            }
+            if (row.made_salvation_decision === true) {
+                const current = newConverts.get(key) || { person, events: [], assignedWorker: null };
+                current.events.push(event);
+                newConverts.set(key, current);
+            }
+        }
+        for (const row of meetingAttendance.filter(present)) {
+            const person = peopleById.get(String(row.person_id));
+            const meeting = meetingsById.get(String(row.meeting_id));
+            if (!person || !meeting || !inSelectedScope(person._id)) continue;
+            const key = String(person._id);
+            const event = {
+                id: String(meeting._id), date: meeting.meeting_date,
+                label: meeting.title || meeting.meeting_type.replaceAll("_", " "),
+                time: meeting.start_time, location: meeting.location,
+            };
+            const known = knownGatheringsByPerson.get(key) || [];
+            known.push(event);
+            knownGatheringsByPerson.set(key, known);
+            if (row.first_timer !== true) continue;
+            const current = firstTimers.get(key) || { person, events: [], dateOnly: false, assignedWorker: null };
+            current.events.push(event);
+            firstTimers.set(key, current);
+        }
+        for (const person of people) {
+            const key = String(person._id);
+            if (person.first_visit_date && inSelectedScope(person._id) && !firstTimers.has(key)) {
+                const linkedGathering = knownGatheringsByPerson.get(key)?.find(event => event.date === person.first_visit_date);
+                firstTimers.set(key, {
+                    person,
+                    events: [linkedGathering || { id: null, date: person.first_visit_date, label: "Date-only history" }],
+                    dateOnly: !linkedGathering, assignedWorker: null,
+                });
+            }
+        }
+        await Promise.all([
+            ...[...firstTimers.values()].map(async row => { row.assignedWorker = await workerFor(row.person._id); }),
+            ...[...newConverts.values()].map(async row => { row.assignedWorker = await workerFor(row.person._id); }),
+        ]);
+        const sortEvents = (a: any, b: any) => a.date.localeCompare(b.date);
+        const serialize = (row: any) => ({
+            person: {
+                id: row.person._id, first_name: row.person.first_name, last_name: row.person.last_name,
+                phone: row.person.phone, email: row.person.email, member_status: row.person.member_status,
+            },
+            events: row.events.sort(sortEvents),
+            assigned_worker: row.assignedWorker ? {
+                id: row.assignedWorker._id, first_name: row.assignedWorker.first_name, last_name: row.assignedWorker.last_name,
+            } : null,
+            date_only: row.dateOnly || false,
+        });
+        const unnamedDecisions = !args.leaderId && (user.role === "owner" || user.role === "admin")
+            ? (await ctx.db.query("services").collect())
+                .filter(service => (service.unnamed_decisions_count || 0) > 0)
+                .map(service => ({ date: service.service_date, label: service.service_type.replaceAll("_", " "), count: service.unnamed_decisions_count || 0 }))
+            : [];
+        return {
+            first_timers: [...firstTimers.values()].map(serialize),
+            new_converts: [...newConverts.values()].map(serialize),
+            unnamed_decisions: unnamedDecisions,
+            unnamed_decisions_available: !args.leaderId && (user.role === "owner" || user.role === "admin"),
         };
     },
 });
