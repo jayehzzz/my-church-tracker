@@ -245,13 +245,6 @@ export async function syncAttendance(
         );
         if (!person || person.first_visit_date) return;
         person.first_visit_date = meeting.meeting_date;
-        person.entry_point =
-          person.entry_point ||
-          (meeting.meeting_type === "bacenta"
-            ? "bacenta_meeting"
-            : meeting.meeting_type === "evangelistic_event"
-              ? "evangelism"
-              : "other");
       });
     meeting.unnamed_guests_count = Math.max(0, Number(unnamedGuestsCount) || 0);
     meeting.attendance_count = meeting.attendees.length + meeting.unnamed_guests_count;

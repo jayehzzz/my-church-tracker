@@ -62,7 +62,7 @@
     { id: 'close', title: 'End follow-up', text: 'Settled, or not continuing' },
   ];
   const CLOSE_REASONS = [
-    { value: 'settled', label: 'Now settled and attending regularly', positive: true },
+    { value: 'settled', label: 'Follow-up complete', positive: true },
     { value: 'not_interested', label: 'Not interested' },
     { value: 'wrong_number', label: 'Wrong number or details' },
     { value: 'attending_elsewhere', label: 'Attending another church' },
@@ -291,7 +291,7 @@
     });
     savingTask = false;
     if (result.error) { errorMessage = result.error.message || 'The call could not be saved.'; return; }
-    const closeMessage = taskForm.closeReason === 'settled' ? 'is now marked as attending regularly and has left weekly follow-up. Membership is unchanged.' : 'was closed and removed from follow-up.';
+    const closeMessage = 'was closed and removed from weekly follow-up.';
     const messages = { schedule: `has a call planned for ${formatDate(taskForm.nextActionDate)}.`, expected: `is expected on ${formatDate(workspace.service_date)}.`, later: `was moved to Later and returns on ${formatDate(resumeDate)}.`, close: closeMessage };
     isCompleteModalOpen = false;
     successMessage = `${personName(selectedTask.person)} ${messages[taskForm.decision]}`;
@@ -766,7 +766,7 @@
           </div>
         {:else if taskForm.decision === 'close'}
           <label class="block text-sm font-medium text-foreground">Why is follow-up ending?<select bind:value={taskForm.closeReason} class="mt-1.5 w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm">{#each CLOSE_REASONS as reason (reason.value)}<option value={reason.value}>{reason.label}</option>{/each}</select></label>
-          {#if taskForm.closeReason === 'settled'}<p class="rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-foreground">They are marked as attending regularly and leave weekly follow-up. Membership stays unchanged; record confirmed membership on their People profile.</p>{:else}<p class="rounded-xl bg-secondary/50 px-4 py-3 text-sm text-foreground">They leave follow-up and any open calls are cancelled. Their history stays on their profile.</p>{/if}
+          {#if taskForm.closeReason === 'settled'}<p class="rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-foreground">Weekly follow-up ends. Record membership separately on their People profile when confirmed.</p>{:else}<p class="rounded-xl bg-secondary/50 px-4 py-3 text-sm text-foreground">They leave follow-up and any open calls are cancelled. Their history stays on their profile.</p>{/if}
         {/if}
       </fieldset>
     </form>

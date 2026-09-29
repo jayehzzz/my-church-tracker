@@ -169,11 +169,11 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
         await ctx.db.patch(f._id, { promise_fulfilled: matches.length > 0 && choices.length === 1 ? true : f.promise_fulfilled === true ? undefined : f.promise_fulfilled });
     }
     const baseline: any = person.attendance_milestones ?? {
-        first_visit_date: person.first_visit_date, entry_point: person.entry_point,
+        first_visit_date: person.first_visit_date,
         pipeline_stage: person.pipeline_stage, warmth_score: person.warmth_score,
     };
     // Preserve later manual profile corrections instead of overwriting them.
-    if (person.attendance_milestones) for (const field of ["first_visit_date", "entry_point", "pipeline_stage", "warmth_score"] as const) {
+    if (person.attendance_milestones) for (const field of ["first_visit_date", "pipeline_stage", "warmth_score"] as const) {
         if (person[field] !== baseline[`applied_${field}`]) baseline[field] = person[field];
     }
     const earliest = events[0];
@@ -208,7 +208,6 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
     const stage = latestNoShow && (!events.length || latestNoShow >= events.at(-1)!.date) ? "no_show" : earliest ? "showed_up" : baseline.pipeline_stage;
     const derived: any = {
         first_visit_date: earliest && (!baseline.first_visit_date || earliest.date < baseline.first_visit_date) ? earliest.date : baseline.first_visit_date,
-        entry_point: baseline.entry_point || earliest?.entry,
         pipeline_stage: canFollowUp(person) ? stage : baseline.pipeline_stage,
         warmth_score: earliest && canFollowUp(person) ? "hot" : baseline.warmth_score,
     };

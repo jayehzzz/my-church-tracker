@@ -42,7 +42,7 @@
   let mapLocationFilter = $state('all');
   let mapFocusedId = $state(null);
   const returned = browser ? takePeopleDirectory() : null;
-  if (returned) { statusFilter = returned.statusFilter; roleFilter = returned.roleFilter; activityFilter = returned.activityFilter; peopleComparison = returned.comparison || null; mapQuery = returned.mapQuery || ''; mapLocationFilter = returned.mapLocationFilter || 'all'; mapFocusedId = returned.mapFocusedId || null; }
+  if (returned) { statusFilter = returned.statusFilter; roleFilter = returned.roleFilter; peopleComparison = returned.comparison || null; mapQuery = returned.mapQuery || ''; mapLocationFilter = returned.mapLocationFilter || 'all'; mapFocusedId = returned.mapFocusedId || null; }
   let comparisonScope = $state(returned ? `${returned.statusFilter}|${returned.roleFilter}|${returned.activityFilter}` : null);
   $effect(() => {
     const next = `${statusFilter}|${roleFilter}|${activityFilter}`;
@@ -93,12 +93,6 @@
   ];
 
   // Activity level options for filter
-  const activityOptions = [
-    { value: "all", label: "All Activity" },
-    { value: "regular", label: "Regular" },
-    { value: "irregular", label: "Irregular" },
-    { value: "dormant", label: "Dormant" },
-  ];
 
   // Table columns configuration
   const columns = [
@@ -172,9 +166,6 @@
     }
     if (roleFilter !== "all") {
       filtered = filtered.filter((p) => roleFilter === "no_role" ? !p.role || p.role === "no_role" : p.role === roleFilter);
-    }
-    if (activityFilter !== "all") {
-      filtered = filtered.filter((p) => p.activity_status === activityFilter);
     }
 
     return filtered;
@@ -428,22 +419,6 @@
                focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
       >
         {#each roleOptions as option}
-          <option value={option.value}>{option.label}</option>
-        {/each}
-      </select>
-    </div>
-
-    <div class="flex items-center gap-2">
-      <label for="activity-filter" class="text-sm text-muted-foreground"
-        >Activity:</label
-      >
-      <select
-        id="activity-filter"
-        bind:value={activityFilter}
-        class="px-3 py-2 bg-input border border-border rounded-lg text-foreground text-sm
-               focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-      >
-        {#each activityOptions as option}
           <option value={option.value}>{option.label}</option>
         {/each}
       </select>

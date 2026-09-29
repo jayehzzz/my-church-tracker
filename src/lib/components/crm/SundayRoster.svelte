@@ -10,14 +10,13 @@
     onOpen = () => {},
   } = $props();
 
-  const regularMembers = $derived(
+  const members = $derived(
     (roster || [])
-      .filter((person) => person.default_expected || person.activity_status === 'regular')
       .slice()
       .sort((a, b) => personName(a).localeCompare(personName(b))),
   );
   const confirmedCount = $derived(
-    regularMembers.filter((person) => person.attendance_plan?.status === 'confirmed').length,
+    members.filter((person) => person.attendance_plan?.status === 'confirmed').length,
   );
 
   function personId(person) {
@@ -30,7 +29,7 @@
   }
 
   function currentStatus(person) {
-    return person?.attendance_plan?.status || 'expected';
+    return person?.attendance_plan?.status || 'not_expected';
   }
 
   function isSaving(person) {
@@ -41,18 +40,18 @@
 <section aria-labelledby="regular-roster-title" class="space-y-4">
   <div class="flex flex-wrap items-end justify-between gap-3">
     <div>
-      <h2 id="regular-roster-title" class="text-lg font-semibold text-foreground">Regular-member confirmations</h2>
-      <p class="mt-1 text-sm text-muted-foreground">Tick members after speaking to them, or mark a known absence.</p>
+      <h2 id="regular-roster-title" class="text-lg font-semibold text-foreground">Sunday member plans</h2>
+      <p class="mt-1 text-sm text-muted-foreground">Record who has confirmed for this Sunday or who is away.</p>
     </div>
     <Badge variant="default">{confirmedCount} personally confirmed</Badge>
   </div>
 
   <Card padding="none" class="overflow-hidden">
-    {#if regularMembers.length === 0}
-      <div class="px-5 py-10 text-center text-sm text-muted-foreground">No regular members are available in the roster.</div>
+    {#if members.length === 0}
+      <div class="px-5 py-10 text-center text-sm text-muted-foreground">No members are available in the roster.</div>
     {:else}
-      <div class="divide-y divide-border" role="list" aria-label="Regular members for Sunday">
-        {#each regularMembers as person (personId(person))}
+      <div class="divide-y divide-border" role="list" aria-label="Members for Sunday">
+        {#each members as person (personId(person))}
           {@const status = currentStatus(person)}
           <div class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between" role="listitem">
             <div class="min-w-0">
@@ -63,10 +62,10 @@
                 {:else if status === 'confirmed'}
                   <Badge size="sm" variant="default">Confirmed</Badge>
                 {:else}
-                  <Badge size="sm" variant="default">Expected</Badge>
+                  <Badge size="sm" variant="default">No plan recorded</Badge>
                 {/if}
               </div>
-              <p class="mt-1 text-xs text-muted-foreground">Expected by default unless marked away.</p>
+              <p class="mt-1 text-xs text-muted-foreground">Plans apply to this Sunday only.</p>
             </div>
 
             <div class="flex flex-wrap items-center gap-3">
@@ -86,7 +85,7 @@
                 loading={isSaving(person)}
                 onclick={() => onStatusChange(person, status === 'away' ? 'expected' : 'away')}
               >
-                {status === 'away' ? 'Expected instead' : 'Away'}
+                {status === 'away' ? 'Clear away' : 'Away'}
               </Button>
             </div>
           </div>

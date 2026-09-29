@@ -208,9 +208,6 @@ export const create = mutationFor("evangelism:create")({
             first_visit_date: args.first_visit_date || (args.attended_church ? args.contact_date : undefined),
             notes: args.notes,
 
-            // New unified fields for attendance/spiritual tracking
-            entry_point: "evangelism",
-
             // Pipeline tracking — new contacts start as "new" and "hot"
             pipeline_stage: "new",
             warmth_score: "hot",

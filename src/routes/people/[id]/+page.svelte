@@ -15,6 +15,7 @@
     import * as followUpCrmService from "$lib/services/followUpCrmService.js";
     import { isDemoMode } from "$lib/convex.js";
     import { attendanceDate, recordedAttendance, profileRequest } from "$lib/utils/peopleView.js";
+    import { recentSundaySummary } from "$lib/utils/recentSundaySummary.js";
 
     // New Modular Components
     import ProfileHeader from "$lib/components/people/ProfileHeader.svelte";
@@ -53,6 +54,7 @@
     let showVisitationDetailModal = $state(false);
     let selectedVisitationRecord = $state(null);
     let attendanceHistory = $state([]);
+    let recentServices = $state(null);
     let outreachContacts = $state([]);
     let visitations = $state([]);
     let careProfile = $state({ tasks: [] });
@@ -66,6 +68,7 @@
     let requestGeneration = 0;
     let totalAttendance = $derived(attendanceHistory.length);
     let lastAttended = $derived(attendanceHistory.length ? attendanceDate(attendanceHistory[0]) : null);
+    let sundaySummary = $derived(recentSundaySummary(recentServices, attendanceHistory));
     function recordEvent(record) { return record?.meeting || record?.services; }
     function eventId(record) { const event = recordEvent(record); return String(event?._id || event?.id || ''); }
     function openAttendance(record = null) {
@@ -121,6 +124,7 @@
         profileTab = "activity";
         sectionErrors = {};
         attendanceHistory = [];
+        recentServices = null;
         outreachContacts = [];
         visitations = [];
         careProfile = { tasks: [] };
@@ -134,15 +138,17 @@
                 profileRequest(evangelismService.getByInviter(id)),
                 profileRequest(visitationsService.getByPerson(id)),
                 profileRequest(followUpCrmService.getContactProfile(id)),
+                profileRequest(servicesService.getAll()),
             ]);
             if (generation !== requestGeneration) return;
-            const [services, meetings, outreach, care, tasks] = results;
+            const [services, meetings, outreach, care, tasks, allServices] = results;
             sectionErrors = {
                 attendance: services.status === "rejected" || meetings.status === "rejected",
                 outreach: outreach.status === "rejected",
                 care: care.status === "rejected" || tasks.status === "rejected",
             };
             attendanceHistory = sectionErrors.attendance ? [] : recordedAttendance([...services.value, ...meetings.value]);
+            recentServices = allServices.status === "fulfilled" ? allServices.value : null;
             outreachContacts = outreach.status === "fulfilled" ? outreach.value : [];
             visitations = care.status === "fulfilled" ? care.value : [];
             careProfile = tasks.status === "fulfilled" ? tasks.value : { tasks: [] };
@@ -234,30 +240,6 @@
         }
     }
 
-    async function updateActivityStatus(newStatus) {
-        if (!person) return;
-        updatingStatus = true;
-        statusUpdateError = null;
-
-        try {
-            const personId = person._id || person.id;
-            const { error: updateError } = await peopleService.update(
-                personId,
-                {
-                    activity_status: newStatus,
-                },
-            );
-            if (updateError) throw updateError;
-            // Update local state
-            person = { ...person, activity_status: newStatus };
-        } catch (err) {
-            console.error("Failed to update activity status:", err);
-            statusUpdateError = "Failed to update activity. Please try again.";
-        } finally {
-            updatingStatus = false;
-        }
-    }
-
     function calculateCurrentAge() {
         const dobStr = person?.birthday || person?.date_of_birth;
         if (!dobStr) return null;
@@ -308,7 +290,7 @@
                 <ProfileHeader
                     {person}
                     onUpdateStatus={updateMemberStatus}
-                    onUpdateActivity={updateActivityStatus}
+                    {sundaySummary}
                     onEdit={() => (showEditModal = true)}
                     {updatingStatus}
                     {statusUpdateError}

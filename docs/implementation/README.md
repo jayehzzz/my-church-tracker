@@ -29,6 +29,13 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 ## Handoffs
 
+### Clear church status and connection source — Practice review pending (29 September 2026)
+
+- Removed Regular/Irregular/Dormant editing and filtering. Preserved historical labels in export for review; they no longer set Sunday expectations. Profiles show recorded Sunday visits across the six latest past Sunday services, and a missing data request is shown as unavailable rather than zero.
+- Sunday forecasts now count dated confirmations. Members without a plan remain visible to confirm; an unmarked member is not silently counted as expected. The attendance matrix only calls an absence “missed” when a Sunday yes was resolved as a no-show. Care suggestions describe recorded visit gaps and avoid inferring a gap for a person with no visit history.
+- Follow-up closure no longer changes activity; first visits and quick adds no longer guess how someone first heard about church. Existing connection-source values are retained with a review note because their provenance cannot be reconstructed. Membership remains an explicit decision; a first visit can still move an Outreach Contact to Non-member.
+- Checks: local unit, backend, type, build, coverage, critical e2e and demo-browser checks. Practice deployment evidence is recorded in the associated pull request; owner acceptance and live release are separate. Branch: `codex/clear-church-statuses`.
+
 ### My Bacenta leader workspace — published to Practice; leader acceptance pending (25 September 2026)
 
 - Added a leader landing page with This week, People, Meetings and Sunday sections. It combines existing open tasks, recent bacenta absences/newcomers, care follow-up and confirmed Sunday misses by person; reuses meeting, regular-person, visit and person-detail forms; adds newcomers through the existing programme mutation; and records calls and Sunday confirmations through existing CRM mutations. Sunday counts and dated reasons are shown without a leader rating badge. The selected section and person return after profile navigation. Leaders are routed to this workspace while their own programme and person detail pages remain available. An existing church person outside the leader's scope must be linked by an owner before the leader can add them as a regular.

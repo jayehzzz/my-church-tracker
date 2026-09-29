@@ -148,7 +148,6 @@ export const create = mutationFor("people:create")({
         member_status: v.string(),
         church_role: v.optional(v.string()),
         role: v.optional(v.string()),
-        activity_status: v.optional(v.string()),
         leader_id: v.optional(v.string()),
 
         // Evangelism / Contact Info
@@ -234,7 +233,6 @@ export const update = mutationFor("people:update")({
         member_status: v.optional(v.string()),
         church_role: v.optional(v.string()),
         role: v.optional(v.string()),
-        activity_status: v.optional(v.string()),
         leader_id: v.optional(v.string()),
 
         // Evangelism / Contact Info

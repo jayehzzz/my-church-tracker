@@ -101,7 +101,7 @@ const CLEARABLE_FIELDS = new Set([
   "email", "phone", "address", "city", "state", "zip_code", "preferred_name",
   "birthday", "date_of_birth", "gender", "marital_status", "employment_status",
   "birthday_month", "birthday_day", "age_band",
-  "degree_status", "basontas", "church_role", "role", "activity_status", "leader_id",
+  "degree_status", "basontas", "church_role", "role", "leader_id",
   "contact_category", "contact_date", "contact_method", "invited_by_id", "entry_point",
   "collected_by_id",
   "notes", "first_visit_date", "membership_date", "is_baptised", "is_tither",

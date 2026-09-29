@@ -85,12 +85,6 @@ function isEvangelismContact(person: Doc<"people">) {
         );
 }
 
-function isRegularMember(person: Doc<"people">) {
-    return ["member", "leader"].includes(person.member_status)
-        && person.activity_status !== "irregular"
-        && person.activity_status !== "dormant";
-}
-
 function sundayReliability(commitments: Doc<"gathering_commitments">[]) {
     const byDate = new Map<string, Doc<"gathering_commitments">>();
     const resolutionRank: Record<string, number> = { pending: 0, cancelled: 1, no_show: 2, attended: 3 };
@@ -937,30 +931,19 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 .map((plan) => [plan.person_id, plan]),
         );
         const currentAttendancePlans = [...attendancePlanByPerson.values()];
-        const regularBaselineIds = new Set(
-            allPeople.filter(isRegularMember).map((person) => person._id),
-        );
+        // Sunday expectations come from a dated confirmation, never a profile label.
         const awayIds = new Set(
             currentAttendancePlans
-                .filter((plan) => plan.status === "away" && regularBaselineIds.has(plan.person_id))
+                .filter((plan) => plan.status === "away" && ["member", "leader"].includes(peopleById.get(plan.person_id)?.member_status ?? ""))
                 .map((plan) => plan.person_id),
         );
-        const regularExpectedIds = new Set(
-            [...regularBaselineIds].filter((personId) => !awayIds.has(personId)),
-        );
-        const confirmedRegularIds = new Set(
-            currentAttendancePlans
-                .filter((plan) => plan.status === "confirmed" && regularBaselineIds.has(plan.person_id))
-                .map((plan) => plan.person_id),
-        );
-        const confirmedIrregularIds = new Set(
+        const confirmedMemberIds = new Set(
             currentAttendancePlans
                 .filter((plan) => {
                     const person = peopleById.get(plan.person_id);
                     return plan.status === "confirmed"
                         && person !== undefined
-                        && ["member", "leader"].includes(person.member_status)
-                        && !regularExpectedIds.has(plan.person_id);
+                        && ["member", "leader"].includes(person.member_status);
                 })
                 .map((plan) => plan.person_id),
         );
@@ -972,14 +955,12 @@ export const getDashboard = queryFor("crm:getDashboard")({
                         && commitment.resolution === "pending"
                         && person !== undefined
                         && ["contact", "guest", "visitor", "new_believer"].includes(person.member_status)
-                        && !regularExpectedIds.has(commitment.person_id)
-                        && !confirmedIrregularIds.has(commitment.person_id);
+                        && !confirmedMemberIds.has(commitment.person_id);
                 })
                 .map((commitment) => commitment.person_id),
         );
         const allExpectedIds = new Set([
-            ...regularExpectedIds,
-            ...confirmedIrregularIds,
+            ...confirmedMemberIds,
             ...confirmedGuestIds,
         ]);
         const attendanceRoster = allPeople
@@ -990,10 +971,10 @@ export const getDashboard = queryFor("crm:getDashboard")({
                     ...person,
                     name: personName(person),
                     attendance_plan: plan,
-                    default_expected: isRegularMember(person),
+                    default_expected: false,
                     expected: allExpectedIds.has(person._id),
                     forecast_status: plan?.status
-                        ?? (isRegularMember(person) ? "expected" : "not_expected"),
+                        ?? "not_expected",
                 };
             })
             .sort((a, b) => a.name.localeCompare(b.name));
@@ -1033,15 +1014,16 @@ export const getDashboard = queryFor("crm:getDashboard")({
             attendance_roster: attendanceRoster,
             attendance_forecast: {
                 service_date: serviceDate,
-                regular_baseline: regularBaselineIds.size,
+                // Legacy API aliases remain zero so old clients do not infer a profile status.
+                regular_baseline: 0,
                 regular_away: awayIds.size,
                 known_away: awayIds.size,
-                regular_expected: regularExpectedIds.size,
-                confirmed_irregular: confirmedIrregularIds.size,
+                regular_expected: 0,
+                confirmed_irregular: 0,
                 confirmed_guests: confirmedGuestIds.size,
-                confirmed_regular: confirmedRegularIds.size,
-                confirmed_total:
-                    confirmedRegularIds.size + confirmedIrregularIds.size + confirmedGuestIds.size,
+                confirmed_regular: 0,
+                confirmed_members: confirmedMemberIds.size,
+                confirmed_total: confirmedMemberIds.size + confirmedGuestIds.size,
                 total_expected: allExpectedIds.size,
                 expected_total: allExpectedIds.size,
                 expected_person_ids: [...allExpectedIds],
@@ -1475,13 +1457,6 @@ export const completeTask = mutationFor("crm:completeTask")({
                     is_paused: false,
                     pause_reason: args.closeReason ?? args.nextReason ?? args.notes ?? "Follow-up closed",
                     resume_date: undefined,
-                    // "settled" ends active follow-up and marks regular activity.
-                    // Church membership is an explicit, separate decision.
-                    ...(args.closeReason === "settled"
-                        ? {
-                            activity_status: "regular",
-                        }
-                        : {}),
                 }
                 : {
                     pipeline_stage: args.moveToLater

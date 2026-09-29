@@ -250,7 +250,6 @@
         last_name: quickAddData.last_name.trim(),
         phone: quickAddData.phone.trim() || undefined,
         member_status: "guest",
-        entry_point: "sunday_service",
       });
       if (result.error) throw result.error;
       const newPerson = result.data;

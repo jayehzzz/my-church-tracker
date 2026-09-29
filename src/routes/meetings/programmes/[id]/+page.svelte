@@ -137,7 +137,7 @@
       {#if activeTab === "overview"}
         <div class="mt-6 grid gap-4 sm:grid-cols-3">
           <div class="rounded-xl border border-border bg-card p-4"><p class="text-xs text-muted-foreground">Completed gatherings</p><p class="mt-1 text-2xl font-semibold">{completed.length}</p></div>
-          <div class="rounded-xl border border-border bg-card p-4"><p class="text-xs text-muted-foreground">Regular people</p><p class="mt-1 text-2xl font-semibold">{regulars.length}</p></div>
+          <div class="rounded-xl border border-border bg-card p-4"><p class="text-xs text-muted-foreground">Programme roster</p><p class="mt-1 text-2xl font-semibold">{regulars.length}</p></div>
           <div class="rounded-xl border border-border bg-card p-4"><p class="text-xs text-muted-foreground">Average attendance · last 4</p><p class="mt-1 text-2xl font-semibold">{completed.length ? Math.round(completed.slice(0, 4).reduce((sum, meeting) => sum + Number(meeting.total_attendance || 0), 0) / Math.min(completed.length, 4)) : "—"}</p></div>
         </div>
         {#if completed.length > 0}
@@ -159,7 +159,7 @@
           <h2 class="font-semibold">Recent gatherings</h2>
           {#if completed.length === 0}<p class="mt-3 text-sm text-muted-foreground">No completed attendance yet.</p>{/if}
           {#each completed.slice(0, 4) as meeting}
-            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border py-3 last:border-0"><span>{shortDate(meeting.meeting_date)}</span><span class="text-sm">{meeting.total_attendance || 0} attended · {followUps.rows.filter(row => String(row.meeting_id) === String(meeting.id) && row.expected_regular && row.status === "absent").length} regulars absent</span></div>
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border py-3 last:border-0"><span>{shortDate(meeting.meeting_date)}</span><span class="text-sm">{meeting.total_attendance || 0} attended · {followUps.rows.filter(row => String(row.meeting_id) === String(meeting.id) && row.expected_regular && row.status === "absent").length} roster people absent</span></div>
           {/each}
         </section>
         <button type="button" class="mt-4 text-sm font-medium text-primary hover:underline" onclick={() => (activeTab = "followup")}>Review people needing follow-up →</button>
@@ -172,19 +172,19 @@
         </section>
       {:else if activeTab === "people"}
         <section class="mt-6 rounded-xl border border-border bg-card p-5">
-          <h2 class="font-semibold">Regular people ({regulars.length})</h2>
+          <h2 class="font-semibold">Programme roster ({regulars.length})</h2>
           <p class="mt-1 text-sm text-muted-foreground">This list belongs to {program.name} and does not change church membership.</p>
-          {#if regulars.length === 0}<p class="mt-4 text-sm text-muted-foreground">No regular people selected yet.</p>{/if}
+          {#if regulars.length === 0}<p class="mt-4 text-sm text-muted-foreground">No programme roster selected yet.</p>{/if}
           {#each regulars as person}
             {@const expected = recentRows.filter(row => String(row.person_id) === String(person.id) && row.expected_regular)}
             <div class="flex flex-wrap justify-between gap-2 border-b border-border py-3 text-sm last:border-0"><span>{person.first_name} {person.last_name}</span><span class="text-muted-foreground">{expected.length ? `${expected.filter(row => row.status === "present").length}/${expected.length} attended` : "No tracked expectation yet"}</span></div>
           {/each}
-          <div class="mt-4"><Button variant="secondary" onclick={() => (isProgramFormOpen = true)}>Manage regular people</Button></div>
+          <div class="mt-4"><Button variant="secondary" onclick={() => (isProgramFormOpen = true)}>Manage programme roster</Button></div>
         </section>
       {:else}
         <div class="mt-6 flex flex-wrap items-center justify-between gap-3"><div><h2 class="font-semibold">People to follow up</h2><p class="text-sm text-muted-foreground">Confirmed absences and named newcomers from completed meetings.</p></div><button type="button" class="text-sm font-medium text-primary hover:underline" onclick={() => (showAllHistory = !showAllHistory)}>{showAllHistory ? "Show latest four" : "Show all history"}</button></div>
         {#if absentRows.length === 0 && newcomerRows.length === 0}<p class="mt-4 rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">No follow-up suggestions in this period.</p>{/if}
-        {#each [{ title: "Regular people absent", rows: absentRows }, { title: "Newcomers", rows: newcomerRows }] as group}
+        {#each [{ title: "Roster people absent", rows: absentRows }, { title: "Newcomers", rows: newcomerRows }] as group}
           {#if group.rows.length > 0}
             <section class="mt-5 space-y-3"><h3 class="font-semibold">{group.title}</h3>
               {#each group.rows as row}

@@ -45,7 +45,7 @@ describe("pastoral care logic", () => {
     expect(candidates).toEqual([]);
   });
 
-  it("detects regular members missing the two latest Sunday services", () => {
+  it("finds a possible gap only for members with earlier recorded attendance", () => {
     const absences = findConsecutiveAbsences({
       people: [
         { id: "p1", member_status: "member", activity_status: "regular" },
@@ -56,6 +56,7 @@ describe("pastoral care logic", () => {
         { id: "s2", service_type: "sunday_service", service_date: "2026-08-23" },
       ],
       attendance: [
+        { service_id: "older-sunday", person_id: "p1" },
         { service_id: "s1", person_id: "p2" },
         { service_id: "s2", person_id: "p2" },
       ],
@@ -76,6 +77,7 @@ describe("pastoral care logic", () => {
       { id: "recent-gap", member_status: "leader" },
     ];
     const attendance = [
+      { service_id: "older-sunday", person_id: "none" },
       ...["s1", "s2", "s3"].map((service_id) => ({ service_id, person_id: "low" })),
       ...["s3", "s4", "s5", "s6"].map((service_id) => ({ service_id, person_id: "recent-gap" })),
     ];

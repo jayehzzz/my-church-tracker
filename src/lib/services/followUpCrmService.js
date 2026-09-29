@@ -231,29 +231,24 @@ function seedLocalState() {
     };
   });
 
-  const regularMembers = mockPeople.filter(
-    (person) =>
-      ["member", "leader"].includes(person.member_status) && person.activity_status === "regular",
-  );
-  const irregularMembers = mockPeople.filter(
-    (person) =>
-      ["member", "leader"].includes(person.member_status) && person.activity_status !== "regular",
+  const [firstDemoMember, secondDemoMember] = mockPeople.filter(
+    (person) => ["member", "leader"].includes(person.member_status),
   );
   const attendancePlans = [];
-  if (regularMembers[0] && leaders[0]) {
+  if (firstDemoMember && leaders[0]) {
     attendancePlans.push({
       _id: "demo-plan-away",
-      person_id: regularMembers[0].id || regularMembers[0]._id,
+      person_id: firstDemoMember.id || firstDemoMember._id,
       leader_id: leaders[0].id || leaders[0]._id,
       service_date: sunday,
       status: "away",
       notes: "Known absence",
     });
   }
-  if (irregularMembers[0] && leaders[0]) {
+  if (secondDemoMember && leaders[0]) {
     attendancePlans.push({
       _id: "demo-plan-confirmed",
-      person_id: irregularMembers[0].id || irregularMembers[0]._id,
+      person_id: secondDemoMember.id || secondDemoMember._id,
       leader_id: leaders[0].id || leaders[0]._id,
       service_date: sunday,
       status: "confirmed",
@@ -552,7 +547,7 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
             String(plan.person_id) === String(person._id || person.id) &&
             plan.service_date === targetSunday,
         ) || null,
-      default_expected: person.activity_status === "regular",
+      default_expected: false,
       expected: forecast.expected_person_ids.includes(String(person._id || person.id))
         || forecast.expected_person_ids.includes(person._id || person.id),
     }))
@@ -737,11 +732,11 @@ function normalizeDashboard(data, source) {
       known_away: forecast.known_away ?? forecast.regular_away ?? 0,
       expected_total: forecast.expected_total ?? forecast.total_expected ?? 0,
       confirmed_regular: forecast.confirmed_regular ?? 0,
+      confirmed_members: forecast.confirmed_members ?? ((forecast.confirmed_regular ?? 0) + (forecast.confirmed_irregular ?? 0)),
       confirmed_non_members: forecast.confirmed_non_members ?? forecast.confirmed_guests ?? 0,
       confirmed_total:
         forecast.confirmed_total
-        ?? ((forecast.confirmed_regular ?? 0)
-          + (forecast.confirmed_irregular ?? 0)
+        ?? ((forecast.confirmed_members ?? ((forecast.confirmed_regular ?? 0) + (forecast.confirmed_irregular ?? 0)))
           + (forecast.confirmed_non_members ?? forecast.confirmed_guests ?? 0)),
     },
     source,
@@ -1203,9 +1198,6 @@ export async function completeTask(taskId, details) {
       contact.closed_at = new Date().toISOString();
       contact.moved_to_later_at = undefined;
       contact.resume_date = undefined;
-      if (details.closeReason === "settled") {
-        contact.activity_status = "regular";
-      }
       if (details.closeReason === "do_not_contact") {
         contact.contact_category = "do_not_contact";
         contact.response = "do_not_contact";

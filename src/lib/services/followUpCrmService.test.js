@@ -87,7 +87,7 @@ describe("follow-up CRM service", () => {
 
     const profile = await getContactProfile(contactId);
     expect(profile.data.person.member_status).toBe("contact");
-    expect(profile.data.person.activity_status).toBe("regular");
+    expect(profile.data.person.activity_status).toBeUndefined();
     expect(profile.data.person.membership_date).toBeUndefined();
   });
 
