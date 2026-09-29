@@ -36,6 +36,7 @@ describe("follow-up corrections", () => {
     expect(error?.entered_in_error).toBe(true);
     expect(await as("owner").query(api.crm.getSundayCommitments, {})).toHaveLength(0);
     expect((await t.run(ctx => ctx.db.get(ids.person)))?.promises_made).toBe(0);
+    expect((await t.run(ctx => ctx.db.get(ids.person)))?.pipeline_stage).not.toBe("promised");
   });
 
   it("removes a corrected no-show from the missed list without deleting attendance", async () => {

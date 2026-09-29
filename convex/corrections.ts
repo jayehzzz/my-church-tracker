@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutationFor, queryFor, authenticatedUser, isAdmin, managesAttendance } from "./lib/security";
-import { reconcilePerson } from "./lib/attendanceWorkflow";
+import { reconcilePerson, matchesGatheringType } from "./lib/attendanceWorkflow";
 import { computeWarmthScore } from "./follow_ups";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -30,9 +30,9 @@ function canEdit(ctx: object, owner: Id<"people">) {
 }
 async function actualAttendance(ctx: any, row: Commitment) {
   const visits = await ctx.db.query("attendance").withIndex("by_person", (q: any) => q.eq("person_id", row.person_id)).collect();
-  for (const visit of visits) if ((await ctx.db.get(visit.service_id))?.service_date === row.gathering_date) return true;
+  for (const visit of visits) { const service = await ctx.db.get(visit.service_id); if (service?.service_date === row.gathering_date && matchesGatheringType(service, true, row.gathering_type)) return true; }
   const meetings = await ctx.db.query("meeting_attendance").withIndex("by_person", (q: any) => q.eq("person_id", row.person_id)).collect();
-  for (const visit of meetings) if ((visit.status ? visit.status === "present" : visit.attended !== false) && (await ctx.db.get(visit.meeting_id))?.meeting_date === row.gathering_date) return true;
+  for (const visit of meetings) { const meeting = await ctx.db.get(visit.meeting_id); if ((visit.status ? visit.status === "present" : visit.attended !== false) && meeting?.meeting_date === row.gathering_date && matchesGatheringType(meeting, false, row.gathering_type)) return true; }
   return false;
 }
 async function personEffect(ctx: any, row: FollowUp) {
@@ -205,7 +205,14 @@ export const correctCommitment = mutationFor("corrections:correctCommitment")({
     const refreshedPerson = await ctx.db.get(row.person_id);
     if (refreshedPerson) {
       const activeCalls = (await ctx.db.query("follow_ups").withIndex("by_contact", q => q.eq("contact_id", row.person_id)).collect()).filter(call => !call.entered_in_error);
-      await ctx.db.patch(row.person_id, { warmth_score: computeWarmthScore(refreshedPerson, activeCalls), updated_at: now });
+      const activeCommitments = (await ctx.db.query("gathering_commitments").withIndex("by_person", q => q.eq("person_id", row.person_id)).collect()).filter(item => !item.entered_in_error && item.response === "yes");
+      const noActivePromise = !activeCommitments.some(item => item.resolution === "pending" || item.resolution === "no_show");
+      const noActiveMiss = !activeCommitments.some(item => item.resolution === "no_show");
+      const resetStage = (refreshedPerson.pipeline_stage === "promised" && noActivePromise) || (refreshedPerson.pipeline_stage === "no_show" && noActiveMiss);
+      await ctx.db.patch(row.person_id, {
+        ...(resetStage && !hasVisit ? { pipeline_stage: activeCalls.length ? "contacted" : "new" } : {}),
+        ...(!hasVisit ? { warmth_score: computeWarmthScore(refreshedPerson, activeCalls) } : {}), updated_at: now,
+      });
     }
     return await ctx.db.get(row._id);
   },

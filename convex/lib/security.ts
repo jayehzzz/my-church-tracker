@@ -3,6 +3,7 @@ import type { DataModel, Doc } from "../_generated/dataModel";
 import { mutation as rawMutation, query as rawQuery, type QueryCtx, type MutationCtx } from "../_generated/server";
 import type { QueryBuilder, MutationBuilder } from "convex/server";
 import { wrapDatabaseReader, wrapDatabaseWriter, type Rules } from "convex-helpers/server/rowLevelSecurity";
+import { matchesGatheringType } from "./attendanceWorkflow";
 
 export const isAdmin = (user: Doc<"crm_users">) => user.role === "owner" || user.role === "admin";
 export const canViewGiving = (user: Doc<"crm_users">) => isAdmin(user) && (user.can_view_giving ?? user.can_view_confidential) === true;
@@ -241,9 +242,9 @@ function authenticateBuilder(builder: any, name: string, write: boolean) {
       if (commitment?.resolution === "attended") forbidden();
       if (commitment) {
         const serviceRows = await ctx.db.query("attendance").withIndex("by_person", (q: any) => q.eq("person_id", commitment.person_id)).collect();
-        for (const row of serviceRows) if ((await ctx.db.get(row.service_id))?.service_date === commitment.gathering_date) forbidden();
+        for (const row of serviceRows) { const service = await ctx.db.get(row.service_id); if (service?.service_date === commitment.gathering_date && matchesGatheringType(service, true, commitment.gathering_type)) forbidden(); }
         const meetingRows = await ctx.db.query("meeting_attendance").withIndex("by_person", (q: any) => q.eq("person_id", commitment.person_id)).collect();
-        for (const row of meetingRows) if ((row.status ? row.status === "present" : row.attended !== false) && (await ctx.db.get(row.meeting_id))?.meeting_date === commitment.gathering_date) forbidden();
+        for (const row of meetingRows) { const meeting = await ctx.db.get(row.meeting_id); if ((row.status ? row.status === "present" : row.attended !== false) && meeting?.meeting_date === commitment.gathering_date && matchesGatheringType(meeting, false, commitment.gathering_type)) forbidden(); }
       }
     }
     const careInput = name === "meetingPrograms:update" ? { ...input, description: undefined }
