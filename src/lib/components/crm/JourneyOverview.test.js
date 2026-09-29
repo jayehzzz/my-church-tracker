@@ -22,7 +22,7 @@ const overview = {
 
 it('shows a loading status while the overview request is pending', () => {
   const view = render(JourneyOverview, { props: { data: overview, loading: true } });
-  expect(view.getByRole('status').textContent).toContain('Loading recorded first visits and salvation decisions');
+  expect(view.getByRole('status').textContent).toContain('Loading first timer records and salvation decisions');
   expect(view.queryByText('Ama Mensah')).not.toBeInTheDocument();
 });
 
@@ -30,6 +30,7 @@ it('shows first visits and service decisions with people, gathering details and 
   const onOpen = vi.fn();
   const view = render(JourneyOverview, { props: { data: overview, onOpen } });
   expect(view.getByText('Ama Mensah')).toBeInTheDocument();
+  expect(view.getByText('First timers are people explicitly recorded as first timers when they joined.')).toBeInTheDocument();
   expect(view.getByRole('listitem').textContent).toContain('sunday service');
   expect(view.getByRole('listitem').textContent).toContain('6 Sept 2026');
   expect(view.getByRole('listitem').textContent).toContain('Main Hall');
@@ -56,5 +57,5 @@ it('filters history by search and date and exposes retry and empty states', asyn
   await fireEvent.click(failure.getByRole('button', { name: 'Retry' }));
   expect(onRetry).toHaveBeenCalledOnce();
   const empty = render(JourneyOverview, { props: { data: { first_timers: [], new_converts: [], unnamed_decisions: [] } } });
-  expect(empty.getByText('No first visits have been recorded.')).toBeInTheDocument();
+  expect(empty.getByText('No people have been explicitly recorded as first timers.')).toBeInTheDocument();
 });

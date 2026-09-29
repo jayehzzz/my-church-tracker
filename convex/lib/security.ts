@@ -163,7 +163,9 @@ async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users"
       insert: async (_, doc) => admin || (canPerson(String(doc.person_id)) && doc.collector_id === user.person_id),
     },
     service_register_entries: adminOnly,
-    attendance_visit_evidence: adminOnly,
+    attendance_visit_evidence: journeyOverview
+      ? { ...adminOnly, read: async (_, doc) => canPerson(String(doc.person_id)) }
+      : adminOnly,
     church_import_batches: adminOnly,
     church_import_rows: adminOnly,
     historical_import_notes: adminOnly,

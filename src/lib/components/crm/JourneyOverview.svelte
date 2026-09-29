@@ -41,7 +41,7 @@
 <section class="overflow-hidden rounded-xl border border-border bg-card" aria-label="First visits and salvation overview">
   <header class="border-b border-border p-5">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div><h2 class="text-lg font-semibold text-foreground">First visits & salvation</h2><p class="mt-1 text-sm text-muted-foreground">Recorded people and gathering details across all history.</p></div>
+      <div><h2 class="text-lg font-semibold text-foreground">First visits & salvation</h2><p class="mt-1 text-sm text-muted-foreground">First timers are people explicitly recorded as first timers when they joined.</p></div>
       {#if data?.unnamed_decisions_available && unnamedCount}
         <div class="rounded-lg bg-secondary/60 px-3 py-2 text-sm"><span class="font-semibold text-foreground">{unnamedCount}</span><span class="ml-1 text-muted-foreground">unnamed service decisions</span></div>
       {/if}
@@ -59,7 +59,7 @@
   </header>
 
   {#if loading}
-    <p class="px-5 py-16 text-center text-sm text-muted-foreground" role="status">Loading recorded first visits and salvation decisions…</p>
+    <p class="px-5 py-16 text-center text-sm text-muted-foreground" role="status">Loading first timer records and salvation decisions…</p>
   {:else if error}
     <div class="px-5 py-12 text-center"><p class="text-sm text-destructive" role="alert">{error}</p><button type="button" class="mt-3 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-primary hover:bg-secondary" onclick={onRetry}>Retry</button></div>
   {:else if fromDate && toDate && fromDate > toDate}
@@ -87,7 +87,7 @@
       {/each}
     </div>
   {:else}
-    <p class="px-5 py-16 text-center text-sm text-muted-foreground">{search || fromDate || toDate ? 'No records match your search and date range.' : activeList === 'first_timers' ? 'No first visits have been recorded.' : 'No service salvation decisions have been recorded.'}</p>
+    <p class="px-5 py-16 text-center text-sm text-muted-foreground">{search || fromDate || toDate ? 'No records match your search and date range.' : activeList === 'first_timers' ? 'No people have been explicitly recorded as first timers.' : 'No service salvation decisions have been recorded.'}</p>
   {/if}
 
   {#if !loading && !error && activeList === 'new_converts' && data?.unnamed_decisions_available && unnamedEvents.length}
