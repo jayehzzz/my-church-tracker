@@ -1,5 +1,5 @@
 import { queryFor, mutationFor } from "./lib/security";
-import { actualDate, date, deleteGathering, prepareServiceCounts, reconcileServiceCounts, serviceRows, syncServiceAttendance } from "./lib/attendanceWorkflow";
+import { actualDate, confirmExplicitFirstVisit, date, deleteGathering, prepareServiceCounts, reconcileServiceCounts, serviceRows, syncServiceAttendance } from "./lib/attendanceWorkflow";
 
 import { v } from "convex/values";
 
@@ -155,6 +155,7 @@ export const record = mutationFor("services:record")({
             made_salvation_decision: v.boolean(),
             gave_tithe: v.boolean(),
             first_timer: v.boolean(),
+            explicit_first_visit: v.optional(v.boolean()),
         })),
     },
     handler: async (ctx, args) => {
@@ -189,7 +190,10 @@ export const record = mutationFor("services:record")({
             }
             await ctx.db.patch(photoId, { service_id: serviceId });
         }
-        await syncServiceAttendance(ctx, serviceId, attendanceData, serviceData);
+        await syncServiceAttendance(ctx, serviceId, attendanceData.map(({ explicit_first_visit, ...row }) => row), serviceData);
+        for (const row of attendanceData) {
+            if (row.explicit_first_visit) await confirmExplicitFirstVisit(ctx, row.person_id, serviceId);
+        }
         return await enrichService(ctx, await ctx.db.get(serviceId), await serviceRows(ctx, serviceId));
 
     },

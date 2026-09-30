@@ -57,6 +57,26 @@ async function setup() {
 }
 
 describe("crm.getJourneyOverview", () => {
+    it("includes an owner-confirmed first timer saved through service recording", async () => {
+        const { t, owner } = await setup();
+        const personId = await t.run(ctx => ctx.db.insert("people", {
+            first_name: "Confirmed", last_name: "Visitor", member_status: "guest", created_at: stamp, updated_at: stamp,
+        }));
+        const input = {
+            service_date: "2026-09-20", service_type: "special_service",
+            total_attendance: 1, guests_count: 1, salvation_decisions: 0, tithers_count: 0,
+            attendanceData: [{ person_id: personId, first_timer: true, explicit_first_visit: true, gave_tithe: false, made_salvation_decision: false }],
+        };
+        const service = await owner.mutation(api.services.record, input);
+        const overview = await owner.query(api.crm.getJourneyOverview, {});
+        expect(overview.first_timers.find(row => row.person.id === personId)?.events).toMatchObject([{ date: "2026-09-20", label: "special service" }]);
+        const history = await owner.query(api.attendance.getByPerson, { personId });
+        expect(history[0].explicit_first_visit).toBe(true);
+        await owner.mutation(api.services.record, { ...input, id: service!._id });
+        const evidence = await t.run(ctx => ctx.db.query("attendance_visit_evidence").withIndex("by_person", q => q.eq("person_id", personId)).collect());
+        expect(evidence.filter(row => row.kind === "explicit_first_visit")).toHaveLength(1);
+    });
+
     it("returns only explicitly recorded first visits, service decisions and unnamed counts", async () => {
         const { owner, ids } = await setup();
         const result = await owner.query(api.crm.getJourneyOverview, {});

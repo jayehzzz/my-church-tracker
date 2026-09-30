@@ -47,6 +47,7 @@
                             ? `${r.people.first_name} ${r.people.last_name || ""}`.trim()
                             : "Unknown",
                         first_timer: r.first_timer,
+                        explicit_first_visit: r.explicit_first_visit,
                         gave_tithe: r.gave_tithe,
                     }));
             }
@@ -224,7 +225,7 @@
                             {#each attendees as attendee}
                                 <button
                                     type="button"
-                                    class="flex items-center gap-2 p-2 rounded-lg text-left {attendee.first_timer ? 'bg-success/10 border border-success/40' : ''} hover:bg-secondary/50 transition-colors group"
+                                    class="flex items-center gap-2 p-2 rounded-lg text-left {attendee.explicit_first_visit ? 'bg-success/10 border border-success/40' : ''} hover:bg-secondary/50 transition-colors group"
                                     onclick={() =>
                                         navigateToProfile(attendee.id)}
                                 >
@@ -239,10 +240,10 @@
                                         >
                                             {attendee.name}
                                         </span>
-                                        {#if attendee.first_timer}
-                                            <span class="text-xs text-success"
-                                                >First-timer visit</span
-                                            >
+                                        {#if attendee.explicit_first_visit}
+                                            <span class="text-xs text-success">Confirmed first timer</span>
+                                        {:else if attendee.first_timer}
+                                            <span class="text-xs text-muted-foreground">First recorded visit</span>
                                         {/if}
                                     </div>
                                 </button>
@@ -268,8 +269,10 @@
                                 ? "✓ Gave Tithe"
                                 : "No Tithe"}
                         </Badge>
-                        {#if attendanceRecord.first_timer}
-                            <Badge variant="success">First-timer visit</Badge>
+                        {#if attendanceRecord.explicit_first_visit}
+                            <Badge variant="success">Confirmed first timer</Badge>
+                        {:else if attendanceRecord.first_timer}
+                            <Badge variant="outline">First recorded visit</Badge>
                         {/if}
                         {#if attendanceRecord.made_salvation_decision}
                             <Badge variant="success">Salvation Decision</Badge>

@@ -331,6 +331,24 @@ export async function syncServiceAttendance(ctx: MutationCtx, serviceId: Id<"ser
     await reconcilePeople(ctx, [...existing.map(r => r.person_id), ...data.map(r => r.person_id)]);
     await finalizeRecordedSundayExpectations(ctx, serviceId, data.length > 0 || Number(explicit?.total_attendance || 0) > 0);
 }
+
+export async function confirmExplicitFirstVisit(ctx: MutationCtx, personId: Id<"people">, serviceId: Id<"services">) {
+    const attendance = await serviceRows(ctx, serviceId);
+    if (!attendance.some(row => row.person_id === personId)) throw new Error("Record this person's attendance before confirming a first visit");
+    const evidence = await ctx.db.query("attendance_visit_evidence")
+        .withIndex("by_person", q => q.eq("person_id", personId)).collect();
+    if (evidence.some(row => row.kind === "explicit_first_visit" && row.service_id === serviceId)) return;
+    if (evidence.some(row => row.kind === "explicit_first_visit")) {
+        throw new Error("A first visit is already confirmed for this person at another service");
+    }
+    await ctx.db.insert("attendance_visit_evidence", {
+        person_id: personId,
+        service_id: serviceId,
+        kind: "explicit_first_visit",
+        source_key: `app:confirmed-first-visit:${serviceId}:${personId}`,
+        created_at: now(),
+    });
+}
 export async function deleteGathering(ctx: MutationCtx, g: Gathering) {
     const id = g.serviceId ?? g.meetingId!;
     const record = await ctx.db.get(id);

@@ -75,7 +75,7 @@ const leaderMutations = new Set([
   "meetingPrograms:addGuest",
 ]);
 
-async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users">, write: boolean, developmentSummary = false, outreachCreate = false, meetingAttendanceWrite = false, journeyOverview = false) {
+async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users">, write: boolean, developmentSummary = false, outreachCreate = false, meetingAttendanceWrite = false, journeyOverview = false, visitEvidenceRead = false) {
   const admin = isAdmin(user);
   const assignments = user.person_id && !admin ? await ctx.db.query("follow_up_assignments")
     .withIndex("by_leader_status", q => q.eq("assigned_leader_id", user.person_id!).eq("status", "active")).collect() : [];
@@ -163,7 +163,7 @@ async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users"
       insert: async (_, doc) => admin || (canPerson(String(doc.person_id)) && doc.collector_id === user.person_id),
     },
     service_register_entries: adminOnly,
-    attendance_visit_evidence: journeyOverview
+    attendance_visit_evidence: visitEvidenceRead
       ? { ...adminOnly, read: async (_, doc) => canPerson(String(doc.person_id)) }
       : adminOnly,
     church_import_batches: adminOnly,
@@ -295,7 +295,8 @@ function authenticateBuilder(builder: any, name: string, write: boolean) {
     const developmentSummary = name === "people:getDevelopmentSummary";
     const journeyOverview = name === "crm:getJourneyOverview";
     const meetingAttendanceWrite = ["meetings:record", "meetings:syncAttendance"].includes(name);
-    const guardedContext = await securedContext(ctx, user, write, developmentSummary, outreachCreate, meetingAttendanceWrite, journeyOverview);
+    const visitEvidenceRead = journeyOverview || ["attendance:getByService", "attendance:getByPerson"].includes(name);
+    const guardedContext = await securedContext(ctx, user, write, developmentSummary, outreachCreate, meetingAttendanceWrite, journeyOverview, visitEvidenceRead);
     authenticatedUsers.set(guardedContext, user);
     if (isAdmin(user)) attendanceContexts.add(guardedContext);
     if (developmentSummary) developmentSummaryContexts.add(guardedContext);
