@@ -9,3 +9,4 @@ export { default as WorkerAssessment } from './WorkerAssessment.svelte';
 export { default as TeamOverview } from './TeamOverview.svelte';
 export { default as WeeklyAttention } from './WeeklyAttention.svelte';
 export { default as ContactDrawer } from './ContactDrawer.svelte';
+export { default as JourneyOverview } from './JourneyOverview.svelte';

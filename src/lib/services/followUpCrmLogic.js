@@ -204,7 +204,7 @@ function isExplicitPendingYes(commitment) {
 }
 
 function isArchived(person) {
-  return normalise(person?.member_status) === 'archived' || normalise(person?.activity_status) === 'archived';
+  return normalise(person?.member_status) === 'archived';
 }
 
 function isMemberOrLeader(person) {
@@ -562,11 +562,12 @@ export function buildAttendanceForecast({
     if (id != null) plansByPerson.set(String(id), plan);
   }
 
+  // Historical response keys remain empty for callers that still read them.
   const regularBaselinePeople = [];
   const knownAwayPeople = [];
   const regularExpectedPeople = [];
   const confirmedRegularPeople = [];
-  const confirmedIrregularPeople = [];
+  const confirmedMemberPeople = [];
   const confirmedNonMemberPeople = [];
   const confirmedOutreachPeople = [];
   const confirmedReturningGuestPeople = [];
@@ -574,20 +575,11 @@ export function buildAttendanceForecast({
 
   for (const [id, person] of peopleById) {
     if (isArchived(person) || !isMemberOrLeader(person)) continue;
-    const activity = normalise(person.activity_status);
     const disposition = planDisposition(plansByPerson.get(id));
 
-    if (activity === 'regular') {
-      regularBaselinePeople.push(person);
-      if (disposition === 'away') {
-        knownAwayPeople.push(person);
-      } else {
-        regularExpectedPeople.push(person);
-        expectedById.set(id, person);
-        if (disposition === 'confirmed') confirmedRegularPeople.push(person);
-      }
-    } else if (activity === 'irregular' && disposition === 'confirmed') {
-      confirmedIrregularPeople.push(person);
+    if (disposition === 'away') knownAwayPeople.push(person);
+    if (disposition === 'confirmed') {
+      confirmedMemberPeople.push(person);
       expectedById.set(id, person);
     }
   }
@@ -619,7 +611,8 @@ export function buildAttendanceForecast({
     expected_total: expectedPeople.length,
     regular_baseline: regularBaselinePeople.length,
     known_away: knownAwayPeople.length,
-    confirmed_irregular: confirmedIrregularPeople.length,
+    confirmed_irregular: 0,
+    confirmed_members: confirmedMemberPeople.length,
     confirmed_outreach_contacts: confirmedOutreachPeople.length,
     confirmed_returning_guests: confirmedReturningGuestPeople.length,
     confirmed_non_members: confirmedNonMemberPeople.length,
@@ -628,14 +621,15 @@ export function buildAttendanceForecast({
     confirmed_guests: confirmedNonMemberPeople.length,
     confirmed_regular: confirmedRegularPeople.length,
     confirmed_total:
-      confirmedRegularPeople.length + confirmedIrregularPeople.length + confirmedNonMemberPeople.length,
+      confirmedMemberPeople.length + confirmedNonMemberPeople.length,
     expected_people: expectedPeople,
     expected_person_ids: [...expectedById.keys()],
     regular_baseline_people: regularBaselinePeople,
     known_away_people: knownAwayPeople,
     regular_expected_people: regularExpectedPeople,
     confirmed_regular_people: confirmedRegularPeople,
-    confirmed_irregular_people: confirmedIrregularPeople,
+    confirmed_irregular_people: [],
+    confirmed_member_people: confirmedMemberPeople,
     confirmed_non_member_people: confirmedNonMemberPeople,
     confirmed_outreach_people: confirmedOutreachPeople,
     confirmed_returning_guest_people: confirmedReturningGuestPeople,

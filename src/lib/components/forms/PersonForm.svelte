@@ -145,6 +145,7 @@
     { value: "sunday_service", label: "Sunday Service" },
     { value: "bacenta_meeting", label: "Bacenta (Cell Group)" },
     { value: "evangelism", label: "Evangelism Outreach" },
+    { value: "referral", label: "Friend or family" },
     { value: "other", label: "Other" },
   ];
 
@@ -164,11 +165,6 @@
     { value: "", label: "Select..." },
     ...DEGREE_STATUS_OPTIONS,
   ];
-
-  // Outreach contacts and guests both use the connection-source fields.
-  const isPreMemberStatus = $derived(
-    ["contact", "guest", "visitor"].includes(formData.member_status),
-  );
 
   // Check if status is leader
   const isLeaderStatus = $derived(formData.member_status === "leader");
@@ -753,16 +749,15 @@
         Basonta membership and group involvement are separate from leadership. Bacenta Leader and Basonta Leader are leadership roles.
       </p>
 
-      {#if isPreMemberStatus}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <SearchableSelect
-            label="Connection Source (How did they find us?)"
+            label="How they first heard about church"
             bind:value={formData.entry_point}
             options={entryPointOptions}
             disabled={saving}
           />
         </div>
-      {/if}
+      <p class="text-xs text-muted-foreground">This is a person's background, separate from their first recorded visit. Check older values because attendance previously filled this field automatically.</p>
 
       <!-- Basontas (Ministry Groups) -->
       <fieldset class="space-y-2">

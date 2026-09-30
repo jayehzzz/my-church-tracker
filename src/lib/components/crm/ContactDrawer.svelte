@@ -18,6 +18,8 @@
     person = null,
     onLogCall = () => {},
     onEditProfile = () => {},
+    onCorrectCommitment = () => {},
+    onEditFollowUp = () => {},
     onViewProfile = null,
     onClose = () => {},
     showSundayRate = true,
@@ -352,13 +354,17 @@
                     {:else if commitment.resolution_note || commitment.confirmation_note}
                       <p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">{commitment.resolution_note || commitment.confirmation_note}</p>
                     {/if}
+                    {#each commitment.correction_history || [] as correction}
+                      <p class="mt-1 text-[11px] text-muted-foreground">{correction.actor_name || 'Worker'} corrected {formatDate(correction.at)}: {correction.before?.response || 'None'} on {correction.before?.date || 'unknown date'} → {correction.after?.response || 'No response'} on {correction.after?.date || 'unknown date'} · {correction.reason}</p>
+                    {/each}
                   </div>
-                  <Badge
-                    size="sm"
-                    variant={commitment.resolution === 'attended' ? 'success' : commitment.resolution === 'no_show' ? 'danger' : commitment.resolution === 'cancelled' ? 'default' : 'info'}
-                  >
-                    {commitment.resolution === 'attended' ? 'Attended' : commitment.resolution === 'no_show' ? 'Didn’t attend' : commitment.resolution === 'cancelled' ? 'Cancelled' : 'Said yes'}
-                  </Badge>
+                  <div class="flex shrink-0 flex-col items-end gap-1">
+                    <Badge size="sm" variant={commitment.entered_in_error ? 'default' : commitment.resolution === 'attended' ? 'success' : commitment.resolution === 'no_show' ? 'danger' : commitment.resolution === 'cancelled' ? 'default' : 'info'}>
+                      {commitment.entered_in_error ? 'Entered in error' : commitment.resolution === 'attended' ? 'Attended' : commitment.resolution === 'no_show' ? 'Didn’t attend' : commitment.response === 'no' ? 'Said no' : commitment.response === 'maybe' ? 'Maybe' : commitment.resolution === 'cancelled' ? 'Cancelled' : 'Said yes'}
+                    </Badge>
+                    <button type="button" class="text-xs text-primary hover:underline" onclick={() => onCorrectCommitment(commitment, 'response')}>Change response</button>
+                    <button type="button" class="text-xs text-primary hover:underline" onclick={() => onCorrectCommitment(commitment, 'mistake')}>Correct a mistake</button>
+                  </div>
                 </div>
               {/each}
             </div>
@@ -405,6 +411,9 @@
                       · by {item.leader?.name || item.assigned_leader?.name}
                     {/if}
                   </p>
+                  {#if !item.source_visitation_id && !item.care_status && item._id}<button type="button" class="text-xs text-primary hover:underline" onclick={() => onEditFollowUp(item)}>Edit follow-up</button>{/if}
+                  {#if item.entered_in_error}<p class="text-xs text-muted-foreground">This entry was marked as a mistake.</p>{/if}
+                  {#each item.correction_history || [] as correction}<p class="text-xs text-muted-foreground">{correction.actor_name || 'Worker'} corrected {formatDate(correction.at)}: {correction.before?.outcome || 'Unknown'} on {correction.before?.date || 'unknown date'} via {correction.before?.method || 'unknown method'} → {correction.after?.outcome || 'Unknown'} on {correction.after?.date || 'unknown date'} via {correction.after?.method || 'unknown method'} · {correction.reason}{#if correction.before?.notes !== correction.after?.notes && (correction.before?.notes || correction.after?.notes)} · Notes: {correction.before?.notes || 'none'} → {correction.after?.notes || 'none'}{/if}</p>{/each}
                 </div>
               {/each}
             </div>

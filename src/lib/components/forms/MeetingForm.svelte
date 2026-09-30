@@ -338,14 +338,6 @@
         last_name: quickAddData.last_name.trim(),
         phone: quickAddData.phone || undefined,
         member_status: "guest",
-        entry_point:
-          recordingMode === "programme" &&
-          selectedProgram()?.meeting_type === "bacenta"
-            ? "bacenta_meeting"
-            : recordingMode === "one_off" &&
-                formData.meeting_type === "evangelistic_event"
-              ? "evangelism"
-              : "other",
       });
       if (result.error) throw result.error;
       people = [...people, result.data];

@@ -19,7 +19,7 @@ describe("service recording", () => {
   it("summarizes named check-ins and their recorded outcomes", () => {
     const summary = summarizeNamedAttendance(new Set(["p1", "p2"]), {
       p1: { gave_tithe: true },
-      p2: { first_timer: true, made_salvation_decision: true },
+      p2: { first_timer: true, explicit_first_visit: true, made_salvation_decision: true },
     }, people);
 
     expect(summary).toEqual({ named: 2, guests: 1, returningGuests: 0, firstTimers: 1, salvationDecisions: 1, tithers: 1 });
@@ -34,15 +34,20 @@ describe("service recording", () => {
     expect(withoutContactAttendance.returningGuests).toBe(1);
 
     const withContactAttendance = summarizeNamedAttendance(new Set(["p2", "p3"]), {
-      p3: { first_timer: true },
+      p3: { first_timer: true, explicit_first_visit: true },
     }, people);
     expect(withContactAttendance).toMatchObject({ named: 2, guests: 2, returningGuests: 1, firstTimers: 1 });
   });
 
   it("keeps a historical first visit in the non-member total after that person becomes a member", () => {
-    const summary = summarizeNamedAttendance(new Set(["p1"]), { p1: { first_timer: true } }, people);
+    const summary = summarizeNamedAttendance(new Set(["p1"]), { p1: { first_timer: true, explicit_first_visit: true } }, people);
     expect(summary).toMatchObject({ guests: 1, returningGuests: 0, firstTimers: 1 });
     expect(resolveServiceCounts({ total_attendance: "", guests_count: "" }, summary).guests_count).toBe(1);
+  });
+
+  it("does not count an inferred first recorded visit as a confirmed first timer", () => {
+    const summary = summarizeNamedAttendance(new Set(["p2"]), { p2: { first_timer: true } }, people);
+    expect(summary).toMatchObject({ guests: 1, returningGuests: 0, firstTimers: 0 });
   });
 
   it("uses named records as sensible defaults while allowing a larger headcount", () => {
@@ -81,8 +86,8 @@ describe("service recording", () => {
     expect(validateServiceSetup({ service_date: "", service_type: "" })).toEqual({
       service_date: "Service date is required", service_type: "Service type is required",
     });
-    expect(buildAttendanceData(new Set(["p1"]), { p1: { first_timer: true } })).toEqual([{
-      person_id: "p1", gave_tithe: false, made_salvation_decision: false, first_timer: true,
+    expect(buildAttendanceData(new Set(["p1"]), { p1: { first_timer: true, explicit_first_visit: true } })).toEqual([{
+      person_id: "p1", gave_tithe: false, made_salvation_decision: false, first_timer: true, explicit_first_visit: true,
     }]);
   });
 });

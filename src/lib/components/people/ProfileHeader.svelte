@@ -4,7 +4,7 @@
   import { formatLeadershipRole, normalizeJourneyStatus } from "$lib/services/peopleService.js";
   import CopyButton from "$lib/components/ui/CopyButton.svelte";
 
-  let { person, onUpdateStatus, onUpdateActivity, onEdit, updatingStatus, statusUpdateError } = $props();
+  let { person, onUpdateStatus, onEdit, updatingStatus, statusUpdateError, sundaySummary } = $props();
   let address = $derived(personAddress(person));
   let status = $derived(normalizeJourneyStatus(person.member_status) || "");
 </script>
@@ -35,13 +35,9 @@
         <option value="contact">Outreach Contact</option><option value="guest">Non-member</option><option value="member">Member</option><option value="leader">Leader</option><option value="archived">Archived</option>
       </select>
     </label>
-    <label>Activity
-      <select aria-label="Activity status" value={person.activity_status || ""} disabled={updatingStatus} onchange={(e) => onUpdateActivity(e.currentTarget.value)}>
-        <option value="" disabled>Not recorded</option><option value="regular">Regular</option><option value="irregular">Irregular</option><option value="dormant">Dormant</option>
-      </select>
-    </label>
-    <span class="status-hint">{updatingStatus ? "Saving…" : "First timer and returning guest describe visits; Non-member describes the current profile. Activity is manually recorded."}</span>
+    <span class="status-hint">{updatingStatus ? "Saving…" : "Membership and leadership are recorded explicitly. A first visit can change Outreach Contact to Non-member."}</span>
   </div>
+  <p class="attendance-summary">{sundaySummary || "Recent Sunday attendance is unavailable."}</p>
   {#if person.contact_category === "do_not_contact"}<p class="contact-warning">Do not contact — recorded contact preference.</p>{/if}
   {#if statusUpdateError}<p class="error" role="alert">{statusUpdateError}</p>{/if}
 </section>
@@ -52,7 +48,7 @@
   .identity { display: flex; align-items: center; gap: 20px; } .identity-text { min-width: 0; } .avatar { flex-shrink: 0; width: 64px; height: 64px; display: grid; place-items: center; background: hsl(var(--primary) / .12); color: hsl(var(--primary)); border-radius: 16px; font-size: 24px; font-weight: 600; }
   .eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: hsl(var(--muted-foreground)); margin-bottom: 4px; } h1 { font-size: clamp(24px, 3vw, 32px); line-height: 1.2; font-weight: 600; letter-spacing: -.03em; overflow-wrap: anywhere; } .role, .preferred { color: hsl(var(--muted-foreground)); font-size: 13px; margin-top: 6px; } .role { text-transform: capitalize; }
   .contact-grid { display: grid; grid-template-columns: 1fr 1.5fr; gap: 20px 24px; margin-top: 24px; } .address { grid-column: 1 / -1; } .label { display: block; font-size: 12px; color: hsl(var(--muted-foreground)); margin-bottom: 4px; } .contact-value { display: flex; align-items: flex-start; gap: 8px; font-size: 14px; overflow-wrap: anywhere; } .contact-value a { color: hsl(var(--primary)); min-width: 0; } .missing { color: hsl(var(--muted-foreground)); }
-  .status-row { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; border-top: 1px solid hsl(var(--border)); margin-top: 24px; padding-top: 20px; } .status-row label { display: flex; gap: 8px; align-items: center; font-size: 12px; color: hsl(var(--muted-foreground)); } select { border: 1px solid hsl(var(--border)); border-radius: 8px; padding: 8px 10px; background: hsl(var(--background)); color: hsl(var(--foreground)); font-size: 13px; } .status-hint { color: hsl(var(--muted-foreground)); font-size: 12px; } .error, .contact-warning { margin-top: 16px; color: hsl(var(--warning)); font-size: 13px; }
+  .status-row { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; border-top: 1px solid hsl(var(--border)); margin-top: 24px; padding-top: 20px; } .status-row label { display: flex; gap: 8px; align-items: center; font-size: 12px; color: hsl(var(--muted-foreground)); } select { border: 1px solid hsl(var(--border)); border-radius: 8px; padding: 8px 10px; background: hsl(var(--background)); color: hsl(var(--foreground)); font-size: 13px; } .status-hint, .attendance-summary { color: hsl(var(--muted-foreground)); font-size: 12px; } .attendance-summary { margin-top: 12px; } .error, .contact-warning { margin-top: 16px; color: hsl(var(--warning)); font-size: 13px; }
   @media(min-width: 1050px) { .profile-header { display: grid; grid-template-columns: .9fr 1.1fr; gap: 0 24px; } .identity { align-self: start; padding-top: 8px; } .contact-grid { margin-top: 0; gap: 16px; } .contact-grid > div { grid-column: 1 / -1; } .status-row, .error, .contact-warning { grid-column: 1 / -1; } }
   @media(max-width: 600px) { .profile-header { padding: 20px; } .contact-grid { grid-template-columns: 1fr; } .identity { gap: 12px; } .avatar { width: 48px; height: 48px; font-size: 20px; } }
 </style>

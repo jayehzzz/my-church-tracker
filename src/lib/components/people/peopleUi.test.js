@@ -10,13 +10,13 @@ afterEach(cleanup);
 const person = { id: '1', first_name: 'Anne', last_name: 'Jones', member_status: 'member', activity_status: 'regular' };
 
 describe('people profile actions', () => {
-  it('connects activity and status choices to save handlers', async () => {
-    const onUpdateStatus = vi.fn(), onUpdateActivity = vi.fn();
-    const { getByLabelText } = render(ProfileHeader, { person, onUpdateStatus, onUpdateActivity });
+  it('lets church status be saved and shows recorded attendance separately', async () => {
+    const onUpdateStatus = vi.fn();
+    const { getByLabelText, getByText, queryByLabelText } = render(ProfileHeader, { person, onUpdateStatus, sundaySummary: '2 recorded Sunday visits in the last 6 past services.' });
     await fireEvent.change(getByLabelText('Church status'), { target: { value: 'guest' } });
-    await fireEvent.change(getByLabelText('Activity status'), { target: { value: 'irregular' } });
     expect(onUpdateStatus).toHaveBeenCalledWith('guest');
-    expect(onUpdateActivity).toHaveBeenCalledWith('irregular');
+    expect(queryByLabelText('Activity status')).toBeNull();
+    expect(getByText('2 recorded Sunday visits in the last 6 past services.')).toBeTruthy();
   });
   it('opens the real edit form for notes and distinguishes unknown boolean fields', async () => {
     const onEdit = vi.fn();
@@ -40,7 +40,7 @@ describe('people profile actions', () => {
     expect(details.getByText('Bacenta Leader')).toBeTruthy();
     expect(details.getByText('Basonta member')).toBeTruthy();
     expect(details.getByText('Not yet attended')).toBeTruthy();
-    expect(details.getByText(/First timer marks the first recorded visit/)).toBeTruthy();
+    expect(details.getByText(/First timer and returning guest describe visits/)).toBeTruthy();
     details.unmount();
 
     const quickView = render(ProfileQuickViewCard, { person: outreach });

@@ -331,7 +331,7 @@ export const addGuest = mutationFor("meetingPrograms:addGuest")({
         const now = new Date().toISOString();
         const id = await ctx.db.insert("people", {
             first_name: firstName, last_name: lastName, phone: phone || undefined,
-            member_status: "guest", entry_point: program.meeting_type === "bacenta" ? "bacenta_meeting" : "other",
+            member_status: "guest",
             created_at: now, updated_at: now,
         });
         const user = authenticatedUser(ctx);

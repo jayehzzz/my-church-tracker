@@ -105,57 +105,24 @@
   }
 
   function isExpectedPerson(person) {
-    return (
-      ["member", "leader"].includes(person?.member_status) &&
-      person?.activity_status !== "dormant"
-    );
-  }
-
-  function firstRecordedSunday(person) {
-    const personId = recordId(person);
-    const dates = (services || [])
-      .filter((service) =>
-        isSundayService(service) &&
-        (service.individuals || []).some((attendee) => recordId(attendee) === personId),
-      )
-      .map((service) => service.service_date)
-      .filter(Boolean)
-      .sort();
-    return dates[0] || null;
-  }
-
-  function attendanceStartInfo(person) {
-    const candidates = [
-      { value: person?.membership_date, source: "membership date" },
-      { value: person?.first_visit_date, source: "first visit" },
-      { value: firstRecordedSunday(person), source: "first recorded Sunday" },
-    ]
-      .map((candidate) => ({ ...candidate, date: parseDate(candidate.value) }))
-      .filter((candidate) => candidate.date)
-      .sort((a, b) => a.date.getTime() - b.date.getTime());
-    return candidates[0] || null;
+    return ["member", "leader"].includes(person?.member_status);
   }
 
   function wasExpected(person, serviceDate) {
-    const start = attendanceStartInfo(person);
-    const startDate = start?.date;
-    const date = parseDate(serviceDate);
-    // Imported/current member status alone does not prove somebody was expected
-    // at historical Sundays. Only assess absence after a dated church record.
-    if (!startDate || !date) return false;
-    return startDate <= date;
+    return commitmentsForPerson(person).some((commitment) =>
+      commitment.gathering_type === "sunday_service"
+      && commitment.gathering_date === serviceDate
+      && commitment.response === "yes"
+      && commitment.resolution === "no_show");
   }
 
   function statusForPerson(person, service) {
-    if (!wasExpected(person, service.service_date)) {
-      return { state: "not-expected", service };
-    }
     const personId = recordId(person);
     const attendeeIds = new Set(
       (service.individuals || []).map((attendee) => recordId(attendee)),
     );
     return {
-      state: attendeeIds.has(personId) ? "present" : "missed",
+      state: attendeeIds.has(personId) ? "present" : wasExpected(person, service.service_date) ? "missed" : "not-expected",
       service,
     };
   }
@@ -203,12 +170,7 @@
     const attended = fullHistory.filter((service) =>
       (service.individuals || []).some((attendee) => recordId(attendee) === personId),
     );
-    const recentStatuses = fullHistory.slice(-4).map((service) => {
-      if (!wasExpected(person, service.service_date)) return "not-expected";
-      return (service.individuals || []).some((attendee) => recordId(attendee) === personId)
-        ? "present"
-        : "missed";
-    });
+    const recentStatuses = fullHistory.slice(-4).map((service) => statusForPerson(person, service).state);
     return {
       lastAttendedService: attended[attended.length - 1] || null,
       recentPresentCount: recentStatuses.filter((state) => state === "present").length,
@@ -242,7 +204,7 @@
       }
       if (attendanceFilter === "missing") return row.missedCount > 0;
       if (attendanceFilter === "repeated") return row.missedCount > 1;
-      if (attendanceFilter === "present") return row.missedCount === 0;
+      if (attendanceFilter === "present") return row.expectedCount > 0 && row.missedCount === 0;
       return true;
     });
 
@@ -251,8 +213,8 @@
       if (sortOption === "name_asc") return nameComparison;
       if (sortOption === "name_desc") return -nameComparison;
       if (sortOption === "attendance_desc") {
-        const aRate = (a.expectedCount - a.missedCount) / a.expectedCount;
-        const bRate = (b.expectedCount - b.missedCount) / b.expectedCount;
+        const aRate = a.expectedCount ? (a.expectedCount - a.missedCount) / a.expectedCount : 0;
+        const bRate = b.expectedCount ? (b.expectedCount - b.missedCount) / b.expectedCount : 0;
         return bRate - aRate || nameComparison;
       }
       if (sortOption === "recent_desc") {
@@ -336,7 +298,7 @@
     const date = formatFullDate(status.service.service_date);
     if (status.state === "present") return `${name} was here on ${date}`;
     if (status.state === "missed") return `${name} missed ${date}`;
-    return `${date} was before ${name}'s tracked attendance period`;
+    return `No attendance result recorded for ${name} on ${date}`;
   }
 
   function openAttendanceSummary(row) {
@@ -390,10 +352,8 @@
     return personCommitments.filter((commitment) => dates.has(commitment.gathering_date));
   });
 
-  function attendanceScopeNote(person) {
-    const start = attendanceStartInfo(person);
-    if (!start) return "No dated membership, first-visit or attendance record is available, so historical absences are not inferred.";
-    return `Calculated from ${start.source} (${formatCompactDate(start.value)}). This is derived from recorded history, not a manually entered expected-Sundays value.`;
+  function attendanceScopeNote() {
+    return "Only recorded visits and resolved Sunday confirmations count here. A blank register does not establish that someone missed church.";
   }
 
   function openProfile(person, event) {
@@ -794,10 +754,10 @@
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-success">{modalSummary().attended}</p><p class="text-xs text-muted-foreground">Sundays here</p></div>
         <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-destructive">{modalSummary().missed}</p><p class="text-xs text-muted-foreground">Sundays missed</p></div>
-        <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-primary">{modalSummary().rate}%</p><p class="text-xs text-muted-foreground">Attendance rate</p></div>
-        <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-foreground">{modalSummary().expected}</p><p class="text-xs text-muted-foreground">Sundays assessed</p></div>
+        <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-primary">{modalSummary().rate}%</p><p class="text-xs text-muted-foreground">Recorded result rate</p></div>
+        <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-foreground">{modalSummary().expected}</p><p class="text-xs text-muted-foreground">Sundays with results</p></div>
         <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-foreground">{modalSummary().lastAttended ? formatCompactDate(modalSummary().lastAttended.service_date) : "—"}</p><p class="text-xs text-muted-foreground">Last Sunday attended</p></div>
-        <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-success">{selectedAttendanceRow.recentPresentCount}/{selectedAttendanceRow.recentExpectedCount}</p><p class="text-xs text-muted-foreground">Recent 4 Sundays</p></div>
+        <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-success">{selectedAttendanceRow.recentPresentCount}/{selectedAttendanceRow.recentExpectedCount}</p><p class="text-xs text-muted-foreground">Resolved results in last 4 Sundays</p></div>
       </div>
 
       {#if commitmentsUnavailable}
@@ -826,7 +786,7 @@
             >
               <span class="text-sm text-foreground">{formatFullDate(status.service.service_date)}</span>
               <span class="rounded-full px-2 py-1 text-xs font-semibold {status.state === 'present' ? 'bg-success/10 text-success' : status.state === 'missed' ? 'bg-destructive/10 text-destructive' : 'bg-secondary text-muted-foreground'}">
-                {status.state === "present" ? "Here" : status.state === "missed" ? "Missed" : "Before tracked period"}
+                {status.state === "present" ? "Here" : status.state === "missed" ? "Missed after saying yes" : "No result recorded"}
               </span>
             </button>
           {:else}

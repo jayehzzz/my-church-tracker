@@ -4,8 +4,8 @@
 
   /**
    * Sunday view. Three visually distinct groups: outreach contacts/non-members who said yes
-   * (owned by follow-up), regular members (expected unless marked away) and
-   * members who are away. A summary strip at the top gives the counts and
+   * (owned by follow-up), members with dated plans and members who are away.
+   * A summary strip at the top gives the counts and
    * lets the leader focus on one group. Before the service the lists are about
    * confirming; after it they are about recording who actually came.
    */
@@ -18,6 +18,7 @@
     savingIds = [],
     onStatusChange = () => {},
     onResolve = () => {},
+    onCorrectCommitment = () => {},
     onOpen = () => {},
     onPreviousSunday = () => {},
     onNextSunday = () => {},
@@ -87,7 +88,7 @@
     if (status === 'attended') return 'Attended';
     if (status === 'absent') return 'Didn’t attend';
     if (status === 'confirmed') return 'Confirmed';
-    return status === 'away' ? 'Away' : 'Expected';
+    return status === 'away' ? 'Away' : 'No plan';
   }
 
   function nonMemberJourney(person) {
@@ -139,8 +140,9 @@
   const newcomerActive = $derived(newcomers.filter((row) => row.status !== 'Cancelled').length);
 
   const members = $derived((roster || []).map((person) => ({ person, status: memberStatus(person) })));
-  const expectedMembers = $derived(members.filter((row) => row.status !== 'Away').sort((a, b) => personName(a.person).localeCompare(personName(b.person))));
+  const expectedMembers = $derived(members.filter((row) => !['Away', 'No plan'].includes(row.status)).sort((a, b) => personName(a.person).localeCompare(personName(b.person))));
   const awayMembers = $derived(members.filter((row) => row.status === 'Away').sort((a, b) => personName(a.person).localeCompare(personName(b.person))));
+  const unplannedMembers = $derived(members.filter((row) => row.status === 'No plan').sort((a, b) => personName(a.person).localeCompare(personName(b.person))));
   const searchedMembers = $derived(expectedMembers.filter((row) => personName(row.person).toLowerCase().includes(memberSearch.trim().toLowerCase())));
   const memberConfirmed = $derived(expectedMembers.filter((row) => row.status === 'Confirmed').length);
   const memberPending = $derived(expectedMembers.filter((row) => row.status === 'Expected' || row.status === 'Confirmed').length);
@@ -165,7 +167,7 @@
     },
     {
       id: 'member',
-      label: 'Regular members expected',
+      label: 'Members with a Sunday plan',
       count: expectedMembers.length,
       accent: 'bg-foreground',
       detail: afterService
@@ -329,6 +331,7 @@
             {:else}
               <Badge size="sm" variant={statusVariant(row.status)} dot>{row.status}</Badge>
             {/if}
+            <div class="flex shrink-0 gap-2"><Button size="sm" variant="ghost" onclick={() => onCorrectCommitment(row.commitment, 'response')}>Change response</Button><Button size="sm" variant="ghost" onclick={() => onCorrectCommitment(row.commitment, 'mistake')}>Correct a mistake</Button></div>
           </div>
         {/each}
       </div>
@@ -356,7 +359,7 @@
 
   {#if showSection('member')}
   <section aria-labelledby="members-title" class="overflow-hidden rounded-xl border border-border bg-card">
-    {@render sectionHeader('members-title', 'Regular members', afterService ? 'Record who came. Members not marked are still expected.' : 'Expected unless marked away. Confirm the ones you have spoken to.', expectedMembers.length, 'member')}
+    {@render sectionHeader('members-title', 'Members with a Sunday plan', afterService ? 'Record results for confirmed plans.' : 'People with a dated plan for this Sunday.', expectedMembers.length, 'member')}
     {#if expectedMembers.length > 6}
       <div class="border-b border-border bg-secondary/20 px-5 py-3">
         <label class="block sm:w-72">
@@ -366,16 +369,16 @@
       </div>
     {/if}
     {#if searchedMembers.length === 0}
-      <p class="px-5 py-10 text-center text-sm text-muted-foreground">{expectedMembers.length ? 'No members match this search.' : 'No regular members are expected.'}</p>
+      <p class="px-5 py-10 text-center text-sm text-muted-foreground">{expectedMembers.length ? 'No members match this search.' : 'No member plans recorded yet.'}</p>
     {:else}
-      <div class="max-h-[36rem] divide-y divide-border overflow-y-auto" role="list" aria-label="Regular members this Sunday">
+      <div class="max-h-[36rem] divide-y divide-border overflow-y-auto" role="list" aria-label="Members with a Sunday plan">
         {#each searchedMembers as row (personId(row.person))}
           <div class="flex flex-col gap-3 px-5 py-3 sm:flex-row sm:items-center sm:justify-between" role="listitem">
             <div class="flex min-w-0 items-center gap-3">
               {@render avatar(row.person, 'member')}
               <div class="min-w-0">
                 <button type="button" class="truncate text-left text-sm font-semibold text-foreground hover:underline" onclick={() => onOpen(row.person)}>{personName(row.person)}</button>
-                <p class="mt-0.5 text-xs text-muted-foreground">Regular member</p>
+                <p class="mt-0.5 text-xs text-muted-foreground">Member</p>
                 {#if row.person.attendance_plan?.notes}<p class="mt-1 text-xs text-muted-foreground"><span class="font-medium text-foreground">Latest note:</span> {row.person.attendance_plan.notes}</p>{/if}
               </div>
             </div>
@@ -401,7 +404,7 @@
   <section aria-labelledby="away-title" class="overflow-hidden rounded-xl border border-dashed border-border bg-card/60">
     {@render sectionHeader('away-title', 'Away this Sunday', 'Members who told us they will not be there. They are not in the expected total.', awayMembers.length, 'away')}
     {#if awayMembers.length === 0}
-      <p class="px-5 py-8 text-center text-sm text-muted-foreground">No member is marked away. Use “Mark away” on a regular member to move them here.</p>
+      <p class="px-5 py-8 text-center text-sm text-muted-foreground">No member is marked away.</p>
     {:else}
       <div class="divide-y divide-border" role="list" aria-label="Members away this Sunday">
         {#each awayMembers as row (personId(row.person))}
@@ -410,14 +413,31 @@
               {@render avatar(row.person, 'away')}
               <div class="min-w-0">
                 <button type="button" class="truncate text-left text-sm font-semibold text-muted-foreground hover:underline" onclick={() => onOpen(row.person)}>{personName(row.person)}</button>
-                <p class="mt-0.5 text-xs text-muted-foreground">Regular member · away</p>
+                <p class="mt-0.5 text-xs text-muted-foreground">Member · away</p>
               </div>
             </div>
-            <Button size="sm" variant="secondary" loading={isSaving(row.person)} onclick={() => onStatusChange(row.person, 'expected')}>Expected instead</Button>
+            <Button size="sm" variant="secondary" loading={isSaving(row.person)} onclick={() => onStatusChange(row.person, 'expected')}>Clear away</Button>
           </div>
         {/each}
       </div>
     {/if}
+  </section>
+  {/if}
+
+  {#if unplannedMembers.length}
+  <section aria-labelledby="unplanned-title" class="overflow-hidden rounded-xl border border-border bg-card">
+    {@render sectionHeader('unplanned-title', 'Members without a Sunday plan', 'A plan can be recorded after speaking to them. They are not counted as expected.', unplannedMembers.length, 'member')}
+    <div class="divide-y divide-border" role="list" aria-label="Members without a Sunday plan">
+      {#each unplannedMembers as row (personId(row.person))}
+        <div class="flex items-center justify-between gap-3 px-5 py-3" role="listitem">
+          <button type="button" class="text-left text-sm font-medium hover:underline" onclick={() => onOpen(row.person)}>{personName(row.person)}</button>
+          <div class="flex gap-2">
+            <Button size="sm" loading={isSaving(row.person)} onclick={() => onStatusChange(row.person, 'confirmed')}>Confirm</Button>
+            <Button size="sm" variant="ghost" disabled={isSaving(row.person)} onclick={() => onStatusChange(row.person, 'away')}>Away</Button>
+          </div>
+        </div>
+      {/each}
+    </div>
   </section>
   {/if}
 </div>

@@ -12,6 +12,7 @@ import type * as access from "../access.js";
 import type * as attendance from "../attendance.js";
 import type * as churchImport from "../churchImport.js";
 import type * as churchSettings from "../churchSettings.js";
+import type * as corrections from "../corrections.js";
 import type * as crm from "../crm.js";
 import type * as crons from "../crons.js";
 import type * as evangelism from "../evangelism.js";
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   attendance: typeof attendance;
   churchImport: typeof churchImport;
   churchSettings: typeof churchSettings;
+  corrections: typeof corrections;
   crm: typeof crm;
   crons: typeof crons;
   evangelism: typeof evangelism;

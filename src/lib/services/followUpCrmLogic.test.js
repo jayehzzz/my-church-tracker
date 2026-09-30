@@ -160,14 +160,15 @@ describe('attendance forecasting', () => {
 
     expect(forecast).toMatchObject({
       service_date: '2026-08-30',
-      regular_baseline: 2,
+      regular_baseline: 0,
       known_away: 1,
-      confirmed_irregular: 1,
+      confirmed_irregular: 0,
+      confirmed_members: 2,
       confirmed_outreach_contacts: 1,
       confirmed_returning_guests: 1,
       confirmed_non_members: 2,
       confirmed_guests: 2,
-      confirmed_regular: 1,
+      confirmed_regular: 0,
       confirmed_total: 4,
       expected_total: 4
     });

@@ -292,7 +292,7 @@
             </label>
           {/each}
         </div>
-        <p class="mt-3 text-xs text-muted-foreground">{memberIds.size} regular people expected</p>
+        <p class="mt-3 text-xs text-muted-foreground">{memberIds.size} people on this programme roster</p>
       </div>
     {/if}
 

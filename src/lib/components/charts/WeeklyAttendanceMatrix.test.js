@@ -42,11 +42,12 @@ const services = [
     individuals: ["person-1", "person-2"],
   },
 ];
+const confirmedMiss = [{ id: "confirmed-miss", person_id: "person-1", gathering_type: "sunday_service", gathering_date: "2026-08-30", response: "yes", resolution: "no_show" }];
 
 describe("WeeklyAttendanceMatrix", () => {
-  it("shows expected people and identifies who missed each Sunday", () => {
+  it("shows recorded visits and only identifies a confirmed no-show as missed", () => {
     const { getByRole, queryByText } = render(WeeklyAttendanceMatrix, {
-      props: { services, people },
+      props: { services, people, commitments: confirmedMiss },
     });
 
     expect(
@@ -68,7 +69,7 @@ describe("WeeklyAttendanceMatrix", () => {
   it("opens the selected service from an attendance cell", async () => {
     const onServiceClick = vi.fn();
     const { getByRole } = render(WeeklyAttendanceMatrix, {
-      props: { services, people, onServiceClick },
+      props: { services, people, commitments: confirmedMiss, onServiceClick },
     });
 
     await fireEvent.click(
@@ -216,7 +217,7 @@ describe("WeeklyAttendanceMatrix", () => {
   it("searches people and filters attendance status", async () => {
     const { getByLabelText, getByText, queryByText } = render(
       WeeklyAttendanceMatrix,
-      { props: { services, people } },
+      { props: { services, people, commitments: confirmedMiss } },
     );
 
     await fireEvent.input(getByLabelText("Search people"), {
@@ -238,7 +239,7 @@ describe("WeeklyAttendanceMatrix", () => {
   it("focuses on a specific Sunday and sorts the visible people", async () => {
     const { getByLabelText, getAllByRole, getByRole, queryByRole } = render(
       WeeklyAttendanceMatrix,
-      { props: { services, people } },
+      { props: { services, people, commitments: confirmedMiss } },
     );
 
     await fireEvent.change(getByLabelText("Sunday"), {
@@ -287,7 +288,7 @@ describe("WeeklyAttendanceMatrix", () => {
     await fireEvent.click(row);
 
     expect(getByRole("heading", { name: "Ama Mensah · Sunday attendance" })).toBeDefined();
-    expect(getByText("Attendance rate")).toBeDefined();
+    expect(getByText("Recorded result rate")).toBeDefined();
     expect(getByText("Sunday-by-Sunday history")).toBeDefined();
   });
 
@@ -350,10 +351,9 @@ describe("WeeklyAttendanceMatrix", () => {
 
     await fireEvent.click(getByText("Imported Member").closest("tr"));
 
-    expect(getByText("Sundays assessed")).toBeDefined();
+    expect(getByText("Sundays with results")).toBeDefined();
     expect(queryByText("Expected Sundays")).toBeNull();
-    expect(getByText(/Calculated from first recorded Sunday \(23 Aug\)/)).toBeDefined();
-    expect(getByText(/not a manually entered expected-Sundays value/)).toBeDefined();
+    expect(getByText(/Only recorded visits and resolved Sunday confirmations count here/)).toBeDefined();
   });
 
   it("quick-filters a person's modal history by attendance status", async () => {
@@ -361,7 +361,7 @@ describe("WeeklyAttendanceMatrix", () => {
       Element.prototype.animate = () => ({ cancel() {}, finish() {}, play() {}, pause() {}, reverse() {} });
     }
     const { getByText, getByRole } = render(WeeklyAttendanceMatrix, {
-      props: { services, people },
+      props: { services, people, commitments: confirmedMiss },
     });
 
     await fireEvent.click(getByText("Ama Mensah").closest("tr"));
@@ -375,6 +375,6 @@ describe("WeeklyAttendanceMatrix", () => {
     expect(dialog.getByText("Sun, 30 Aug 2026")).toBeDefined();
     expect(dialog.getByText("Sundays here").closest("div")).toHaveTextContent("0Sundays here");
     expect(dialog.getByText("Sundays missed").closest("div")).toHaveTextContent("1Sundays missed");
-    expect(dialog.getByText("Sundays assessed").closest("div")).toHaveTextContent("1Sundays assessed");
+    expect(dialog.getByText("Sundays with results").closest("div")).toHaveTextContent("1Sundays with results");
   });
 });

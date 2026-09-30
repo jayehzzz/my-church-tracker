@@ -95,7 +95,7 @@
     <div>
       <h2 id="member-care-title" class="text-lg font-semibold text-foreground">{title}</h2>
       <p class="mt-1 text-sm text-muted-foreground">
-        Check in with regular members who may need support or pastoral care.
+        Check in with members who may need support or pastoral care.
       </p>
     </div>
     <Badge variant={careTasks.length > 0 ? 'warning' : 'default'}>{careTasks.length} to check in</Badge>

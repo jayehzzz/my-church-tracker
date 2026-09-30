@@ -5,13 +5,13 @@ const CARE_SIGNAL_COOLDOWN_DAYS = 7;
 export const CARE_SIGNAL_DEFINITIONS = [
   {
     id: "dormant",
-    label: "No attendance",
-    trigger: "A member or leader attended 0 of the last 6 recorded Sunday services.",
+    label: "No recorded Sunday visits",
+    trigger: "A member or leader has 0 recorded visits in the last 6 Sunday services; check whether records are complete.",
   },
   {
     id: "irregular",
-    label: "Low attendance",
-    trigger: "A member or leader attended 1–3 of the last 6 recorded Sunday services.",
+    label: "Fewer recorded Sunday visits",
+    trigger: "A member or leader has 1–3 recorded visits in the last 6 Sunday services; check their circumstances.",
   },
   {
     id: "missed_sundays",
@@ -85,7 +85,7 @@ export function findConsecutiveAbsences({
 
   return people
     .filter((person) => ["member", "leader"].includes(person.member_status))
-    .filter((person) => person.activity_status === "regular")
+    .filter((person) => attendance.some((record) => String(record.person_id) === String(recordId(person)) && record.attended !== false && record.status !== "absent"))
     .filter((person) =>
       recentServices.every((service) =>
         !attendeesByService.get(String(recordId(service)))?.has(String(recordId(person))),
@@ -121,6 +121,8 @@ export function buildAttendanceCareSignals({
   const latestTwo = recentServices.slice(0, 2);
   return people
     .filter((person) => ["member", "leader"].includes(person.member_status))
+    // A person with no visit history cannot be assessed from missing records.
+    .filter((person) => attendance.some((record) => String(record.person_id) === String(recordId(person)) && record.attended !== false && record.status !== "absent"))
     .map((person) => {
       const personId = String(recordId(person));
       const attendedCount = recentServices.filter((service) =>
@@ -200,7 +202,7 @@ export function buildCareCandidates({
           person,
           person_id: id,
           signal_type: "dormant",
-          reason: `Attended 0 of the last ${attendanceSignal.service_count} Sunday services — arrange a personal visit`,
+          reason: `0 recorded visits in the last ${attendanceSignal.service_count} Sunday services — check records and arrange a personal visit if needed`,
           priority: "urgent",
           purpose: "attendance_concern",
           attendance_count: 0,
@@ -214,7 +216,7 @@ export function buildCareCandidates({
           person,
           person_id: id,
           signal_type: "irregular",
-          reason: `Attended ${attendanceSignal.attended_count} of the last ${attendanceSignal.service_count} Sunday services — check in and understand what support is needed`,
+          reason: `${attendanceSignal.attended_count} recorded visits in the last ${attendanceSignal.service_count} Sunday services — check records and ask what support is needed`,
           priority: "high",
           purpose: "attendance_concern",
           attendance_count: attendanceSignal.attended_count,
@@ -231,7 +233,7 @@ export function buildCareCandidates({
           person,
           person_id: id,
           signal_type: "missed_sundays",
-          reason: `Missed the two most recent Sunday services${overallAttendance} — arrange a personal check-in`,
+          reason: `No recorded visit at the two most recent Sunday services${overallAttendance} — check records and arrange a personal check-in if needed`,
           priority: "high",
           purpose: "attendance_concern",
           attendance_count: attendanceSignal.attended_count,

@@ -125,8 +125,8 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
     const person = await ctx.db.get(personId);
     if (!person) return;
     const events = await personGatherings(ctx, personId);
-    const commitments = await ctx.db.query("gathering_commitments").withIndex("by_person", q => q.eq("person_id", personId)).collect();
-    const interactions = await ctx.db.query("follow_ups").withIndex("by_contact", q => q.eq("contact_id", personId)).collect();
+    const commitments = (await ctx.db.query("gathering_commitments").withIndex("by_person", q => q.eq("person_id", personId)).collect()).filter(c => !c.entered_in_error);
+    const interactions = (await ctx.db.query("follow_ups").withIndex("by_contact", q => q.eq("contact_id", personId)).collect()).filter(f => !f.entered_in_error);
     for (const c of commitments) {
         let event = c.service_id || c.meeting_id ? events.find(e => c.service_id ? e.serviceId === c.service_id : e.meetingId === c.meeting_id) : undefined;
         if (!c.service_id && !c.meeting_id && c.resolution !== "cancelled") {
@@ -161,19 +161,19 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
             coveredDays.add(event.date);
         }
     }
-    const refreshed = await ctx.db.query("gathering_commitments").withIndex("by_person", q => q.eq("person_id", personId)).collect();
-    const followUps = await ctx.db.query("follow_ups").withIndex("by_contact", q => q.eq("contact_id", personId)).collect();
+    const refreshed = (await ctx.db.query("gathering_commitments").withIndex("by_person", q => q.eq("person_id", personId)).collect()).filter(c => !c.entered_in_error);
+    const followUps = (await ctx.db.query("follow_ups").withIndex("by_contact", q => q.eq("contact_id", personId)).collect()).filter(f => !f.entered_in_error);
     for (const f of followUps.filter(f => f.promised_date)) {
         const matches = events.filter(e => e.date === f.promised_date && (e.type === (f.gathering_type ?? "sunday_service") || ((!f.gathering_type || f.gathering_type === "sunday_service") && e.sunday)));
         const choices = await candidates(ctx, f.gathering_type ?? "sunday_service", f.promised_date!);
         await ctx.db.patch(f._id, { promise_fulfilled: matches.length > 0 && choices.length === 1 ? true : f.promise_fulfilled === true ? undefined : f.promise_fulfilled });
     }
     const baseline: any = person.attendance_milestones ?? {
-        first_visit_date: person.first_visit_date, entry_point: person.entry_point,
+        first_visit_date: person.first_visit_date,
         pipeline_stage: person.pipeline_stage, warmth_score: person.warmth_score,
     };
     // Preserve later manual profile corrections instead of overwriting them.
-    if (person.attendance_milestones) for (const field of ["first_visit_date", "entry_point", "pipeline_stage", "warmth_score"] as const) {
+    if (person.attendance_milestones) for (const field of ["first_visit_date", "pipeline_stage", "warmth_score"] as const) {
         if (person[field] !== baseline[`applied_${field}`]) baseline[field] = person[field];
     }
     const earliest = events[0];
@@ -208,7 +208,6 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
     const stage = latestNoShow && (!events.length || latestNoShow >= events.at(-1)!.date) ? "no_show" : earliest ? "showed_up" : baseline.pipeline_stage;
     const derived: any = {
         first_visit_date: earliest && (!baseline.first_visit_date || earliest.date < baseline.first_visit_date) ? earliest.date : baseline.first_visit_date,
-        entry_point: baseline.entry_point || earliest?.entry,
         pipeline_stage: canFollowUp(person) ? stage : baseline.pipeline_stage,
         warmth_score: earliest && canFollowUp(person) ? "hot" : baseline.warmth_score,
     };
@@ -259,7 +258,7 @@ async function finalizeRecordedSundayExpectations(ctx: MutationCtx, serviceId: I
     const resolvedAt = now();
 
     for (const commitment of commitments) {
-        if (commitment.response !== "yes" || commitment.resolution !== "pending" || attendedIds.has(commitment.person_id)) continue;
+        if (commitment.entered_in_error || commitment.response !== "yes" || commitment.resolution !== "pending" || attendedIds.has(commitment.person_id)) continue;
         await ctx.db.patch(commitment._id, {
             resolution: "no_show",
             attendance_previous_status: commitment.attendance_previous_status ?? commitment.resolution,
@@ -331,6 +330,24 @@ export async function syncServiceAttendance(ctx: MutationCtx, serviceId: Id<"ser
     await reconcileServiceCounts(ctx, serviceId, explicit);
     await reconcilePeople(ctx, [...existing.map(r => r.person_id), ...data.map(r => r.person_id)]);
     await finalizeRecordedSundayExpectations(ctx, serviceId, data.length > 0 || Number(explicit?.total_attendance || 0) > 0);
+}
+
+export async function confirmExplicitFirstVisit(ctx: MutationCtx, personId: Id<"people">, serviceId: Id<"services">) {
+    const attendance = await serviceRows(ctx, serviceId);
+    if (!attendance.some(row => row.person_id === personId)) throw new Error("Record this person's attendance before confirming a first visit");
+    const evidence = await ctx.db.query("attendance_visit_evidence")
+        .withIndex("by_person", q => q.eq("person_id", personId)).collect();
+    if (evidence.some(row => row.kind === "explicit_first_visit" && row.service_id === serviceId)) return;
+    if (evidence.some(row => row.kind === "explicit_first_visit")) {
+        throw new Error("A first visit is already confirmed for this person at another service");
+    }
+    await ctx.db.insert("attendance_visit_evidence", {
+        person_id: personId,
+        service_id: serviceId,
+        kind: "explicit_first_visit",
+        source_key: `app:confirmed-first-visit:${serviceId}:${personId}`,
+        created_at: now(),
+    });
 }
 export async function deleteGathering(ctx: MutationCtx, g: Gathering) {
     const id = g.serviceId ?? g.meetingId!;

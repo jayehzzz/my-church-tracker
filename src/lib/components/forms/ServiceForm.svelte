@@ -21,6 +21,7 @@
   let people = $state([]);
   let selectedPersonIds = $state(new Set());
   let attendanceMetadata = $state({});
+  let confirmedExistingIds = $state(new Set());
   let priorAttendance = $state({});
   let loadingPeople = $state(false);
   let attendanceDataLoaded = $state(false);
@@ -108,6 +109,7 @@
     }));
     initialFormSnapshot = JSON.stringify(nextFormData);
     attendanceDataLoaded = false;
+    confirmedExistingIds = new Set();
   });
 
   function emptyForm() {
@@ -166,7 +168,9 @@
             gave_tithe: Boolean(record.gave_tithe),
             made_salvation_decision: Boolean(record.made_salvation_decision),
             first_timer: Boolean(record.first_timer),
+            explicit_first_visit: Boolean(record.explicit_first_visit),
           }]));
+          confirmedExistingIds = new Set(records.filter((record) => record.explicit_first_visit).map((record) => record.person_id));
         } else {
           selectedPersonIds = new Set();
           attendanceMetadata = {};
@@ -198,6 +202,7 @@
         [id]: {
           ...(attendanceMetadata[id] || {}),
           first_timer: isFirstGuestVisit,
+          explicit_first_visit: confirmedExistingIds.has(id) || Boolean(attendanceMetadata[id]?.explicit_first_visit),
         },
       };
     }
@@ -206,6 +211,7 @@
 
   function toggleMetadata(id, field) {
     if (!selectedPersonIds.has(id)) return;
+    if (field === "explicit_first_visit" && confirmedExistingIds.has(id)) return;
     const current = attendanceMetadata[id] || {};
     attendanceMetadata = {
       ...attendanceMetadata,
@@ -250,7 +256,6 @@
         last_name: quickAddData.last_name.trim(),
         phone: quickAddData.phone.trim() || undefined,
         member_status: "guest",
-        entry_point: "sunday_service",
       });
       if (result.error) throw result.error;
       const newPerson = result.data;
@@ -259,7 +264,7 @@
       selectedPersonIds = new Set([...selectedPersonIds, id]);
       attendanceMetadata = {
         ...attendanceMetadata,
-        [id]: { first_timer: true, gave_tithe: false, made_salvation_decision: false },
+        [id]: { first_timer: true, explicit_first_visit: true, gave_tithe: false, made_salvation_decision: false },
       };
       priorAttendance = { ...priorAttendance, [id]: false };
       quickAddData = { first_name: "", last_name: "", phone: "" };
@@ -412,7 +417,7 @@
     {:else if activeStep === 2}
       <section class="space-y-4" aria-labelledby="service-attendance-title">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div><h3 id="service-attendance-title" class="text-base font-semibold text-foreground">Record named attendance</h3><p class="mt-1 text-sm text-muted-foreground">Check in the people you know. A first timer is on their first recorded visit; a returning guest has attended before. The final headcount can include unnamed attendees.</p></div>
+          <div><h3 id="service-attendance-title" class="text-base font-semibold text-foreground">Record named attendance</h3><p class="mt-1 text-sm text-muted-foreground">Check in the people you know. Confirm a first timer when you know this was their first visit. The final headcount can include unnamed attendees.</p></div>
           <div class="flex gap-4 rounded-lg bg-secondary/25 px-4 py-2 text-center">
             <div><p class="text-lg font-semibold text-foreground">{namedSummary.named}</p><p class="text-[11px] text-muted-foreground">Checked in</p></div>
             <div><p class="text-lg font-semibold text-info">{namedSummary.returningGuests}</p><p class="text-[11px] text-muted-foreground">Returning guests</p></div>
@@ -435,7 +440,7 @@
 
         {#if showQuickAdd}
           <div class="rounded-xl border border-primary/25 bg-primary/5 p-4">
-            <div><h4 class="text-sm font-semibold text-foreground">Add a first timer</h4><p class="mt-1 text-xs text-muted-foreground">They will be added to the People Directory and checked into this service.</p></div>
+            <div><h4 class="text-sm font-semibold text-foreground">Add a first timer</h4><p class="mt-1 text-xs text-muted-foreground">They will be added to the People Directory, checked in, and confirmed as a first timer for this service.</p></div>
             {#if quickAddError}<p class="mt-3 text-xs text-destructive" role="alert">{quickAddError}</p>{/if}
             <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Input label="First Name" bind:value={quickAddData.first_name} required disabled={quickAddSaving} />
@@ -464,7 +469,8 @@
                     <div class="mt-2 flex flex-wrap gap-1.5 border-t border-border/60 pl-9 pt-2" aria-label={`Attendance outcomes for ${personName(person)}`}>
                       <button type="button" class="rounded-full border px-2.5 py-1 text-[11px] font-medium {attendanceMetadata[id]?.gave_tithe ? 'border-success/40 bg-success/10 text-success' : 'border-border text-muted-foreground hover:text-foreground'}" aria-pressed={Boolean(attendanceMetadata[id]?.gave_tithe)} onclick={() => toggleMetadata(id, "gave_tithe")}>Tither</button>
                       <button type="button" class="rounded-full border px-2.5 py-1 text-[11px] font-medium {attendanceMetadata[id]?.made_salvation_decision ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border text-muted-foreground hover:text-foreground'}" aria-pressed={Boolean(attendanceMetadata[id]?.made_salvation_decision)} onclick={() => toggleMetadata(id, "made_salvation_decision")}>Salvation decision</button>
-                      {#if attendanceMetadata[id]?.first_timer}<span class="rounded-full border border-success/40 bg-success/10 px-2.5 py-1 text-[11px] font-medium text-success">First-timer visit</span>{/if}
+                      <button type="button" class="rounded-full border px-2.5 py-1 text-[11px] font-medium {attendanceMetadata[id]?.explicit_first_visit ? 'border-success/40 bg-success/10 text-success' : 'border-border text-muted-foreground hover:text-foreground'}" aria-pressed={Boolean(attendanceMetadata[id]?.explicit_first_visit)} disabled={confirmedExistingIds.has(id)} onclick={() => toggleMetadata(id, "explicit_first_visit")}>Confirmed first timer</button>
+                      {#if attendanceMetadata[id]?.first_timer && !attendanceMetadata[id]?.explicit_first_visit}<span class="rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground">First recorded visit</span>{/if}
                     </div>
                   {/if}
                 </article>

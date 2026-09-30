@@ -6,6 +6,8 @@ import {
   mockEvangelismContacts,
   mockMeetings,
   mockPeople,
+  mockServices,
+  mockAttendance,
   mockVisitations,
 } from "$lib/data/mockData.js";
 import {
@@ -231,29 +233,24 @@ function seedLocalState() {
     };
   });
 
-  const regularMembers = mockPeople.filter(
-    (person) =>
-      ["member", "leader"].includes(person.member_status) && person.activity_status === "regular",
-  );
-  const irregularMembers = mockPeople.filter(
-    (person) =>
-      ["member", "leader"].includes(person.member_status) && person.activity_status !== "regular",
+  const [firstDemoMember, secondDemoMember] = mockPeople.filter(
+    (person) => ["member", "leader"].includes(person.member_status),
   );
   const attendancePlans = [];
-  if (regularMembers[0] && leaders[0]) {
+  if (firstDemoMember && leaders[0]) {
     attendancePlans.push({
       _id: "demo-plan-away",
-      person_id: regularMembers[0].id || regularMembers[0]._id,
+      person_id: firstDemoMember.id || firstDemoMember._id,
       leader_id: leaders[0].id || leaders[0]._id,
       service_date: sunday,
       status: "away",
       notes: "Known absence",
     });
   }
-  if (irregularMembers[0] && leaders[0]) {
+  if (secondDemoMember && leaders[0]) {
     attendancePlans.push({
       _id: "demo-plan-confirmed",
-      person_id: irregularMembers[0].id || irregularMembers[0]._id,
+      person_id: secondDemoMember.id || secondDemoMember._id,
       leader_id: leaders[0].id || leaders[0]._id,
       service_date: sunday,
       status: "confirmed",
@@ -552,7 +549,7 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
             String(plan.person_id) === String(person._id || person.id) &&
             plan.service_date === targetSunday,
         ) || null,
-      default_expected: person.activity_status === "regular",
+      default_expected: false,
       expected: forecast.expected_person_ids.includes(String(person._id || person.id))
         || forecast.expected_person_ids.includes(person._id || person.id),
     }))
@@ -737,11 +734,11 @@ function normalizeDashboard(data, source) {
       known_away: forecast.known_away ?? forecast.regular_away ?? 0,
       expected_total: forecast.expected_total ?? forecast.total_expected ?? 0,
       confirmed_regular: forecast.confirmed_regular ?? 0,
+      confirmed_members: forecast.confirmed_members ?? ((forecast.confirmed_regular ?? 0) + (forecast.confirmed_irregular ?? 0)),
       confirmed_non_members: forecast.confirmed_non_members ?? forecast.confirmed_guests ?? 0,
       confirmed_total:
         forecast.confirmed_total
-        ?? ((forecast.confirmed_regular ?? 0)
-          + (forecast.confirmed_irregular ?? 0)
+        ?? ((forecast.confirmed_members ?? ((forecast.confirmed_regular ?? 0) + (forecast.confirmed_irregular ?? 0)))
           + (forecast.confirmed_non_members ?? forecast.confirmed_guests ?? 0)),
     },
     source,
@@ -773,6 +770,50 @@ export async function getDashboard(options = {}) {
     async (client) => await client.query(api.crm.getDashboard, args),
     () => buildLocalDashboard(options),
   );
+}
+
+export async function getJourneyOverview(options = {}) {
+  const client = getClient();
+  if (!client) {
+    if (!isDemoMode()) return { data: null, error: unavailableError(), source: "unavailable" };
+    const eventsByPerson = new Map();
+    const peopleById = new Map(mockPeople.map(person => [String(person._id || person.id), person]));
+    for (const row of mockAttendance) {
+      const service = mockServices.find(item => String(item._id || item.id) === String(row.service_id));
+      const person = peopleById.get(String(row.person_id));
+      if (!service || !person) continue;
+      const events = eventsByPerson.get(String(row.person_id)) || [];
+      events.push({ id: service.id, date: service.service_date, label: service.service_type.replaceAll("_", " "), time: service.service_time, location: service.location });
+      eventsByPerson.set(String(row.person_id), events);
+    }
+    for (const meeting of mockMeetings) {
+      for (const id of meeting.attendees || []) {
+        const events = eventsByPerson.get(String(id)) || [];
+        events.push({ id: meeting.id, date: meeting.meeting_date, label: meeting.title || meeting.meeting_type.replaceAll("_", " "), time: meeting.start_time, location: meeting.location });
+        eventsByPerson.set(String(id), events);
+      }
+    }
+    const firstTimers = [...eventsByPerson.entries()].flatMap(([id, events]) => {
+      const person = peopleById.get(id);
+      const first = events.sort((a, b) => a.date.localeCompare(b.date))[0];
+      if (!person || !first) return [];
+      return [{ person: { id, first_name: person.first_name, last_name: person.last_name, phone: person.phone, email: person.email, member_status: person.member_status }, events: [first], assigned_worker: null, date_only: false }];
+    });
+    return {
+      data: {
+        first_timers: options.leaderId ? [] : firstTimers,
+        new_converts: [],
+        unnamed_decisions: options.leaderId ? [] : mockServices.filter(service => service.salvation_decisions > 0).map(service => ({ date: service.service_date, label: service.service_type.replaceAll("_", " "), count: service.salvation_decisions })),
+        unnamed_decisions_available: !options.leaderId,
+      }, error: null, source: "demo",
+    };
+  }
+  try {
+    const data = await withTimeout(client.query(api.crm.getJourneyOverview, options.leaderId ? { leaderId: options.leaderId } : {}), 10000);
+    return { data, error: null, source: "convex" };
+  } catch (error) {
+    return { data: null, error, source: "convex" };
+  }
 }
 
 // Convex subscriptions give active workers timely shared updates. The caller
@@ -1203,9 +1244,6 @@ export async function completeTask(taskId, details) {
       contact.closed_at = new Date().toISOString();
       contact.moved_to_later_at = undefined;
       contact.resume_date = undefined;
-      if (details.closeReason === "settled") {
-        contact.activity_status = "regular";
-      }
       if (details.closeReason === "do_not_contact") {
         contact.contact_category = "do_not_contact";
         contact.response = "do_not_contact";
@@ -1478,4 +1516,36 @@ export async function getGatheringChoices(gatheringType, gatheringDate) {
   if (!client) return { data: null, error: new Error("Actual attendance requires a connected backend and an administrator account.") };
   try { return { data: await client.query(api.crm.getGatheringChoices, { gatheringType, gatheringDate }), error: null }; }
   catch (error) { return { data: null, error }; }
+}
+
+export async function previewFollowUpCorrection(followUpId) {
+  const client = getClient();
+  if (!client || !isRemoteId(followUpId)) return { data: null, error: unavailableError('Follow-up corrections require the connected church database.') };
+  try {
+    return { data: await client.query(api.corrections.previewFollowUp, { followUpId }), error: null };
+  } catch (error) { return { data: null, error }; }
+}
+
+export async function correctFollowUp(details) {
+  const client = getClient();
+  if (!client || !isRemoteId(details.followUpId)) return { data: null, error: unavailableError('Follow-up corrections require the connected church database.') };
+  try {
+    return { data: await client.mutation(api.corrections.correctFollowUp, details), error: null };
+  } catch (error) { return { data: null, error }; }
+}
+
+export async function correctCommitment(details) {
+  const client = getClient();
+  if (!client || !isRemoteId(details.commitmentId)) return { data: null, error: unavailableError('Confirmation corrections require the connected church database.') };
+  try {
+    return { data: await client.mutation(api.corrections.correctCommitment, details), error: null };
+  } catch (error) { return { data: null, error }; }
+}
+
+export async function previewCommitmentCorrection(commitmentId) {
+  const client = getClient();
+  if (!client || !isRemoteId(commitmentId)) return { data: null, error: unavailableError('Confirmation corrections require the connected church database.') };
+  try {
+    return { data: await client.query(api.corrections.previewCommitment, { commitmentId }), error: null };
+  } catch (error) { return { data: null, error }; }
 }

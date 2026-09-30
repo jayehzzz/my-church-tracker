@@ -3,6 +3,7 @@ import type { DataModel, Doc } from "../_generated/dataModel";
 import { mutation as rawMutation, query as rawQuery, type QueryCtx, type MutationCtx } from "../_generated/server";
 import type { QueryBuilder, MutationBuilder } from "convex/server";
 import { wrapDatabaseReader, wrapDatabaseWriter, type Rules } from "convex-helpers/server/rowLevelSecurity";
+import { matchesGatheringType } from "./attendanceWorkflow";
 
 export const isAdmin = (user: Doc<"crm_users">) => user.role === "owner" || user.role === "admin";
 export const canViewGiving = (user: Doc<"crm_users">) => isAdmin(user) && (user.can_view_giving ?? user.can_view_confidential) === true;
@@ -66,6 +67,7 @@ const leaderMutations = new Set([
   "people:createGrowthAgreement", "people:reviewGrowthAgreement",
   "crm:createTask", "crm:completeTask", "crm:moveToLater", "crm:recordCommitment",
   "crm:resolveCommitment", "crm:setAttendancePlan", "crm:updateMissedSundayReason",
+  "corrections:correctFollowUp", "corrections:correctCommitment",
   "follow_ups:create", "follow_ups:resolvePromise", "follow_ups:bulkResolvePromises",
   "visitations:create", "visitations:update",
   "meetingPrograms:update", "meetingPrograms:syncPeople", "meetings:record", "meetings:syncAttendance",
@@ -73,7 +75,7 @@ const leaderMutations = new Set([
   "meetingPrograms:addGuest",
 ]);
 
-async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users">, write: boolean, developmentSummary = false, outreachCreate = false, meetingAttendanceWrite = false) {
+async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users">, write: boolean, developmentSummary = false, outreachCreate = false, meetingAttendanceWrite = false, journeyOverview = false, visitEvidenceRead = false) {
   const admin = isAdmin(user);
   const assignments = user.person_id && !admin ? await ctx.db.query("follow_up_assignments")
     .withIndex("by_leader_status", q => q.eq("assigned_leader_id", user.person_id!).eq("status", "active")).collect() : [];
@@ -145,8 +147,8 @@ async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users"
     // Development's purpose-built summary query may read the minimum gathering
     // metadata needed to interpret already-scoped attendance. It returns no
     // rosters, financial amounts, or general gathering records.
-    services: developmentSummary ? { read: async () => true, modify: adminOnly.modify, insert: adminOnly.insert } : adminOnly,
-    meetings: developmentSummary ? { read: async () => true, modify: async (_, doc) => canMeeting(String(doc._id)), insert: async (_, doc) => canProgramme(String(doc.program_id)) } : {
+    services: developmentSummary || journeyOverview ? { read: async () => true, modify: adminOnly.modify, insert: adminOnly.insert } : adminOnly,
+    meetings: developmentSummary || journeyOverview ? { read: async () => true, modify: async (_, doc) => canMeeting(String(doc._id)), insert: async (_, doc) => canProgramme(String(doc.program_id)) } : {
       read: async (_, doc) => canMeeting(String(doc._id)), modify: async (_, doc) => canMeeting(String(doc._id)), insert: async (_, doc) => canProgramme(String(doc.program_id)),
     },
     meeting_programs: developmentSummary ? { read: async () => true, modify: async (_, doc) => canProgramme(String(doc._id)), insert: adminOnly.insert } : {
@@ -161,7 +163,9 @@ async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users"
       insert: async (_, doc) => admin || (canPerson(String(doc.person_id)) && doc.collector_id === user.person_id),
     },
     service_register_entries: adminOnly,
-    attendance_visit_evidence: adminOnly,
+    attendance_visit_evidence: visitEvidenceRead
+      ? { ...adminOnly, read: async (_, doc) => canPerson(String(doc.person_id)) }
+      : adminOnly,
     church_import_batches: adminOnly,
     church_import_rows: adminOnly,
     historical_import_notes: adminOnly,
@@ -235,7 +239,19 @@ function authenticateBuilder(builder: any, name: string, write: boolean) {
       if (input.resolution !== "cancelled" || commitment?.gathering_type !== "sunday_service" || commitment?.resolution !== "pending") forbidden();
     }
     if (!isAdmin(user) && name === "crm:setAttendancePlan" && ["attended", "absent"].includes(input.status)) forbidden();
-    if (write && !user.can_view_confidential && hasRestrictedInput(name === "meetingPrograms:update" ? { ...input, description: undefined } : input, careKeys)) forbidden();
+    if (!isAdmin(user) && name === "corrections:correctCommitment") {
+      const commitment = await ctx.db.get(input.commitmentId);
+      if (commitment?.resolution === "attended") forbidden();
+      if (commitment) {
+        const serviceRows = await ctx.db.query("attendance").withIndex("by_person", (q: any) => q.eq("person_id", commitment.person_id)).collect();
+        for (const row of serviceRows) { const service = await ctx.db.get(row.service_id); if (service?.service_date === commitment.gathering_date && matchesGatheringType(service, true, commitment.gathering_type)) forbidden(); }
+        const meetingRows = await ctx.db.query("meeting_attendance").withIndex("by_person", (q: any) => q.eq("person_id", commitment.person_id)).collect();
+        for (const row of meetingRows) { const meeting = await ctx.db.get(row.meeting_id); if ((row.status ? row.status === "present" : row.attended !== false) && meeting?.meeting_date === commitment.gathering_date && matchesGatheringType(meeting, false, commitment.gathering_type)) forbidden(); }
+      }
+    }
+    const careInput = name === "meetingPrograms:update" ? { ...input, description: undefined }
+      : name.startsWith("corrections:") ? { ...input, reason: undefined } : input;
+    if (write && !user.can_view_confidential && hasRestrictedInput(careInput, careKeys)) forbidden();
     if (write && !canViewGiving(user) && hasRestrictedInput(input, givingKeys)) forbidden();
     if (name.startsWith("visitations:") && !user.can_view_confidential) forbidden();
     if (["people:getMergePreview", "people:mergeReviewed", "people:remove"].includes(name)) {
@@ -277,8 +293,10 @@ function authenticateBuilder(builder: any, name: string, write: boolean) {
       }
     }
     const developmentSummary = name === "people:getDevelopmentSummary";
+    const journeyOverview = name === "crm:getJourneyOverview";
     const meetingAttendanceWrite = ["meetings:record", "meetings:syncAttendance"].includes(name);
-    const guardedContext = await securedContext(ctx, user, write, developmentSummary, outreachCreate, meetingAttendanceWrite);
+    const visitEvidenceRead = journeyOverview || ["attendance:getByService", "attendance:getByPerson"].includes(name);
+    const guardedContext = await securedContext(ctx, user, write, developmentSummary, outreachCreate, meetingAttendanceWrite, journeyOverview, visitEvidenceRead);
     authenticatedUsers.set(guardedContext, user);
     if (isAdmin(user)) attendanceContexts.add(guardedContext);
     if (developmentSummary) developmentSummaryContexts.add(guardedContext);

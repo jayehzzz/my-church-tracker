@@ -7,18 +7,16 @@
     onManage = null,
   } = $props();
 
-  const regularBaseline = $derived(Number(forecast?.regular_baseline) || 0);
   const knownAway = $derived(Number(forecast?.known_away) || 0);
-  const confirmedIrregular = $derived(Number(forecast?.confirmed_irregular) || 0);
+  const confirmedMembers = $derived(Number(forecast?.confirmed_members ?? ((forecast?.confirmed_regular || 0) + (forecast?.confirmed_irregular || 0))) || 0);
   const confirmedNonMembers = $derived(Number(forecast?.confirmed_non_members ?? forecast?.confirmed_guests) || 0);
   const confirmedOutreachContacts = $derived(Number(forecast?.confirmed_outreach_contacts) || 0);
   const confirmedReturningGuests = $derived(Number(forecast?.confirmed_returning_guests) || 0);
   const hasJourneySplit = $derived(
     forecast?.confirmed_outreach_contacts !== undefined || forecast?.confirmed_returning_guests !== undefined,
   );
-  const confirmedRegular = $derived(Number(forecast?.confirmed_regular) || 0);
   const calculatedTotal = $derived(
-    Math.max(0, regularBaseline - knownAway + confirmedIrregular + confirmedNonMembers),
+    confirmedMembers + confirmedNonMembers,
   );
   const expectedTotal = $derived(
     forecast?.expected_total === undefined || forecast?.expected_total === null
@@ -27,7 +25,7 @@
   );
   const confirmedTotal = $derived(
     forecast?.confirmed_total === undefined || forecast?.confirmed_total === null
-      ? confirmedRegular + confirmedIrregular + confirmedNonMembers
+      ? confirmedMembers + confirmedNonMembers
       : Number(forecast.confirmed_total) || 0,
   );
 
@@ -58,13 +56,13 @@
       <div class="bg-primary/5 p-5 sm:p-6">
         <p class="text-sm text-muted-foreground">Expected total</p>
         <p class="mt-2 text-4xl font-semibold tracking-tight text-foreground" aria-label={`${expectedTotal} people expected`}>{expectedTotal}</p>
-        <p class="mt-2 text-xs text-muted-foreground">Regular members minus away, plus confirmed irregular members and non-members who said yes.</p>
+        <p class="mt-2 text-xs text-muted-foreground">People confirmed for this Sunday, including non-members who said yes.</p>
       </div>
       <div class="p-5 sm:p-6">
         <p class="text-sm text-muted-foreground">Confirmed so far</p>
         <p class="mt-2 text-4xl font-semibold tracking-tight text-foreground" aria-label={`${confirmedTotal} people confirmed`}>{confirmedTotal}</p>
         <p class="mt-2 text-xs text-muted-foreground">
-          {confirmedRegular} regular · {confirmedIrregular} irregular ·
+          {confirmedMembers} members ·
           {#if hasJourneySplit}
             {confirmedOutreachContacts} outreach contacts · {confirmedReturningGuests} non-members
           {:else}
@@ -75,12 +73,12 @@
       <div class="p-5 sm:p-6">
         <p class="text-sm text-muted-foreground">Known away</p>
         <p class="mt-2 text-4xl font-semibold tracking-tight text-foreground" aria-label={`${knownAway} people known away`}>{knownAway}</p>
-        <p class="mt-2 text-xs text-muted-foreground">Removed from the regular baseline of {regularBaseline}.</p>
+        <p class="mt-2 text-xs text-muted-foreground">Known away for this Sunday.</p>
       </div>
     </div>
 
     <div class="flex flex-col gap-3 border-t border-border px-5 py-4 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
-      <p>Unticked regular members remain expected; confirmation only shows who has been personally checked.</p>
+      <p>Only dated confirmations count toward this forecast.</p>
       {#if onManage}<Button variant="secondary" size="sm" onclick={onManage}>Manage roster</Button>{/if}
     </div>
   </Card>

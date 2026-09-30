@@ -37,10 +37,11 @@
   <section><h3>Church schools</h3>{#if schools.length}<ul>{#each schools as school}<li>✓ {formatChurchSchool(school)}</li>{/each}</ul>{:else}<p>No completed church schools recorded.</p>{/if}</section>
   <section><h3>{connectionHeading}</h3><dl>
     <div><dt>First attendance</dt><dd>{firstAttendance}</dd></div>
+    <div><dt>How they first heard about church</dt><dd>{label(person.entry_point)}</dd></div>
     <div><dt>Invited by</dt><dd>{#if person.invited_by_id}<a href="/people/{encodeURIComponent(person.invited_by_id)}">{person.invited_by || "View inviter"} →</a>{:else}{person.invited_by || "Not recorded"}{/if}</dd></div>
     <div><dt>Contact preference</dt><dd>{label(person.contact_category)}</dd></div>
     {#if person.follow_up_status}<div><dt>Follow-up status</dt><dd>{label(person.follow_up_status)}</dd></div>{/if}
-  </dl><p class="attendance-note">First timer marks the first recorded visit; returning guest marks later visits before membership. Non-member is a current profile status.</p></section>
+  </dl><p class="attendance-note">Older connection sources may have been filled from attendance; check them with the person. First timer and returning guest describe visits, while Non-member describes church status.</p></section>
   <section class="notes"><div class="section-heading"><h3>Notes</h3><button type="button" onclick={onEdit}>Edit notes</button></div><p class="notes-text">{person.notes || "No notes recorded."}</p></section>
 </div>
 {#if onMerge}<details class="record-tools"><summary>Record management</summary><p>Review a duplicate record and choose which profile to keep.</p><Button variant="secondary" onclick={onMerge}>Merge duplicate</Button></details>{/if}

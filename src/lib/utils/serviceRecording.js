@@ -29,11 +29,12 @@ export function summarizeNamedAttendance(selectedPersonIds, metadata = {}, peopl
     const person = peopleById.get(String(personId));
     const personMetadata = metadata[personId] || {};
     const guestAttendance = isGuestAttendance(person);
-    const firstTimer = Boolean(personMetadata.first_timer);
+    const firstRecorded = Boolean(personMetadata.first_timer);
+    const firstTimer = Boolean(personMetadata.explicit_first_visit);
     summary.named += 1;
-    if (guestAttendance || firstTimer) summary.guests += 1;
+    if (guestAttendance || firstRecorded || firstTimer) summary.guests += 1;
     if (firstTimer) summary.firstTimers += 1;
-    if (guestAttendance && !firstTimer) summary.returningGuests += 1;
+    if (guestAttendance && !firstRecorded && !firstTimer) summary.returningGuests += 1;
     if (personMetadata.made_salvation_decision) summary.salvationDecisions += 1;
     if (personMetadata.gave_tithe) summary.tithers += 1;
     return summary;
@@ -94,6 +95,7 @@ export function buildAttendanceData(selectedPersonIds, metadata = {}) {
       gave_tithe: Boolean(personMetadata.gave_tithe),
       made_salvation_decision: Boolean(personMetadata.made_salvation_decision),
       first_timer: Boolean(personMetadata.first_timer),
+      explicit_first_visit: Boolean(personMetadata.explicit_first_visit),
     };
   });
 }

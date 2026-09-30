@@ -110,7 +110,7 @@
                         </div>
                         <p class="text-sm text-muted-foreground">{formatDate(gatheringDate(record))}</p>
                         {#if gathering(record).sermon_topic || gathering(record).notes}<p class="text-xs text-muted-foreground break-words">{gathering(record).sermon_topic || gathering(record).notes}</p>{/if}
-                        {#if record.first_timer || record.first_program_attendance}<p class="text-xs text-primary">First attendance</p>{/if}
+                        {#if record.explicit_first_visit}<p class="text-xs text-primary">Confirmed first timer</p>{:else if record.first_timer}<p class="text-xs text-primary">First recorded visit</p>{:else if record.first_program_attendance}<p class="text-xs text-primary">First programme attendance</p>{/if}
                         {#if canOpenRecord(record)}<span class="text-sm text-primary">View service →</span>{/if}
                       </button>
                     </li>
@@ -164,8 +164,10 @@
                                         <Badge variant="outline" class="capitalize">
                                             {gatheringName(record)}
                                         </Badge>
-                                        {#if record.first_timer}
-                                            <Badge variant="info" size="sm">First timer</Badge>
+                                        {#if record.explicit_first_visit}
+                                            <Badge variant="info" size="sm">Confirmed first timer</Badge>
+                                        {:else if record.first_timer}
+                                            <Badge variant="info" size="sm">First recorded visit</Badge>
                                         {:else if record.first_program_attendance}
                                             <Badge variant="success" size="sm">
                                                 First {gatheringName(record)}

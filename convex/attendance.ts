@@ -110,7 +110,13 @@ export const getByService = queryFor("attendance:getByService")({
         return await Promise.all(
             records.map(async (record) => {
                 const person = await ctx.db.get(record.person_id);
-                return { ...record, people: person };
+                const evidence = await ctx.db.query("attendance_visit_evidence")
+                    .withIndex("by_person", q => q.eq("person_id", record.person_id)).collect();
+                return {
+                    ...record,
+                    people: person,
+                    explicit_first_visit: evidence.some(row => row.service_id === args.serviceId && row.kind === "explicit_first_visit"),
+                };
             })
         );
     },
@@ -124,11 +130,16 @@ export const getByPerson = queryFor("attendance:getByPerson")({
             .query("attendance")
             .withIndex("by_person", (q) => q.eq("person_id", args.personId))
             .collect();
+        const evidence = await ctx.db.query("attendance_visit_evidence")
+            .withIndex("by_person", q => q.eq("person_id", args.personId)).collect();
+        const confirmedServiceIds = new Set(evidence
+            .filter(row => row.kind === "explicit_first_visit")
+            .map(row => String(row.service_id)));
         const results = await Promise.all(
             records.map(async (record) => {
                 const service = await ctx.db.get(record.service_id);
                 if (!service) throw new Error("Service history is unavailable for this profile.");
-                return { ...record, services: service };
+                return { ...record, services: service, explicit_first_visit: confirmedServiceIds.has(String(record.service_id)) };
             })
         );
         return results.sort(

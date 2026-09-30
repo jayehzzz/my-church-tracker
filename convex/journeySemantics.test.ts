@@ -73,6 +73,7 @@ describe("church journey semantics", () => {
         });
         const reloaded = await t.run((ctx) => ctx.db.get(churchOnly!._id));
         expect(reloaded?.member_status).toBe("guest");
+        expect(reloaded?.entry_point).toBeUndefined();
         expect(reloaded?.outreach_salvation_decision).toBeUndefined();
         expect(reloaded?.salvation_decision).toBeUndefined();
         const attendance = await t.run((ctx) => ctx.db.query("attendance").withIndex("by_person", (q) => q.eq("person_id", churchOnly!._id)).unique());
@@ -145,10 +146,31 @@ describe("church journey semantics", () => {
         });
         expect(await t.run((ctx) => ctx.db.get(contact!._id))).toMatchObject({
             member_status: "contact",
-            activity_status: "regular",
             pipeline_stage: "closed",
         });
-        expect((await t.run((ctx) => ctx.db.get(contact!._id)))?.membership_date).toBeUndefined();
+        const settledPerson = await t.run((ctx) => ctx.db.get(contact!._id));
+        expect(settledPerson?.activity_status).toBeUndefined();
+        expect(settledPerson?.membership_date).toBeUndefined();
+    });
+
+    it("counts only dated Sunday confirmations regardless of a legacy activity label", async () => {
+        const { t, ids, owner } = await fixture();
+        const member = await t.run((ctx) => ctx.db.insert("people", {
+            first_name: "Planning", last_name: "Member", member_status: "member",
+            activity_status: "irregular", created_at: stamp, updated_at: stamp,
+        }));
+        const before = await owner.query(api.crm.getDashboard, { serviceDate: "2026-10-04" });
+        expect(before.attendance_forecast.expected_person_ids).not.toContain(member);
+        expect(before.attendance_forecast.expected_person_ids).not.toContain(ids.leader);
+        await owner.mutation(api.crm.setAttendancePlan, { personId: member, leaderId: ids.leader, serviceDate: "2026-10-04", status: "confirmed" });
+        const after = await owner.query(api.crm.getDashboard, { serviceDate: "2026-10-04" });
+        expect(after.attendance_forecast.expected_person_ids).toContain(member);
+        expect(after.attendance_forecast.confirmed_members).toBe(1);
+        expect(after.attendance_forecast.expected_total).toBe(1);
+        await owner.mutation(api.crm.setAttendancePlan, { personId: member, leaderId: ids.leader, serviceDate: "2026-10-04", status: "away" });
+        const away = await owner.query(api.crm.getDashboard, { serviceDate: "2026-10-04" });
+        expect(away.attendance_forecast.expected_total).toBe(0);
+        expect(away.attendance_forecast.known_away).toBe(1);
     });
 
     it("records church membership explicitly without changing outreach salvation", async () => {

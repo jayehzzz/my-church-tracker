@@ -48,7 +48,7 @@ export default defineSchema({
         member_status: v.string(), // "contact", "guest", "member", "leader", "archived" (visitor is legacy guest)
         church_role: v.optional(v.string()), // "no_role" | "basonta" (membership, not leadership)
         role: v.optional(v.string()), // "basonta_leader", "bacenta_leader", "no_role" (Leadership roles only)
-        activity_status: v.optional(v.string()), // "regular", "irregular", "dormant"
+        activity_status: v.optional(v.string()), // Historical label retained for audit/export; no longer drives workflows.
         leader_id: v.optional(v.string()), // Direct leader assignment
 
         // Evangelism / Contact Tracking (Merged from evangelism_contacts)
@@ -75,7 +75,7 @@ export default defineSchema({
             applied_warmth_score: v.optional(v.string()),
         })),
         first_visit_date: v.optional(v.string()), // Manual history plus earliest recorded gathering.
-        entry_point: v.optional(v.string()), // "sunday_service" | "bacenta_meeting" | "evangelism" | "referral" | "other"
+        entry_point: v.optional(v.string()), // Manually recorded connection source; older inferred values need review.
         membership_date: v.optional(v.string()), // When they became a "Member"
         // Outreach salvation is separate from a decision recorded at a church
         // gathering. Gathering decisions remain on attendance rows.
@@ -494,6 +494,12 @@ export default defineSchema({
     follow_ups: defineTable({
         commitment_id: v.optional(v.id("gathering_commitments")),
         source_task_id: v.optional(v.id("follow_up_tasks")),
+        next_task_id: v.optional(v.id("follow_up_tasks")),
+        completion_effects: v.optional(v.any()),
+        correction_revision: v.optional(v.number()),
+        corrected_at: v.optional(v.string()),
+        entered_in_error: v.optional(v.boolean()),
+        correction_history: v.optional(v.array(v.object({ at: v.string(), actor_id: v.optional(v.id("people")), reason: v.string(), before: v.any(), after: v.any() }))),
         source_visitation_id: v.optional(v.id("visitations")),
         care_status: v.optional(v.string()),
         contact_id: v.id("people"),         // The evangelism contact being followed up
@@ -592,6 +598,9 @@ export default defineSchema({
       .index("by_status_completed_at", ["status", "completed_at"]),
 
     gathering_commitments: defineTable({
+        correction_revision: v.optional(v.number()),
+        entered_in_error: v.optional(v.boolean()),
+        correction_history: v.optional(v.array(v.object({ at: v.string(), actor_id: v.optional(v.id("people")), reason: v.string(), before: v.any(), after: v.any() }))),
         service_id: v.optional(v.id("services")),
         meeting_id: v.optional(v.id("meetings")),
         attendance_previous_status: v.optional(v.string()),
