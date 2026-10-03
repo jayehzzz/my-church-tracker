@@ -11,6 +11,7 @@
    * batch assignment, and real-time search/filters.
    */
   let {
+    canDelegate = true,
     unassigned = [],
     tasks = [],
     commitments = [],
@@ -149,10 +150,10 @@
       : Array.from(new Set([...selectedUnassigned, ...allIds]));
   }
 
-  function handleBatchAssignSubmit() {
+  async function handleBatchAssignSubmit() {
     if (!selectedUnassigned.length || !batchLeaderId) return;
-    onBatchAssign(selectedUnassigned, batchLeaderId, assignDate);
-    selectedUnassigned = [];
+    const result = await onBatchAssign(selectedUnassigned, batchLeaderId, assignDate);
+    selectedUnassigned = (result?.errors || []).map(row => String(row.personId));
   }
 
   const promiseByPerson = $derived(
@@ -361,7 +362,7 @@
   >
     {@render rowOpenHint(entry)}
     <div class="flex items-start gap-3 min-w-0">
-      {#if group.id === 'unassigned'}
+      {#if group.id === 'unassigned' && canDelegate}
         <input
           type="checkbox"
           checked={selectedUnassigned.includes(String(personId(entry.person)))}
@@ -435,7 +436,7 @@
           ? `Captured ${daysSince(entry.person.contact_date)} day${daysSince(entry.person.contact_date) === 1 ? '' : 's'} ago`
           : 'Needs an assigned worker'}
       </span>
-      {@render assignControls(entry)}
+      {#if canDelegate}{@render assignControls(entry)}{/if}
     {/if}
   </div>
 {/snippet}
@@ -446,7 +447,7 @@
   >
     <div class="flex items-start justify-between gap-2">
       <div class="flex items-center gap-2.5 min-w-0">
-        {#if group.id === 'unassigned'}
+        {#if group.id === 'unassigned' && canDelegate}
           <input
             type="checkbox"
             checked={selectedUnassigned.includes(String(personId(entry.person)))}
@@ -505,7 +506,7 @@
           </Button>
         </div>
       {:else}
-        {@render assignControls(entry, true)}
+        {#if canDelegate}{@render assignControls(entry, true)}{/if}
       {/if}
     </div>
   </article>
@@ -519,7 +520,7 @@
         This week
       </h2>
       <p class="mt-0.5 text-xs text-muted-foreground">
-        Everyone has one worker and one scheduled next touchpoint. Work from top to bottom.
+        Work through planned calls and people waiting for a worker. Manage members and existing assignments in Assignments.
       </p>
     </div>
 
@@ -577,7 +578,7 @@
   </div>
 
   <!-- Batch Action Toolbar for Unassigned Contacts -->
-  {#if rawNeedsWorker.length > 0 && selectedUnassigned.length > 0}
+  {#if canDelegate && rawNeedsWorker.length > 0 && selectedUnassigned.length > 0}
     <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-foreground">
       <div class="flex items-center gap-2">
         <span class="font-semibold text-amber-500">
@@ -681,7 +682,7 @@
         >
           <div class="flex items-center justify-between gap-3 border-b border-border bg-secondary/30 px-4 py-2.5">
             <div class="flex items-center gap-2">
-              {#if group.id === 'unassigned' && group.entries.length > 1}
+              {#if canDelegate && group.id === 'unassigned' && group.entries.length > 1}
                 <button
                   type="button"
                   class="text-xs font-semibold text-primary hover:underline"

@@ -15,6 +15,8 @@
   import { goto } from '$app/navigation';
   import { saveDomainReturn, takeDomainReturn } from '$lib/components/drilldown/domainReturnState.js';
   import { attentionRows, ATTENTION_LABELS } from '$lib/services/followUpAttention.js';
+  import AssignmentManager from '$lib/components/crm/AssignmentManager.svelte';
+  const canDelegate = $derived($session.status === 'demo' || ['owner', 'admin'].includes($session.user?.role));
   import MissedSundayFollowUp from '$lib/components/crm/MissedSundayFollowUp.svelte';
   import { recentMissedSundayPeople } from '$lib/utils/missedSundayHistory.js';
 
@@ -47,6 +49,7 @@
 
   const TABS = [
     { id: 'week', label: 'This week' },
+    { id: 'assignments', label: 'Assignments' },
     { id: 'sunday', label: 'Sunday' },
     { id: 'missed', label: 'Missed after saying yes' },
     { id: 'journey', label: 'First visits & salvation' },
@@ -427,19 +430,22 @@
     if (result.error) errorMessage = result.error.message || 'The person could not be assigned.';
     else {
       const leader = (workspace.leaders || []).find((item) => String(personId(item)) === String(leaderId));
-      successMessage = `${personName(contact)} was assigned to ${leader ? personName(leader) : 'a worker'} with a first call on ${formatDate(dueDate)}.`;
+      successMessage = `${personName(contact)} was assigned to ${leader ? personName(leader) : 'a worker'} ${result.data?.task ? `with a first call on ${formatDate(dueDate)}` : ''}.`;
       await loadWorkspace({ quiet: true });
     }
   }
   async function handleBatchAssign(personIds, leaderId, dueDate) {
     const result = await batchAssignContacts(personIds, leaderId, dueDate);
-    if (result.error && !result.data?.length) {
-      errorMessage = result.error.message || 'Batch assignment could not be saved.';
-    } else {
+    errorMessage = (result.errors || []).map(failure => {
+      const person = (workspace.unassigned_contacts || []).find(row => String(personId(row)) === String(failure.personId));
+      return `${person ? personName(person) : 'Person'}: ${failure.error.message}`;
+    }).join(' · ');
+    if (result.data?.length) {
       const leader = (workspace.leaders || []).find((item) => String(personId(item)) === String(leaderId));
-      successMessage = `Assigned ${personIds.length} ${personIds.length === 1 ? 'person' : 'people'} to ${leader ? personName(leader) : 'a worker'} with first call on ${formatDate(dueDate)}.`;
+      successMessage = `Assigned ${result.data.length} ${result.data.length === 1 ? 'person' : 'people'} to ${leader ? personName(leader) : 'a worker'}.`;
       await loadWorkspace({ quiet: true });
     }
+    return result;
   }
   async function handleQuickNoAnswer(task) {
     const leaderId = currentLeaderId(task.assigned_leader_id || personId(task.assigned_leader));
@@ -651,7 +657,7 @@
 
 <DashboardLayout>
   <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-    <PageHeader title="Follow-Up" subtitle="Weekly calls with new people until they settle. Every person has one worker and one next call." />
+    <PageHeader title="Follow-Up" subtitle="Follow-up for members and new people. Assign responsibility and plan the next conversation." />
     <div class="flex items-center gap-2">
       <label class="flex items-center gap-2 text-sm font-medium text-foreground"><span class="sr-only sm:not-sr-only">Worker</span><select bind:value={selectedLeaderId} onchange={handleLeaderChange} class="min-w-44 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground shadow-sm focus:border-primary"><option value="all">Everyone</option>{#each workspace.leaders || [] as leader (personId(leader))}<option value={personId(leader)}>{personName(leader)}</option>{/each}</select></label>
       <Button variant="secondary" size="sm" loading={refreshing} onclick={() => loadWorkspace({ quiet: true })}>Refresh</Button>
@@ -664,7 +670,7 @@
 
   <div class="my-6 flex flex-col gap-3 border-b border-border sm:flex-row sm:items-end sm:justify-between">
     <nav class="flex gap-1 overflow-x-auto" aria-label="Follow-up sections">
-      {#each TABS as tab (tab.id)}
+      {#each TABS.filter(tab => tab.id !== 'assignments' || canDelegate) as tab (tab.id)}
         <button type="button" class="flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold {activeTab === tab.id ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}" onclick={() => selectTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined}>{tab.label}{#if tabCounts[tab.id]}<span class="rounded-full px-2 py-0.5 text-xs {tab.id === 'week' && overdueCount ? 'bg-destructive/10 text-destructive' : 'bg-secondary'}">{tabCounts[tab.id]}</span>{/if}</button>
       {/each}
     </nav>
@@ -694,12 +700,15 @@
         <div class="border-t border-border bg-secondary/20 p-5"><button type="button" class="mb-3 text-sm font-semibold text-primary" onclick={() => detailRow = null}>← Back to matching records</button><h3 class="font-semibold">{String(detailRow.task_type || 'Task').replaceAll('_', ' ')}</h3><p class="text-sm text-muted-foreground">Due {detailRow.due_date ? formatDate(detailRow.due_date) : 'date not set'} · {personName(detailRow.person)}</p><Button size="sm" variant="secondary" onclick={() => openEvidencePerson(detailRow.person || detailRow)}>View person</Button></div>
       {/if}
     </section>
+  {:else if activeTab === 'assignments' && canDelegate}
+    <AssignmentManager onChanged={() => loadWorkspace({ quiet: true })} onOpen={openPerson} />
   {:else if activeTab === 'week'}
     <FollowUpBoard
       unassigned={selectedLeaderId === 'all' ? workspace.unassigned_contacts || [] : []}
       tasks={workspace.tasks || []}
       commitments={workspace.sunday_commitments || workspace.confirmed_commitments || []}
       leaders={workspace.leaders || []}
+      {canDelegate}
       {today}
       {weekEnd}
       view={boardView}

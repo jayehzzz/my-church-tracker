@@ -1,6 +1,6 @@
 import { candidates, selectGathering, setActualAttendance, reconcilePerson, present } from "./lib/attendanceWorkflow";
-import { canDiscoverOutreach, cancelPendingOutreach, requireFollowUpAllowed } from "./lib/contactPolicy";
-import { authenticatedUser, managesAttendance } from "./lib/security";
+import { canDiscoverOutreach, cancelPendingOutreach, requireFollowUpAllowed, isDelegatedFollowUpTask } from "./lib/contactPolicy";
+import { authenticatedUser, managesAttendance, isAdmin, forbidden } from "./lib/security";
 import { queryFor, mutationFor } from "./lib/security";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -155,9 +155,7 @@ async function replaceAssignment(
         });
     }
 
-    if (current) return current._id;
-
-    return await ctx.db.insert("follow_up_assignments", {
+    const assignmentId = current?._id ?? await ctx.db.insert("follow_up_assignments", {
         person_id: personId,
         assigned_leader_id: leaderId,
         assigned_by_id: assignedById,
@@ -166,6 +164,22 @@ async function replaceAssignment(
         created_at: now,
         updated_at: now,
     });
+    // Only delegated follow-up work moves. Programme and care responsibilities
+    // are independent; completed/cancelled tasks and recorded Sunday actors stay.
+    const tasks = await ctx.db.query("follow_up_tasks")
+        .withIndex("by_person_status", q => q.eq("person_id", personId).eq("status", "open")).collect();
+    for (const task of tasks) {
+        if (task.assigned_leader_id === leaderId || !isDelegatedFollowUpTask(task)) continue;
+        await ctx.db.patch(task._id, {
+            assigned_leader_id: leaderId,
+            ownership_history: [...(task.ownership_history ?? []), {
+                from_leader_id: task.assigned_leader_id, to_leader_id: leaderId,
+                assignment_id: assignmentId, at: now,
+            }],
+            updated_at: now,
+        });
+    }
+    return assignmentId;
 }
 
 async function insertTask(
@@ -706,7 +720,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
             .filter((commitment) =>
                 commitment.response === "yes"
                 && commitment.resolution === "pending"
-                && (!args.leaderId || commitment.leader_id === args.leaderId),
+                && (!args.leaderId || (ownerByPerson.get(commitment.person_id) ?? commitment.leader_id) === args.leaderId),
             )
             .map((commitment) => ({
                 ...commitment,
@@ -722,7 +736,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 !commitment.entered_in_error
                 &&
                 commitment.response === "yes"
-                && (!args.leaderId || commitment.leader_id === args.leaderId),
+                && (!args.leaderId || (ownerByPerson.get(commitment.person_id) ?? commitment.leader_id) === args.leaderId),
             )
             .map((commitment) => ({
                 ...commitment,
@@ -740,7 +754,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 && commitment.gathering_date <= weekEnd
                 && commitment.response === "yes"
                 && commitment.resolution === "pending"
-                && (!args.leaderId || commitment.leader_id === args.leaderId),
+                && (!args.leaderId || (ownerByPerson.get(commitment.person_id) ?? commitment.leader_id) === args.leaderId),
             )
             .map((commitment) => ({
                 ...commitment,
@@ -1244,6 +1258,9 @@ export const getContactProfile = queryFor("crm:getContactProfile")({
         return {
             person,
             sunday_reliability: sundayReliability(commitments),
+            assignment_history: assignments.map(row => ({
+                ...row, assigned_leader_name: personName(leaderById.get(row.assigned_leader_id)),
+            })).sort((a,b) => b.assigned_at.localeCompare(a.assigned_at)),
             active_assignment: activeAssignment ? {
                 ...activeAssignment,
                 assigned_leader: leaderById.get(activeAssignment.assigned_leader_id) ?? null,
@@ -1281,63 +1298,67 @@ export const getContactProfile = queryFor("crm:getContactProfile")({
     },
 });
 
+// Administrative directory: minimal person fields, independent of date/worker
+// filters. Reads never grant a leader churchwide scope.
+export const getAssignmentDirectory = queryFor("crm:getAssignmentDirectory")({
+    args: {},
+    handler: async (ctx) => {
+        if (!isAdmin(authenticatedUser(ctx))) forbidden();
+        const [people, assignments, tasks] = await Promise.all([
+            ctx.db.query("people").collect(),
+            ctx.db.query("follow_up_assignments").withIndex("by_status", q => q.eq("status", "active")).collect(),
+            ctx.db.query("follow_up_tasks").withIndex("by_status_due_date", q => q.eq("status", "open")).collect(),
+        ]);
+        const owners = new Map(assignments.sort((a,b) => a.assigned_at.localeCompare(b.assigned_at) || a._creationTime - b._creationTime).map(row => [row.person_id, row]));
+        const names = new Map(people.map(row => [row._id, personName(row)]));
+        const taskCounts = new Map<Id<"people">, number>();
+        for (const task of tasks) {
+            if (isDelegatedFollowUpTask(task)) taskCounts.set(task.person_id, (taskCounts.get(task.person_id) ?? 0) + 1);
+        }
+        return people.filter(row => row.member_status !== "archived").map(row => {
+            const owner = owners.get(row._id);
+            return {
+                _id: row._id, name: personName(row), phone: row.phone,
+                member_status: row.member_status,
+                assignment_id: owner?._id ?? null,
+                assigned_leader_id: owner?.assigned_leader_id ?? null,
+                assigned_leader_name: owner ? names.get(owner.assigned_leader_id) ?? "Unavailable leader" : null,
+                blocked_reason: row.contact_category === "do_not_contact" ? "Asked not to be contacted" : row.is_paused ? "Follow-up paused — reactivate explicitly first" : null,
+                open_follow_up_count: taskCounts.get(row._id) ?? 0,
+            };
+        }).sort((a,b) => a.name.localeCompare(b.name));
+    },
+});
+
 export const assignContact = mutationFor("crm:assignContact")({
     args: {
-        personId: v.id("people"),
-        assignedLeaderId: v.id("people"),
+        personId: v.id("people"), assignedLeaderId: v.id("people"),
         assignedById: v.optional(v.id("people")),
+        expectedAssignmentId: v.optional(v.union(v.id("follow_up_assignments"), v.null())),
         firstContactDueDate: v.optional(v.string()),
-        createFirstContactTask: v.optional(v.boolean()),
-        reason: v.optional(v.string()),
+        createFirstContactTask: v.optional(v.boolean()), reason: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         const person = await requirePerson(ctx, args.personId);
-        if (person.contact_category === "do_not_contact") requireFollowUpAllowed(person);
+        requireFollowUpAllowed(person);
         await requireLeader(ctx, args.assignedLeaderId);
-        if (args.assignedById) await requirePerson(ctx, args.assignedById, "Assigning leader");
-
-        const assignmentId = await replaceAssignment(
-            ctx,
-            args.personId,
-            args.assignedLeaderId,
-            args.assignedById,
-        );
+        const active = (await getActiveAssignments(ctx, args.personId))
+            .sort((a,b) => b.assigned_at.localeCompare(a.assigned_at) || b._creationTime - a._creationTime);
+        if (args.expectedAssignmentId !== undefined && (active[0]?._id ?? null) !== args.expectedAssignmentId)
+            throw new Error("Assignment changed since this list was loaded. Refresh and try again.");
+        const history = await ctx.db.query("follow_up_assignments").withIndex("by_person", q => q.eq("person_id", args.personId)).collect();
+        const assignmentId = await replaceAssignment(ctx, args.personId, args.assignedLeaderId, args.assignedById);
         let taskId: Id<"follow_up_tasks"> | null = null;
-        if (args.createFirstContactTask !== false && isEvangelismContact(person)) {
-            const existingFirstContactTasks = await ctx.db
-                .query("follow_up_tasks")
-                .withIndex("by_person_status", (q) =>
-                    q.eq("person_id", args.personId).eq("status", "open"),
-                )
-                .collect();
-            const existing = existingFirstContactTasks.find(
-                (task) => task.task_type === "first_contact",
-            );
-            if (existing) {
-                await ctx.db.patch(existing._id, {
-                    assigned_leader_id: args.assignedLeaderId,
-                    due_date: args.firstContactDueDate ?? existing.due_date,
-                    reason: args.reason ?? existing.reason,
-                    updated_at: isoNow(),
-                });
-                taskId = existing._id;
-            } else {
-                taskId = await insertTask(ctx, {
-                    personId: args.personId,
-                    assignedLeaderId: args.assignedLeaderId,
-                    createdById: args.assignedById,
-                    dueDate: args.firstContactDueDate ?? today(),
-                    taskType: "first_contact",
-                    priority: "high",
-                    reason: args.reason ?? "Make the first follow-up contact",
-                });
-            }
+        // A reassignment never restarts first contact or changes a due date.
+        if (!history.length && args.createFirstContactTask !== false && isEvangelismContact(person)) {
+            const tasks = await ctx.db.query("follow_up_tasks").withIndex("by_person", q => q.eq("person_id", args.personId)).collect();
+            if (!tasks.some(task => task.task_type === "first_contact")) taskId = await insertTask(ctx, {
+                personId: args.personId, assignedLeaderId: args.assignedLeaderId,
+                createdById: args.assignedById, dueDate: args.firstContactDueDate ?? today(),
+                taskType: "first_contact", priority: "high", reason: args.reason ?? "Make the first follow-up contact",
+            });
         }
-
-        return {
-            assignment: await ctx.db.get(assignmentId),
-            task: taskId ? await ctx.db.get(taskId) : null,
-        };
+        return { assignment: await ctx.db.get(assignmentId), task: taskId ? await ctx.db.get(taskId) : null };
     },
 });
 

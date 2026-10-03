@@ -22,6 +22,13 @@ export function isOutreachTask(task: Pick<Doc<"follow_up_tasks">, "task_type" | 
     return !task.source_visitation_id && !["member_care", "visitation"].includes(task.task_type);
 }
 
+// General delegated work follows the active responsible leader. Programme,
+// care and visitation work has independent ownership.
+export function isDelegatedFollowUpTask(task: Pick<Doc<"follow_up_tasks">, "task_type" | "program_id" | "meeting_id" | "source_visitation_id">) {
+    return !task.program_id && !task.meeting_id && !task.source_visitation_id
+        && ["first_contact", "follow_up", "sunday_confirmation", "reengagement"].includes(task.task_type);
+}
+
 export async function cancelPendingOutreach(ctx: MutationCtx, personId: Id<"people">, outcome = "do_not_contact") {
     const tasks = await ctx.db.query("follow_up_tasks")
         .withIndex("by_person_status", q => q.eq("person_id", personId).eq("status", "open")).collect();

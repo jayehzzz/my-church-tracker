@@ -118,6 +118,41 @@ describe("follow-up CRM service", () => {
     expect(result.data.assigned_leader).toBeTruthy();
   });
 
+  it("assigns regular members without creating first-contact work and reports partial bulk failures", async () => {
+    const { getAssignmentDirectory, batchAssignContacts, getContactProfile } = await import("./followUpCrmService.js");
+    const directory = await getAssignmentDirectory();
+    const member = directory.data.find(row => row.member_status === "member" && !row.blocked_reason);
+    const leader = directory.data.find(row => row.member_status === "leader");
+    const before = await getContactProfile(member._id);
+    const result = await batchAssignContacts([member._id, "local-missing-person", member._id], leader._id);
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].task).toBeNull();
+    expect(result.succeededPersonIds).toEqual([member._id]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ personId: "local-missing-person" });
+    expect(result.errors[0].error.message).toBe("Person not found");
+    expect(result.error.message).toBe("1 assigned; 1 failed");
+    const after = await getContactProfile(member._id);
+    expect(after.data.person).toEqual(before.data.person);
+    expect(after.data.tasks).toEqual(before.data.tasks);
+  });
+
+  it("transfers demo tasks without restarting first contact and rejects a stale reviewed owner", async () => {
+    const { assignContact, getAssignmentDirectory, getContactProfile } = await import("./followUpCrmService.js");
+    await captureLocalEvangelismContact({ id:"local-reassigned-contact",first_name:"Transfer",contact_date:"2026-10-01",response:"responsive" });
+    const leaders = (await getAssignmentDirectory()).data.filter(row => row.member_status === "leader");
+    const first = await assignContact("local-reassigned-contact",leaders[0]._id,"2026-10-04");
+    const next = await assignContact("local-reassigned-contact",leaders[1]._id,"2026-10-06",{expectedAssignmentId:first.data.assignment._id});
+    expect(next.data.task).toBeNull();
+    const profile = await getContactProfile("local-reassigned-contact");
+    expect(profile.data.tasks).toHaveLength(1);
+    expect(profile.data.tasks[0]).toMatchObject({ _id:first.data.task._id,assigned_leader_id:leaders[1]._id,due_date:"2026-10-04" });
+    expect(profile.data.tasks[0].ownership_history).toHaveLength(1);
+    expect(profile.data.assignment_history).toHaveLength(2);
+    const stale = await assignContact("local-reassigned-contact",leaders[0]._id,undefined,{expectedAssignmentId:first.data.assignment._id});
+    expect(stale.error.message).toMatch(/changed/);
+  });
+
   it("handles batch assignment and quick log no answer", async () => {
     const { batchAssignContacts, quickLogNoAnswer, resolveCommitment, getDashboard } = await import("./followUpCrmService.js");
     const dashboard = await getDashboard();

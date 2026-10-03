@@ -29,6 +29,15 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 ## Handoffs
 
+### Follow-up delegation — Task 1 of 3 (3 October 2026)
+
+- Implementation complete locally; Practice preparation in progress, with owner acceptance and live release pending. Shared programme branch: `codex/follow-up-delegation`, inherited clean `main` at `2e1f247`. No unrelated work was present or discarded.
+- Follow-up now has an owner/admin **Assignments** panel for searching members, leaders and contacts/non-members, seeing their responsible leader, assigning/reassigning individuals or multiple people, filtering unassigned people and inspecting assignment history. Bulk results name each failure, retain failed selections and count only successful assignments. Stale reviewed assignments reject atomically.
+- Open general follow-up/Sunday confirmation work transfers with its existing IDs/dates and an append-only ownership trail. Completed/cancelled history, Sunday responses, inviter attribution, bacenta membership and independent care/visitation/programme responsibilities are preserved. Regular members receive no outreach first-contact work. Existing authority, do-not-contact and row-level checks remain; the new panel schedules no implicit tasks. API and Task 2 ownership guidance: [follow-up-delegation.md](follow-up-delegation.md).
+- Checks passed: `npm run verify` initially passed; final source checks passed with bounded frontend workers (378 frontend tests, 111 backend tests, backend TypeScript, build), `npm run test:coverage` (378 tests), `npm run test:e2e` (critical attendance/care workflow), and focused delegation checks (6 backend tests after the additional legacy-duplicate case), plus `git diff --check`. Unbounded/concurrent local runs hit unrelated page-test and worker timeouts; standalone coverage and the final unit run with `--maxWorkers=2` passed without extending test timeouts. Built-in local demo browser verified search, member assignment, contact reassignment, bulk selection/success and retained assignment history at desktop and 390×844 phone width; no horizontal overflow. Fixed the drawer backdrop intercepting history clicks and verified the fix. Browser writes used local demo data only.
+- Next: deploy matching functions/schema to verified pinned Practice and publish a clean pushed Preview source. Authenticated owner/worker Practice acceptance remains separate. No production merge/release or Practice data refresh/import/reset.
+
+
 ### Follow-up corrections and repeated Sunday misses — Practice preparation (29 September 2026)
 
 - Added audited corrections for gathering responses and follow-up calls, with explicit entered-in-error handling, stale-edit checks, scoped worker permissions, and opt-in repair of linked tasks or contact status. Actual attendance remains an administrator action. Older tasks without verified links are shown for manual review, not changed by guesswork.

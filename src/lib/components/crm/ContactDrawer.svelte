@@ -190,7 +190,7 @@
     ></button>
     <div
       bind:this={drawerElement}
-      class="flex h-full w-full max-w-lg flex-col border-l border-border bg-card text-foreground shadow-2xl"
+      class="relative flex h-full w-full max-w-lg flex-col border-l border-border bg-card text-foreground shadow-2xl"
       transition:fly={{ x: 300, duration: 200 }}
       role="dialog"
       aria-modal="true"
@@ -320,6 +320,17 @@
 
         <SundayReliabilitySummary commitments={profileData?.commitments || []} summary={profileData?.sunday_reliability || null} compact showRate={showSundayRate} />
         {#if profileError}<div role="alert" class="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{profileError} <button type="button" class="font-semibold underline" onclick={() => retryProfile += 1}>Try again</button></div>{/if}
+
+        {#if profileData?.assignment_history?.length}
+          <details class="rounded-lg border border-border p-3">
+            <summary class="cursor-pointer text-sm font-semibold">Assignment history</summary>
+            <ul class="mt-2 space-y-2 text-sm">
+              {#each profileData.assignment_history as assignment (assignment._id)}
+                <li>{assignment.assigned_leader_name || 'Unavailable leader'} · {assignment.status === 'active' ? 'Current responsible leader' : 'Previous responsible leader'}<span class="block text-xs text-muted-foreground">Assigned {formatDate(assignment.assigned_at)}{#if assignment.ended_at} · Ended {formatDate(assignment.ended_at)}{/if}</span></li>
+              {/each}
+            </ul>
+          </details>
+        {/if}
 
         <!-- Sunday Commitment History -->
         <section class="space-y-2.5">

@@ -551,6 +551,10 @@ export default defineSchema({
         meeting_id: v.optional(v.id("meetings")),
         program_id: v.optional(v.id("meeting_programs")),
         assigned_leader_id: v.id("people"),
+        ownership_history: v.optional(v.array(v.object({
+            from_leader_id: v.id("people"), to_leader_id: v.id("people"),
+            assignment_id: v.id("follow_up_assignments"), at: v.string(),
+        }))),
         created_by_id: v.optional(v.id("people")),
         due_date: v.string(),
         status: v.union(

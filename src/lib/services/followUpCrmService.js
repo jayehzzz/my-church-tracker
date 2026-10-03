@@ -1,4 +1,4 @@
-import { canFollowUp, isOutreachTask } from "../../../convex/lib/contactPolicy.ts";
+import { canFollowUp, isOutreachTask, isDelegatedFollowUpTask } from "../../../convex/lib/contactPolicy.ts";
 import { api } from "../../../convex/_generated/api.js";
 import { browser } from "$app/environment";
 import { getConvexClient, getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
@@ -503,7 +503,7 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
         commitment.response === "yes" &&
         commitment.resolution === "pending",
     )
-    .filter((commitment) => !leaderId || String(commitment.leader_id) === String(leaderId))
+    .filter((commitment) => !leaderId || String(state.assignments.filter(row => String(row.person_id) === String(commitment.person_id) && row.status === "active").sort((a,b) => b.assigned_at.localeCompare(a.assigned_at))[0]?.assigned_leader_id || commitment.leader_id) === String(leaderId))
     .map((commitment) => enrichCommitment(commitment, state));
   const sundayCommitments = state.commitments
     .filter(
@@ -512,7 +512,7 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
         commitment.gathering_date === targetSunday &&
         commitment.response === "yes",
     )
-    .filter((commitment) => !leaderId || String(commitment.leader_id) === String(leaderId))
+    .filter((commitment) => !leaderId || String(state.assignments.filter(row => String(row.person_id) === String(commitment.person_id) && row.status === "active").sort((a,b) => b.assigned_at.localeCompare(a.assigned_at))[0]?.assigned_leader_id || commitment.leader_id) === String(leaderId))
     .map((commitment) => enrichCommitment(commitment, state));
   const upcomingCommitments = state.commitments
     .filter((commitment) =>
@@ -521,7 +521,7 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
       && commitment.response === "yes"
       && commitment.resolution === "pending",
     )
-    .filter((commitment) => !leaderId || String(commitment.leader_id) === String(leaderId))
+    .filter((commitment) => !leaderId || String(state.assignments.filter(row => String(row.person_id) === String(commitment.person_id) && row.status === "active").sort((a,b) => b.assigned_at.localeCompare(a.assigned_at))[0]?.assigned_leader_id || commitment.leader_id) === String(leaderId))
     .map((commitment) => enrichCommitment(commitment, state))
     .sort((a, b) => String(a.gathering_date).localeCompare(String(b.gathering_date)));
   const laterContacts = state.contacts
@@ -872,6 +872,7 @@ function buildLocalContactProfile(personId) {
       ...activeAssignment,
       assigned_leader: leaderFor(activeAssignment.assigned_leader_id),
     } : null,
+    assignment_history: state.assignments.filter(row => String(row.person_id) === String(personId)).map(row => ({ ...row, assigned_leader_name: fullName(leaderFor(row.assigned_leader_id)) })),
     tasks: state.tasks
       .filter((task) => String(task.person_id) === String(personId))
       .map((task) => ({ ...task, assigned_leader: leaderFor(task.assigned_leader_id) }))
@@ -945,77 +946,90 @@ export async function getSundayCommitments() {
   }
 }
 
+export async function getAssignmentDirectory() {
+  const client = getClient();
+  if (client) {
+    try { return { data: await withTimeout(client.query(api.crm.getAssignmentDirectory, {})), error: null, source: "convex" }; }
+    catch (error) { return { data: null, error, source: "convex" }; }
+  }
+  if (!isDemoMode()) return { data: null, error: unavailableError(), source: "unavailable" };
+  const state = readLocalState();
+  const people = new Map([...state.people, ...state.contacts].map(person => [String(person._id || person.id), person]));
+  const owners = new Map(state.assignments.filter(row => row.status === "active").sort((a,b) => a.assigned_at.localeCompare(b.assigned_at)).map(row => [String(row.person_id), row]));
+  const data = [...people.values()].filter(person => person.member_status !== "archived").map(person => {
+    const id = person._id || person.id;
+    const owner = owners.get(String(id));
+    return { ...person, _id: id, name: fullName(person),
+      assignment_id: owner?._id ?? null, assigned_leader_id: owner?.assigned_leader_id ?? null,
+      assigned_leader_name: owner ? fullName(people.get(String(owner.assigned_leader_id))) : null,
+      blocked_reason: person.contact_category === "do_not_contact" ? "Asked not to be contacted" : person.is_paused ? "Follow-up paused — reactivate explicitly first" : null,
+      open_follow_up_count: state.tasks.filter(task => String(task.person_id) === String(id) && task.status === "open" && isDelegatedFollowUpTask(task)).length,
+    };
+  }).sort((a,b) => a.name.localeCompare(b.name));
+  return { data, error: null, source: "demo" };
+}
+
 export async function assignContact(personId, leaderId, dueDate = dateOnly(), options = {}) {
   const createFirstContactTask = options.createFirstContactTask !== false;
-  const reason = options.reason || "Fresh evangelism contact — make the first personal follow-up";
   const client = getClient();
-  if (client && isRemoteId(personId)) {
+  if (client) {
     try {
       const data = await client.mutation(api.crm.assignContact, {
-        personId,
-        assignedLeaderId: leaderId,
-        firstContactDueDate: dueDate,
+        personId, assignedLeaderId: leaderId, firstContactDueDate: dueDate,
         createFirstContactTask,
-        reason,
+        ...(options.reason ? { reason: options.reason } : {}),
+        ...(options.expectedAssignmentId !== undefined ? { expectedAssignmentId: options.expectedAssignmentId } : {}),
       });
       return { data, error: null, source: "convex" };
-    } catch (error) {
-      return { data: null, error, source: "convex" };
-    }
+    } catch (error) { return { data: null, error, source: "convex" }; }
   }
-
+  if (!isDemoMode()) return { data: null, error: unavailableError(), source: "unavailable" };
   const state = readLocalState();
-  const person = state.contacts.find((contact) => String(contact._id) === String(personId));
-  const leader = state.people.find((candidate) => String(candidate._id) === String(leaderId));
-  if (!person) return { data: null, error: new Error("Contact not found"), source: "local" };
+  const person = [...state.contacts, ...state.people].find(person => String(person._id || person.id) === String(personId));
+  const leader = state.people.find(person => String(person._id || person.id) === String(leaderId));
+  if (!person) return { data: null, error: new Error("Person not found"), source: "local" };
   if (!canFollowUp(person)) return { data: null, error: new Error("Follow-up is paused or this person has requested no contact."), source: "local" };
-  if (!leader || leader.member_status !== "leader") {
-    return { data: null, error: new Error("Choose a valid leader"), source: "local" };
-  }
-
+  if (!leader || leader.member_status !== "leader") return { data: null, error: new Error("Choose a valid leader"), source: "local" };
+  const history = state.assignments.filter(row => String(row.person_id) === String(personId));
+  const active = history.filter(row => row.status === "active").sort((a,b) => b.assigned_at.localeCompare(a.assigned_at));
+  if (options.expectedAssignmentId !== undefined && (active[0]?._id ?? null) !== options.expectedAssignmentId)
+    return { data: null, error: new Error("Assignment changed since this list was loaded. Refresh and try again."), source: "local" };
   const now = new Date().toISOString();
-  state.assignments.forEach((assignment) => {
-    if (String(assignment.person_id) === String(personId) && assignment.status === "active") {
-      assignment.status = "ended";
-      assignment.ended_at = now;
-      assignment.updated_at = now;
-    }
-  });
-  const assignment = {
-    _id: makeId("local-assignment"),
-    person_id: personId,
-    assigned_leader_id: leaderId,
-    status: "active",
-    assigned_at: now,
-    created_at: now,
-    updated_at: now,
-  };
-  const task = createFirstContactTask ? {
+  const current = active.find(row => String(row.assigned_leader_id) === String(leaderId));
+  active.forEach(row => { if (row !== current) Object.assign(row, { status: "ended", ended_at: now, updated_at: now }); });
+  const assignment = current || { _id: makeId("local-assignment"), person_id: personId, assigned_leader_id: leaderId, status: "active", assigned_at: now, created_at: now, updated_at: now };
+  if (!current) state.assignments.push(assignment);
+  for (const task of state.tasks) {
+    if (String(task.person_id) !== String(personId) || task.status !== "open" || !isDelegatedFollowUpTask(task) || String(task.assigned_leader_id) === String(leaderId)) continue;
+    task.ownership_history = [...(task.ownership_history || []), { from_leader_id: task.assigned_leader_id, to_leader_id: leaderId, assignment_id: assignment._id, at: now }];
+    task.assigned_leader_id = leaderId; task.updated_at = now;
+  }
+  const outreach = !["member", "leader", "archived"].includes(person.member_status)
+    && (["contact", "guest", "visitor", "new_believer"].includes(person.member_status) || person.entry_point === "evangelism" || Boolean(person.contact_date));
+  const task = !history.length && createFirstContactTask && outreach && !state.tasks.some(row => String(row.person_id) === String(personId) && row.task_type === "first_contact") ? {
     _id: makeId("local-task"), person_id: personId, assigned_leader_id: leaderId,
     task_type: "first_contact", due_date: dueDate, status: "open", priority: "high",
-    reason, created_at: now, updated_at: now,
+    reason: options.reason || "Make the first follow-up contact", created_at: now, updated_at: now,
   } : null;
-  state.assignments.push(assignment);
   if (task) state.tasks.push(task);
-  person.follow_up_status = "active";
   writeLocalState(state);
   return { data: { assignment, task }, error: null, source: "local" };
 }
 
 export async function batchAssignContacts(personIds, leaderId, dueDate = dateOnly(), options = {}) {
-  const results = [];
-  const errors = [];
-  for (const personId of personIds) {
-    const res = await assignContact(personId, leaderId, dueDate, options);
+  const results = [], errors = [], succeededPersonIds = [];
+  let source = "unavailable";
+  for (const personId of new Set(personIds)) {
+    const res = await assignContact(personId, leaderId, dueDate, {
+      ...options,
+      ...(options.expectedAssignments && Object.hasOwn(options.expectedAssignments, personId) ? { expectedAssignmentId: options.expectedAssignments[personId] } : {}),
+    });
+    source = res.source;
     if (res.error) errors.push({ personId, error: res.error });
-    else results.push(res.data);
+    else { results.push(res.data); succeededPersonIds.push(personId); }
   }
-  return {
-    data: results,
-    errors,
-    error: errors.length ? new Error(`${errors.length} assignments failed`) : null,
-    source: results[0]?.task ? "local" : "convex",
-  };
+  return { data: results, errors, succeededPersonIds,
+    error: errors.length ? new Error(`${results.length} assigned; ${errors.length} failed`) : null, source };
 }
 
 export async function captureLocalEvangelismContact(contact) {
