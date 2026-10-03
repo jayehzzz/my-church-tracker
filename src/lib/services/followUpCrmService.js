@@ -1,3 +1,4 @@
+import { sundayConfirmationRows, latestSundayCommitments, sundayResponseVersion } from "./sundayConfirmationLogic.js";
 import { canFollowUp, isOutreachTask, isDelegatedFollowUpTask } from "../../../convex/lib/contactPolicy.ts";
 import { api } from "../../../convex/_generated/api.js";
 import { browser } from "$app/environment";
@@ -360,6 +361,11 @@ function writeLocalState(state) {
   }
 }
 
+function currentOwnerFor(state, personId) {
+  return state.assignments.filter(row => row.status === "active" && String(row.person_id) === String(personId))
+    .sort((a,b) => String(b.assigned_at).localeCompare(String(a.assigned_at)) || (b._creationTime || 0) - (a._creationTime || 0))[0]?.assigned_leader_id;
+}
+
 function allLocalPeople(state) {
   const byId = new Map();
   [...state.people, ...state.contacts].forEach((person) => {
@@ -495,7 +501,7 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
   const memberCareTasks = openTasks.filter((task) => task.task_type === "member_care");
   const visitationTasks = openTasks.filter((task) => task.task_type === "visitation");
   const actionTasks = openTasks.filter((task) => !["member_care", "visitation"].includes(task.task_type));
-  const confirmedCommitments = state.commitments
+  const confirmedCommitments = latestSundayCommitments(state.commitments)
     .filter(
       (commitment) =>
         commitment.gathering_type === "sunday_service" &&
@@ -505,7 +511,7 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
     )
     .filter((commitment) => !leaderId || String(state.assignments.filter(row => String(row.person_id) === String(commitment.person_id) && row.status === "active").sort((a,b) => b.assigned_at.localeCompare(a.assigned_at))[0]?.assigned_leader_id || commitment.leader_id) === String(leaderId))
     .map((commitment) => enrichCommitment(commitment, state));
-  const sundayCommitments = state.commitments
+  const sundayCommitments = latestSundayCommitments(state.commitments)
     .filter(
       (commitment) =>
         commitment.gathering_type === "sunday_service" &&
@@ -535,13 +541,14 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
     });
 
   const forecast = buildAttendanceForecast({
-    people: allLocalPeople(state),
+    people: allLocalPeople(state).filter(person => !leaderId || String(currentOwnerFor(state, person._id || person.id)) === String(leaderId)),
     attendancePlans: state.attendancePlans,
-    commitments: state.commitments,
+    commitments: latestSundayCommitments(state.commitments),
     serviceDate: targetSunday,
   });
-  const attendanceRoster = state.people
+  const attendanceRoster = allLocalPeople(state)
     .filter((person) => ["member", "leader"].includes(person.member_status))
+    .filter(person => !leaderId || String(currentOwnerFor(state, person._id || person.id)) === String(leaderId))
     .map((person) => ({
       ...person,
       attendance_plan: state.attendancePlans.find(
@@ -643,6 +650,7 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
     team_stats: teamStats,
     attendance_forecast: forecast,
     attendance_roster: attendanceRoster,
+    sunday_confirmation_roster: sundayConfirmationRows({ people: allLocalPeople(state), assignments: state.assignments, commitments: state.commitments, plans: state.attendancePlans, serviceDate: targetSunday, leaderId }),
     recent_sunday_results: state.commitments
       .filter((commitment) => commitment.gathering_type === "sunday_service" && commitment.resolution !== "pending")
       .filter((commitment) => !leaderId || String(commitment.leader_id) === String(leaderId))
@@ -726,6 +734,7 @@ function normalizeDashboard(data, source) {
       confirmed_guests: stat.confirmed_guests ?? stat.confirmed_non_members ?? stat.confirmed_this_sunday ?? 0,
     })),
     attendance_roster: data?.attendance_roster || [],
+    sunday_confirmation_roster: data?.sunday_confirmation_roster ?? null,
     recent_sunday_results: data?.recent_sunday_results || [],
     sunday_missed_history: data?.sunday_missed_history || [],
     attendance_forecast: {
@@ -1562,4 +1571,45 @@ export async function previewCommitmentCorrection(commitmentId) {
   try {
     return { data: await client.query(api.corrections.previewCommitment, { commitmentId }), error: null };
   } catch (error) { return { data: null, error }; }
+}
+
+export async function recordSundayResponse(person, serviceDate, response, note) {
+  const args = {
+    personId: person._id || person.id, leaderId: person.assigned_leader_id, serviceDate, response,
+    expectedAssignmentId: person.assignment_id,
+    expectedResponseVersion: sundayResponseVersion(person.sunday_commitment, person.attendance_plan),
+    ...(note?.trim() ? { note: note.trim() } : {}),
+  };
+  const client = getClient();
+  if (client) {
+    try { return { data: await client.mutation(api.crm.recordSundayResponse, args), error: null, source: "convex" }; }
+    catch (error) { return { data: null, error, source: "convex" }; }
+  }
+  if (!isDemoMode()) return { data: null, error: unavailableError() };
+  const state = readLocalState();
+  const fresh = sundayConfirmationRows({ people: allLocalPeople(state), assignments: state.assignments, commitments: state.commitments, plans: state.attendancePlans, serviceDate })
+    .find(row => String(row._id || row.id) === String(args.personId));
+  if (!fresh || fresh.contact_blocked || fresh.assignment_id !== args.expectedAssignmentId || !fresh.assigned_leader_id || fresh.assigned_leader_id !== args.leaderId
+      || sundayResponseVersion(fresh.sunday_commitment, fresh.attendance_plan) !== args.expectedResponseVersion || fresh.actual_result) return { data: null, error: new Error("Sunday response or assignment changed, or this person cannot be contacted. Reload the list.") };
+  const when = new Date().toISOString();
+  let commitment = fresh.sunday_commitment;
+  if (!commitment) {
+    commitment = { _id: makeId("local-commitment"), person_id: args.personId, leader_id: args.leaderId, gathering_type: "sunday_service", gathering_date: serviceDate, response, resolution: "pending", created_at: when, history: [] };
+    state.commitments.push(commitment);
+  } else if (commitment.response === "yes" && response !== "yes" && commitment.resolution === "pending") {
+    commitment.resolution = "cancelled";
+    commitment.resolved_at = when;
+    commitment.history = [...(commitment.history || []), { at: when, leader_id: args.leaderId, action: "cancelled", ...(args.note ? { note: args.note } : {}) }];
+  } else if (response === "yes" && commitment.resolution === "cancelled") {
+    commitment.resolution = "pending"; commitment.resolved_at = undefined;
+  }
+  Object.assign(commitment, { response, leader_id: args.leaderId, confirmation_note: args.note, updated_at: when });
+  commitment.history = [...(commitment.history || []), { at: when, leader_id: args.leaderId, action: `response_${response}`, ...(args.note ? { note: args.note } : {}) }];
+  if (["member", "leader"].includes(person.member_status)) {
+    const plan = fresh.attendance_plan || { _id: makeId("local-plan"), person_id: args.personId, service_date: serviceDate, created_at: when };
+    if (!fresh.attendance_plan) state.attendancePlans.push(plan);
+    Object.assign(plan, { leader_id: args.leaderId, status: response === "yes" ? "confirmed" : response === "no" ? "away" : "expected", notes: args.note, updated_at: when });
+  }
+  writeLocalState(state);
+  return { data: commitment, error: null, source: "demo" };
 }

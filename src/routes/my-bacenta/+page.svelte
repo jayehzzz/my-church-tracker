@@ -10,7 +10,7 @@
   import VisitationForm from '$lib/components/forms/VisitationForm.svelte';
   import CareTaskForm from '$lib/components/forms/CareTaskForm.svelte';
   import ContactDrawer from '$lib/components/crm/ContactDrawer.svelte';
-  import SundayReliabilitySummary from '$lib/components/shared/SundayReliabilitySummary.svelte';
+  import SundayConfirmationList from '$lib/components/crm/SundayConfirmationList.svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import * as followUp from '$lib/services/followUpCrmService.js';
@@ -55,10 +55,9 @@
   let newcomerPhone = $state('');
   let selectedProgramme = $state(null);
   let selectedMeeting = $state(null);
-  let sundayOpen = $state(false);
-  let sundayPersonId = $state('');
-  let sundayDate = $state('');
-  let sundayNote = $state('');
+  let sundayDashboard = $state(null);
+  let sundayListDate = $state('');
+  let sundayListError = $state('');
   let callOutcome = $state('positive_conversation');
   let callMethod = $state('call');
   let callNote = $state('');
@@ -156,7 +155,7 @@
   export const snapshot = {
     capture: () => {
       const token = `bacenta-${crypto.randomUUID()}`;
-      saveDomainReturn(token, { auth: authKey(), activeTab, programId, search, selectedPersonId, scrollY: window.scrollY });
+      saveDomainReturn(token, { auth: authKey(), activeTab, programId, search, selectedPersonId, sundayListDate, scrollY: window.scrollY });
       return { token };
     },
     restore: value => { pendingFrame = value?.token ? takeDomainReturn(value.token) : null; if (workspace) restoreFrame(); },
@@ -168,6 +167,8 @@
     activeTab = frame.activeTab;
     programId = frame.programId;
     search = frame.search;
+    sundayListDate = frame.sundayListDate || nextSunday();
+    void loadSundayList();
     selectedPersonId = frame.selectedPersonId;
     drawerOpen = Boolean(frame.selectedPersonId && peopleById.has(String(frame.selectedPersonId)));
     requestAnimationFrame(() => window.scrollTo(0, frame.scrollY || 0));
@@ -185,6 +186,7 @@
       }
       if (programId !== 'all' && !workspace.programs.some(program => id(program) === programId)) programId = 'all';
       if (pendingFrame) restoreFrame();
+      await loadSundayList();
     } catch (cause) {
       error = cause?.message || 'Unable to load My Bacenta.';
     } finally {
@@ -201,6 +203,7 @@
       if (value.status === 'authenticated' && value.user?.role === 'leader' && key !== loadedFor) {
         loadedFor = key;
         workspace = null;
+        sundayDashboard = null;
         void load();
       }
     });
@@ -267,40 +270,28 @@
     } catch (cause) { error = cause?.message || 'Could not add the newcomer.'; }
     finally { saving = false; }
   }
-  async function saveSunday() {
-    if (!sundayPersonId || !sundayDate) return;
-    if (new Date(`${sundayDate}T12:00:00`).getDay() !== 0) {
-      error = 'Choose a Sunday date for this confirmation.';
-      return;
-    }
-    saving = true; error = '';
-    try {
-      await getConvexHttpClient().mutation(api.crm.recordCommitment, {
-        personId: sundayPersonId, leaderId: workspace.leaderId,
-        gatheringType: 'sunday_service', gatheringDate: sundayDate, response: 'yes',
-        ...(sundayNote.trim() ? { note: sundayNote.trim() } : {}),
-      });
-      sundayOpen = false; notice = 'Sunday confirmation saved.';
-      await load();
-      selectedPersonId = sundayPersonId;
-      drawerOpen = Boolean(selectedPersonId);
-    } catch (cause) { error = cause?.message || 'Could not save the confirmation.'; }
-    finally { saving = false; }
+  async function loadSundayList() {
+    sundayListDate ||= nextSunday();
+    const requestedDate = sundayListDate;
+    const requestedFor = authKey();
+    const result = await followUp.getDashboard({ serviceDate: requestedDate });
+    if (requestedDate !== sundayListDate || requestedFor !== authKey()) return;
+    sundayListError = result.error?.message || '';
+    sundayDashboard = result.error ? null : result.data;
   }
-  async function cancelSunday(commitment) {
-    const note = window.prompt('Reason for cancelling this Sunday confirmation (optional)', '') ?? null;
-    if (note === null) return;
-    saving = true; error = '';
-    try {
-      await getConvexHttpClient().mutation(api.crm.resolveCommitment, {
-        commitmentId: id(commitment), resolution: 'cancelled', leaderId: workspace.leaderId,
-        ...(note.trim() ? { note: note.trim() } : {}),
-      });
-      notice = 'Sunday confirmation cancelled.';
-      await load();
-    } catch (cause) { error = cause?.message || 'Could not cancel the confirmation.'; }
-    finally { saving = false; }
+  async function changeSundayListDate(day) {
+    if (new Date(`${day}T12:00:00`).getDay() !== 0) { sundayListError = 'Choose a Sunday date.'; return; }
+    sundayListDate = day; sundayDashboard = null;
+    await loadSundayList();
   }
+  async function saveSundayResponse(person, response, note) {
+    saving = true;
+    const result = await followUp.recordSundayResponse(person, sundayListDate, response, note);
+    saving = false;
+    if (!result.error) { notice = 'Sunday response saved.'; await load(); }
+    return result;
+  }
+
 </script>
 
 <DashboardLayout>
@@ -351,10 +342,9 @@
             {#each (activeProgramme ? [activeProgramme] : programmes) as program (id(program))}<article class="rounded-xl border border-border bg-card p-4"><div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-semibold">{program.name}</h3><p class="text-sm text-muted-foreground">{program.default_day || 'Day not set'} · {(program.member_ids || []).length} on roster</p></div><div class="flex flex-wrap gap-2"><Button size="sm" onclick={() => startMeeting(program)}>Record meeting</Button><Button size="sm" variant="secondary" onclick={() => startNewcomer(program)}>Add newcomer</Button><Button size="sm" variant="secondary" onclick={() => { selectedProgramme = program; programmeOpen = true; }}>Manage roster</Button></div></div><div class="mt-3 border-t border-border pt-3"><p class="text-xs font-medium text-muted-foreground">Recent meetings</p>{#each meetings.filter(row => String(row.program_id) === id(program)).slice(0, 4) as meeting (id(meeting))}<div class="flex flex-wrap items-center justify-between gap-2 py-1 text-sm"><span>{shortDate(meeting.meeting_date)} · {meeting.total_attendance || 0} attended · {meeting.status || 'Open'}</span><Button size="sm" variant="ghost" onclick={() => startMeeting(program, meeting)}>Open attendance</Button></div>{/each}<a class="mt-2 inline-block text-sm font-medium text-primary underline" href={`/meetings/programmes/${encodeURIComponent(id(program))}`}>See absence follow-up and history</a></div></article>{/each}
           </section>
         {:else}
-          <section aria-labelledby="sunday-heading" class="space-y-4"><div class="flex flex-wrap items-center justify-between gap-3"><div><h2 id="sunday-heading" class="text-lg font-semibold">Sunday follow-through</h2><p class="text-sm text-muted-foreground">Confirm plans and see actual results from the church register.</p></div><Button onclick={() => { sundayPersonId = ''; sundayDate = nextSunday(); sundayNote = ''; sundayOpen = true; }}>Record a yes</Button></div>
-            {#if visiblePeople.length === 0}<p class="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">No people are in this view yet.</p>{/if}
-            <div class="grid gap-3 lg:grid-cols-2">{#each visiblePeople as person (id(person))}{@const summary = reliabilityFor(id(person))}<article class="rounded-xl border border-border bg-card p-4"><div class="flex flex-wrap justify-between gap-2"><h3 class="font-semibold">{name(person)}</h3><Button size="sm" variant="secondary" onclick={() => { sundayPersonId = id(person); sundayDate = nextSunday(); sundayNote = ''; sundayOpen = true; }}>Said yes</Button></div><div class="mt-3"><SundayReliabilitySummary commitments={commitmentsFor(id(person))} compact showRate={false} /></div>{#each summary.entries.filter(row => row.resolution === 'pending') as commitment (commitment.id)}<div class="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs"><span>Awaiting result · {shortDate(commitment.gathering_date)}</span><button type="button" class="font-medium text-primary underline" onclick={() => cancelSunday(commitment)} disabled={saving}>Cancel confirmation</button></div>{/each}<Button size="sm" variant="ghost" onclick={() => openPerson(person)}>View reasons and history</Button></article>{/each}</div>
-          </section>
+          {#if sundayListError}<p role="alert" class="text-sm text-destructive">{sundayListError}</p>{/if}
+          <SundayConfirmationList rows={sundayDashboard?.sunday_confirmation_roster ?? null} serviceDate={sundayListDate} {saving} onRespond={saveSundayResponse} onOpen={openPerson} onCorrect={commitment => goto(`/people/${encodeURIComponent(commitment.person_id)}`)} onDateChange={changeSundayListDate} />
+          <p class="text-sm text-muted-foreground">Actual attendance comes from the church register. Open a person's history for Sunday corrections and cancellation details.</p>
         {/if}
       {/if}
     </div>
@@ -386,14 +376,5 @@
     {#if $session.user?.canViewConfidential}<label class="block text-sm">What happened?<textarea class="mt-1 w-full rounded-lg border border-border bg-card p-2" rows="3" bind:value={callNote}></textarea></label>{/if}
     <label class="block text-sm">Next call date (optional)<input class="mt-1 w-full rounded-lg border border-border bg-card p-2" type="date" min={today()} bind:value={nextDate} /></label>
     <div class="flex justify-end gap-2"><Button type="button" variant="secondary" onclick={() => callOpen = false}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save follow-up'}</Button></div>
-  </form>
-</Modal>
-<Modal bind:isOpen={sundayOpen} title="Sunday confirmation" size="lg">
-  <form class="space-y-4" onsubmit={event => { event.preventDefault(); void saveSunday(); }}>
-    {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
-    <label class="block text-sm">Person<select class="mt-1 w-full rounded-lg border border-border bg-card p-2" bind:value={sundayPersonId} required><option value="">Choose a person</option>{#each visiblePeople as person (id(person))}<option value={id(person)}>{name(person)}</option>{/each}</select></label>
-    <label class="block text-sm">Sunday date<input class="mt-1 w-full rounded-lg border border-border bg-card p-2" type="date" bind:value={sundayDate} required /></label>
-    <label class="block text-sm">What did they say? (optional)<textarea class="mt-1 w-full rounded-lg border border-border bg-card p-2" rows="2" bind:value={sundayNote}></textarea></label>
-    <div class="flex justify-end gap-2"><Button type="button" variant="secondary" onclick={() => sundayOpen = false}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save confirmation'}</Button></div>
   </form>
 </Modal>

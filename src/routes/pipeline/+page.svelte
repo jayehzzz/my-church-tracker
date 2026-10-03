@@ -15,6 +15,8 @@
   import { goto } from '$app/navigation';
   import { saveDomainReturn, takeDomainReturn } from '$lib/components/drilldown/domainReturnState.js';
   import { attentionRows, ATTENTION_LABELS } from '$lib/services/followUpAttention.js';
+  import SundayConfirmationList from '$lib/components/crm/SundayConfirmationList.svelte';
+  import { recordSundayResponse } from '$lib/services/followUpCrmService.js';
   import AssignmentManager from '$lib/components/crm/AssignmentManager.svelte';
   const canDelegate = $derived($session.status === 'demo' || ['owner', 'admin'].includes($session.user?.role));
   import MissedSundayFollowUp from '$lib/components/crm/MissedSundayFollowUp.svelte';
@@ -149,10 +151,11 @@
     const user = $session.user;
     return JSON.stringify([$session.status, user?.id || user?.sub || user?.email || user?.externalAuthId, user?.role, user?.canViewConfidential, user?.canViewGiving]);
   }
-  function returnFrame() { return { auth: authKey(), activeTab, boardView, assessmentPeriod, selectedLeaderId, attentionFilter, workerMetric, detailRowId: detailRow?.id || detailRow?._id, drawerPersonId: personId(drawerPerson), drawerOpen: isDrawerOpen, scrollY: window.scrollY }; }
+  function returnFrame() { return { auth: authKey(), activeTab, boardView, assessmentPeriod, selectedLeaderId, serviceDate: workspace.service_date, attentionFilter, workerMetric, detailRowId: detailRow?.id || detailRow?._id, drawerPersonId: personId(drawerPerson), drawerOpen: isDrawerOpen, scrollY: window.scrollY }; }
   function restoreFrame(frame) {
     if (!frame || frame.auth !== authKey()) return;
     activeTab = frame.activeTab; boardView = frame.boardView; assessmentPeriod = frame.assessmentPeriod;
+    workspace = { ...workspace, service_date: frame.serviceDate };
     selectedLeaderId = frame.selectedLeaderId; attentionFilter = frame.attentionFilter;
     workerMetric = frame.workerMetric;
     void loadWorkspace().then(() => {
@@ -270,8 +273,12 @@
   async function loadWorkspace({ quiet = false } = {}) {
     if (quiet) refreshing = true; else loading = true;
     errorMessage = '';
+    const options = dashboardOptions();
+    const requestedFor = authKey();
+    const requestKey = JSON.stringify(options);
     try {
-      const result = await getDashboard(dashboardOptions());
+      const result = await getDashboard(options);
+      if (requestedFor !== authKey() || requestKey !== JSON.stringify(dashboardOptions())) return;
       if (result.error) errorMessage = result.error.message || 'Follow-up could not be loaded.';
       else if (result.data) {
         workspace = result.data;
@@ -330,6 +337,20 @@
     successMessage = resolution === 'attended' ? `${personName(commitment.person)} attended. Their attendance history has been updated.` : resolution === 'no_show' && count >= 2 ? `${personName(commitment.person)} has missed ${count} Sundays after saying yes. Moving them to Later is now recommended.` : `${personName(commitment.person)} was marked as ${resolution === 'no_show' ? 'did not attend' : 'cancelled'}.`;
     await loadWorkspace({ quiet: true });
     return result;
+  }
+  async function handleSundayResponse(person, response, note) {
+    savingSundayNote = true;
+    const result = await recordSundayResponse(person, workspace.service_date, response, note);
+    savingSundayNote = false;
+    if (result.error) errorMessage = result.error.message;
+    else successMessage = `${personName(person)}: ${response} for ${formatDate(workspace.service_date)}.`;
+    await loadWorkspace({ quiet: true });
+    return result;
+  }
+  async function chooseConfirmationSunday(day) {
+    if (new Date(`${day}T12:00:00`).getDay() !== 0) { errorMessage = 'Choose a Sunday date.'; return; }
+    workspace = { ...workspace, service_date: day, sunday_confirmation_roster: null, attendance_roster: [], sunday_commitments: [], attendance_forecast: { service_date: day } };
+    await loadWorkspace({ quiet: true });
   }
   async function handleAttendanceStatus(person, status, gathering, note = '') {
     if (status === 'attended' && !gathering) {
@@ -396,14 +417,15 @@
   }
 
   async function changeSunday(amount) {
-    workspace = { ...workspace, service_date: addDays(workspace.service_date || today, amount) };
+    const day = addDays(workspace.service_date || today, amount);
+    workspace = { ...workspace, service_date: day, sunday_confirmation_roster: null, attendance_roster: [], sunday_commitments: [], attendance_forecast: { service_date: day } };
     await loadWorkspace({ quiet: true });
   }
   async function resetSundayToCurrent() {
     const now = new Date();
     const day = now.getDay();
     const diff = (7 - day) % 7;
-    workspace = { ...workspace, service_date: addDays(today, diff) };
+    workspace = { ...workspace, service_date: addDays(today, diff), sunday_confirmation_roster: null, attendance_roster: [], sunday_commitments: [], attendance_forecast: { service_date: addDays(today, diff) } };
     await loadWorkspace({ quiet: true });
   }
   async function handleViewLeader(leaderId) { attentionFilter = ''; workerMetric = null; selectedLeaderId = String(leaderId); activeTab = 'week'; await loadWorkspace({ quiet: true }); }
@@ -722,6 +744,7 @@
       onOpen={openPerson}
     />
   {:else if activeTab === 'sunday'}
+    <SundayConfirmationList rows={workspace.sunday_confirmation_roster} serviceDate={workspace.service_date} {canDelegate} saving={savingSundayNote} onRespond={handleSundayResponse} onOpen={openPerson} onCorrect={openCommitmentCorrection} onAssignments={() => activeTab = 'assignments'} onDateChange={chooseConfirmationSunday} />
     <ExpectedSunday
       roster={workspace.attendance_roster || []}
       commitments={workspace.sunday_commitments || workspace.confirmed_commitments || []}

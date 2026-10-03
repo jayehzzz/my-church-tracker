@@ -644,8 +644,8 @@ export default defineSchema({
       .index("by_date", ["gathering_date"])
       .index("by_leader_date", ["leader_id", "gathering_date"]),
 
-    // Regular members are expected by default. This table stores weekly
-    // confirmations and known absences, plus confirmations for irregular members.
+    // Dated member intentions and actual results. No member is expected by default.
+    // The legacy "expected" value alone is not a personal confirmation.
     attendance_plans: defineTable({
         service_id: v.optional(v.id("services")),
         meeting_id: v.optional(v.id("meetings")),

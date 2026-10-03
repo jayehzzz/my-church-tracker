@@ -136,7 +136,7 @@
   );
   const newcomerPending = $derived(newcomers.filter((row) => row.status === 'Said yes').length);
   const newcomerAttended = $derived(newcomers.filter((row) => row.status === 'Attended').length);
-  const newcomerMissed = $derived(newcomers.filter((row) => row.status !== 'Said yes' && row.status !== 'Attended').length);
+  const newcomerMissed = $derived(newcomers.filter((row) => row.status === 'Didn’t attend').length);
   const newcomerActive = $derived(newcomers.filter((row) => row.status !== 'Cancelled').length);
 
   const members = $derived((roster || []).map((person) => ({ person, status: memberStatus(person) })));
@@ -189,6 +189,7 @@
 
   const lastSunday = $derived.by(() => {
     const previous = (results || [])
+      .filter(result => ['attended', 'no_show'].includes(result.resolution))
       .filter((result) => !['member', 'leader'].includes(result.person?.member_status))
       .filter((result) => !serviceDate || (result.gathering_date && result.gathering_date < serviceDate));
     if (!previous.length) return null;
