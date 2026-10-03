@@ -1,6 +1,9 @@
+import { sundayConfirmationRows, latestSundayCommitments, sundayResponseVersion } from "../src/lib/services/sundayConfirmationLogic.js";
 import { candidates, selectGathering, setActualAttendance, reconcilePerson, present } from "./lib/attendanceWorkflow";
-import { canDiscoverOutreach, cancelPendingOutreach, requireFollowUpAllowed } from "./lib/contactPolicy";
-import { authenticatedUser, managesAttendance } from "./lib/security";
+import { canDiscoverOutreach, cancelPendingOutreach, requireFollowUpAllowed, isDelegatedFollowUpTask } from "./lib/contactPolicy";
+import { authenticatedUser, managesAttendance, isAdmin, forbidden } from "./lib/security";
+import { expectedGuestsForSunday } from "./lib/guestInvitations";
+import { extendGuestForecast } from "../src/lib/services/expectedGuestLogic.js";
 import { queryFor, mutationFor } from "./lib/security";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -155,9 +158,7 @@ async function replaceAssignment(
         });
     }
 
-    if (current) return current._id;
-
-    return await ctx.db.insert("follow_up_assignments", {
+    const assignmentId = current?._id ?? await ctx.db.insert("follow_up_assignments", {
         person_id: personId,
         assigned_leader_id: leaderId,
         assigned_by_id: assignedById,
@@ -166,6 +167,22 @@ async function replaceAssignment(
         created_at: now,
         updated_at: now,
     });
+    // Only delegated follow-up work moves. Programme and care responsibilities
+    // are independent; completed/cancelled tasks and recorded Sunday actors stay.
+    const tasks = await ctx.db.query("follow_up_tasks")
+        .withIndex("by_person_status", q => q.eq("person_id", personId).eq("status", "open")).collect();
+    for (const task of tasks) {
+        if (task.assigned_leader_id === leaderId || !isDelegatedFollowUpTask(task)) continue;
+        await ctx.db.patch(task._id, {
+            assigned_leader_id: leaderId,
+            ownership_history: [...(task.ownership_history ?? []), {
+                from_leader_id: task.assigned_leader_id, to_leader_id: leaderId,
+                assignment_id: assignmentId, at: now,
+            }],
+            updated_at: now,
+        });
+    }
+    return assignmentId;
 }
 
 async function insertTask(
@@ -225,7 +242,7 @@ async function upsertCommitment(
         .collect();
     const existing = matching
         .filter((commitment) => commitment.gathering_type === args.gatheringType)
-        .sort((a, b) => Number(Boolean(a.entered_in_error)) - Number(Boolean(b.entered_in_error)) || b.updated_at.localeCompare(a.updated_at))[0];
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b._creationTime - a._creationTime)[0];
 
     if (existing) {
         const history = [...(existing.history ?? [])];
@@ -252,6 +269,11 @@ async function upsertCommitment(
             });
             return { id: existing._id, becameYes: true };
         }
+        if (existing.resolution === "cancelled" && args.response !== "yes") {
+            history.push({ at: now, leader_id: args.leaderId, action: `response_${args.response}`, ...(note ? { note } : {}) });
+            await ctx.db.patch(existing._id, { leader_id: args.leaderId, response: args.response, confirmation_note: note, history, updated_at: now });
+            return { id: existing._id, becameYes: false };
+        }
         if (existing.resolution !== "pending") {
             throw new Error("A resolved gathering commitment cannot be changed");
         }
@@ -259,8 +281,10 @@ async function upsertCommitment(
             history.push({ at: now, leader_id: args.leaderId, action: "cancelled", ...(note ? { note } : {}) });
             await ctx.db.patch(existing._id, {
                 leader_id: args.leaderId,
+                response: args.response,
                 resolution: "cancelled",
                 resolution_note: note,
+                confirmation_note: note,
                 resolved_at: now,
                 history,
                 updated_at: now,
@@ -277,7 +301,7 @@ async function upsertCommitment(
         await ctx.db.patch(existing._id, {
             leader_id: args.leaderId,
             response: args.response,
-            ...(args.response === "yes" && note ? { confirmation_note: note } : {}),
+            confirmation_note: note,
             history,
             updated_at: now,
         });
@@ -292,7 +316,7 @@ async function upsertCommitment(
         gathering_date: args.gatheringDate,
         response: args.response,
         resolution: "pending",
-        ...(args.response === "yes" && note ? { confirmation_note: note } : {}),
+        confirmation_note: note,
         history: [{ at: now, leader_id: args.leaderId, action, ...(note ? { note } : {}) }],
         created_at: now,
         updated_at: now,
@@ -513,6 +537,12 @@ export const getDashboard = queryFor("crm:getDashboard")({
         periodEnd: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
+        const user = authenticatedUser(ctx);
+        if (!isAdmin(user)) {
+            if (!user.person_id) forbidden();
+            if (args.leaderId && args.leaderId !== user.person_id) forbidden();
+            args = { ...args, leaderId: user.person_id };
+        }
         const serviceDate = args.serviceDate ?? nextSunday();
         const todayDate = today();
         const todayValue = new Date(`${todayDate}T00:00:00.000Z`);
@@ -531,7 +561,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
         const allPeople = peopleByStatus.flat();
         const contactPeople = allPeople.filter(isEvangelismContact);
         const completedSince = `${freshSince}T00:00:00.000Z`;
-        const [allAssignments, openTasks, completedTasks, sundayCommitments, upcomingCommitmentRows, attendancePlans, allVisitations, allSundayCommitments] = await Promise.all([
+        const [allAssignments, openTasks, completedTasks, sundayCommitmentRows, upcomingCommitmentRows, attendancePlans, allVisitations, allSundayCommitments] = await Promise.all([
             ctx.db.query("follow_up_assignments").withIndex("by_status", (q) => q.eq("status", "active")).collect(),
             ctx.db.query("follow_up_tasks").withIndex("by_status_due_date", (q) => q.eq("status", "open")).collect(),
             ctx.db.query("follow_up_tasks").withIndex("by_status_completed_at", (q) => q.eq("status", "completed").gte("completed_at", completedSince)).collect(),
@@ -541,6 +571,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
             ctx.db.query("visitations").withIndex("by_follow_up", (q) => q.eq("follow_up_required", true)).collect(),
             ctx.db.query("gathering_commitments").withIndex("by_gathering", (q) => q.eq("gathering_type", "sunday_service")).collect(),
         ]);
+        const sundayCommitments = latestSundayCommitments(sundayCommitmentRows);
         const allTasks = [...openTasks, ...completedTasks];
         const [followUpGroups, commitmentGroups] = await Promise.all([
             Promise.all(contactPeople.map((person) => ctx.db.query("follow_ups").withIndex("by_contact", (q) => q.eq("contact_id", person._id)).collect())),
@@ -706,7 +737,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
             .filter((commitment) =>
                 commitment.response === "yes"
                 && commitment.resolution === "pending"
-                && (!args.leaderId || commitment.leader_id === args.leaderId),
+                && (!args.leaderId || (ownerByPerson.get(commitment.person_id) ?? commitment.leader_id) === args.leaderId),
             )
             .map((commitment) => ({
                 ...commitment,
@@ -722,7 +753,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 !commitment.entered_in_error
                 &&
                 commitment.response === "yes"
-                && (!args.leaderId || commitment.leader_id === args.leaderId),
+                && (!args.leaderId || (ownerByPerson.get(commitment.person_id) ?? commitment.leader_id) === args.leaderId),
             )
             .map((commitment) => ({
                 ...commitment,
@@ -740,7 +771,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 && commitment.gathering_date <= weekEnd
                 && commitment.response === "yes"
                 && commitment.resolution === "pending"
-                && (!args.leaderId || commitment.leader_id === args.leaderId),
+                && (!args.leaderId || (ownerByPerson.get(commitment.person_id) ?? commitment.leader_id) === args.leaderId),
             )
             .map((commitment) => ({
                 ...commitment,
@@ -941,28 +972,24 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 .sort((a, b) => a.updated_at.localeCompare(b.updated_at))
                 .map((plan) => [plan.person_id, plan]),
         );
-        const currentAttendancePlans = [...attendancePlanByPerson.values()];
+        const currentAttendancePlans = [...attendancePlanByPerson.values()]
+            .filter(plan => !args.leaderId || ownerByPerson.get(plan.person_id) === args.leaderId);
         // Sunday expectations come from a dated confirmation, never a profile label.
         const awayIds = new Set(
             currentAttendancePlans
                 .filter((plan) => plan.status === "away" && ["member", "leader"].includes(peopleById.get(plan.person_id)?.member_status ?? ""))
                 .map((plan) => plan.person_id),
         );
-        const confirmedMemberIds = new Set(
-            currentAttendancePlans
-                .filter((plan) => {
-                    const person = peopleById.get(plan.person_id);
-                    return plan.status === "confirmed"
-                        && person !== undefined
-                        && ["member", "leader"].includes(person.member_status);
-                })
-                .map((plan) => plan.person_id),
-        );
+        const confirmationRoster = sundayConfirmationRows({ people: allPeople, assignments: activeAssignments, commitments: sundayCommitmentRows, plans: attendancePlans, serviceDate, leaderId: args.leaderId });
+        const confirmedMemberIds = new Set<Id<"people">>(confirmationRoster
+            .filter(row => ["member", "leader"].includes(row.member_status) && row.sunday_response === "yes" && !row.actual_result)
+            .map(row => row._id));
         const confirmedGuestIds = new Set(
             sundayCommitments
                 .filter((commitment) => {
                     const person = peopleById.get(commitment.person_id);
-                    return commitment.response === "yes"
+                    return (!args.leaderId || ownerByPerson.get(commitment.person_id) === args.leaderId)
+                        && commitment.response === "yes"
                         && commitment.resolution === "pending"
                         && person !== undefined
                         && ["contact", "guest", "visitor", "new_believer"].includes(person.member_status)
@@ -976,11 +1003,17 @@ export const getDashboard = queryFor("crm:getDashboard")({
         ]);
         const attendanceRoster = allPeople
             .filter((person) => ["member", "leader"].includes(person.member_status))
+            .filter(person => !args.leaderId || ownerByPerson.get(person._id) === args.leaderId)
             .map((person) => {
-                const plan = attendancePlanByPerson.get(person._id) ?? null;
+                const savedPlan = attendancePlanByPerson.get(person._id) ?? null;
+                const confirmation = confirmationRoster.find(row => row._id === person._id);
+                const plan = savedPlan?.status === "confirmed" && confirmation?.sunday_response !== "yes"
+                    ? { ...savedPlan, status: confirmation?.sunday_response === "no" ? "away" : "expected" }
+                    : savedPlan ?? (confirmation?.sunday_response === "yes" && !confirmation.actual_result ? { status: "confirmed", service_date: serviceDate } : null);
                 return {
                     ...person,
                     name: personName(person),
+                    assigned_leader_id: ownerByPerson.get(person._id) ?? null,
                     attendance_plan: plan,
                     default_expected: false,
                     expected: allExpectedIds.has(person._id),
@@ -990,7 +1023,9 @@ export const getDashboard = queryFor("crm:getDashboard")({
             })
             .sort((a, b) => a.name.localeCompare(b.name));
 
+        const guestInvitations = await expectedGuestsForSunday(ctx, serviceDate, args.leaderId);
         return {
+            guest_invitations: guestInvitations,
             service_date: serviceDate,
             generated_for_leader_id: args.leaderId ?? null,
             leaders: leaders
@@ -1023,7 +1058,8 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 .sort((a, b) => b.gathering_date.localeCompare(a.gathering_date))
                 .slice(0, 40),
             attendance_roster: attendanceRoster,
-            attendance_forecast: {
+            sunday_confirmation_roster: confirmationRoster,
+            attendance_forecast: extendGuestForecast({
                 service_date: serviceDate,
                 // Legacy API aliases remain zero so old clients do not infer a profile status.
                 regular_baseline: 0,
@@ -1038,7 +1074,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 total_expected: allExpectedIds.size,
                 expected_total: allExpectedIds.size,
                 expected_person_ids: [...allExpectedIds],
-            },
+            }, guestInvitations),
         };
     },
 });
@@ -1243,7 +1279,11 @@ export const getContactProfile = queryFor("crm:getContactProfile")({
 
         return {
             person,
+            guest_invitations: await ctx.db.query("guest_invitations").withIndex("by_person", q => q.eq("person_id", args.personId)).collect(),
             sunday_reliability: sundayReliability(commitments),
+            assignment_history: assignments.map(row => ({
+                ...row, assigned_leader_name: personName(leaderById.get(row.assigned_leader_id)),
+            })).sort((a,b) => b.assigned_at.localeCompare(a.assigned_at)),
             active_assignment: activeAssignment ? {
                 ...activeAssignment,
                 assigned_leader: leaderById.get(activeAssignment.assigned_leader_id) ?? null,
@@ -1281,63 +1321,67 @@ export const getContactProfile = queryFor("crm:getContactProfile")({
     },
 });
 
+// Administrative directory: minimal person fields, independent of date/worker
+// filters. Reads never grant a leader churchwide scope.
+export const getAssignmentDirectory = queryFor("crm:getAssignmentDirectory")({
+    args: {},
+    handler: async (ctx) => {
+        if (!isAdmin(authenticatedUser(ctx))) forbidden();
+        const [people, assignments, tasks] = await Promise.all([
+            ctx.db.query("people").collect(),
+            ctx.db.query("follow_up_assignments").withIndex("by_status", q => q.eq("status", "active")).collect(),
+            ctx.db.query("follow_up_tasks").withIndex("by_status_due_date", q => q.eq("status", "open")).collect(),
+        ]);
+        const owners = new Map(assignments.sort((a,b) => a.assigned_at.localeCompare(b.assigned_at) || a._creationTime - b._creationTime).map(row => [row.person_id, row]));
+        const names = new Map(people.map(row => [row._id, personName(row)]));
+        const taskCounts = new Map<Id<"people">, number>();
+        for (const task of tasks) {
+            if (isDelegatedFollowUpTask(task)) taskCounts.set(task.person_id, (taskCounts.get(task.person_id) ?? 0) + 1);
+        }
+        return people.filter(row => row.member_status !== "archived").map(row => {
+            const owner = owners.get(row._id);
+            return {
+                _id: row._id, name: personName(row), phone: row.phone,
+                member_status: row.member_status,
+                assignment_id: owner?._id ?? null,
+                assigned_leader_id: owner?.assigned_leader_id ?? null,
+                assigned_leader_name: owner ? names.get(owner.assigned_leader_id) ?? "Unavailable leader" : null,
+                blocked_reason: row.contact_category === "do_not_contact" ? "Asked not to be contacted" : row.is_paused ? "Follow-up paused — reactivate explicitly first" : null,
+                open_follow_up_count: taskCounts.get(row._id) ?? 0,
+            };
+        }).sort((a,b) => a.name.localeCompare(b.name));
+    },
+});
+
 export const assignContact = mutationFor("crm:assignContact")({
     args: {
-        personId: v.id("people"),
-        assignedLeaderId: v.id("people"),
+        personId: v.id("people"), assignedLeaderId: v.id("people"),
         assignedById: v.optional(v.id("people")),
+        expectedAssignmentId: v.optional(v.union(v.id("follow_up_assignments"), v.null())),
         firstContactDueDate: v.optional(v.string()),
-        createFirstContactTask: v.optional(v.boolean()),
-        reason: v.optional(v.string()),
+        createFirstContactTask: v.optional(v.boolean()), reason: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         const person = await requirePerson(ctx, args.personId);
-        if (person.contact_category === "do_not_contact") requireFollowUpAllowed(person);
+        requireFollowUpAllowed(person);
         await requireLeader(ctx, args.assignedLeaderId);
-        if (args.assignedById) await requirePerson(ctx, args.assignedById, "Assigning leader");
-
-        const assignmentId = await replaceAssignment(
-            ctx,
-            args.personId,
-            args.assignedLeaderId,
-            args.assignedById,
-        );
+        const active = (await getActiveAssignments(ctx, args.personId))
+            .sort((a,b) => b.assigned_at.localeCompare(a.assigned_at) || b._creationTime - a._creationTime);
+        if (args.expectedAssignmentId !== undefined && (active[0]?._id ?? null) !== args.expectedAssignmentId)
+            throw new Error("Assignment changed since this list was loaded. Refresh and try again.");
+        const history = await ctx.db.query("follow_up_assignments").withIndex("by_person", q => q.eq("person_id", args.personId)).collect();
+        const assignmentId = await replaceAssignment(ctx, args.personId, args.assignedLeaderId, args.assignedById);
         let taskId: Id<"follow_up_tasks"> | null = null;
-        if (args.createFirstContactTask !== false && isEvangelismContact(person)) {
-            const existingFirstContactTasks = await ctx.db
-                .query("follow_up_tasks")
-                .withIndex("by_person_status", (q) =>
-                    q.eq("person_id", args.personId).eq("status", "open"),
-                )
-                .collect();
-            const existing = existingFirstContactTasks.find(
-                (task) => task.task_type === "first_contact",
-            );
-            if (existing) {
-                await ctx.db.patch(existing._id, {
-                    assigned_leader_id: args.assignedLeaderId,
-                    due_date: args.firstContactDueDate ?? existing.due_date,
-                    reason: args.reason ?? existing.reason,
-                    updated_at: isoNow(),
-                });
-                taskId = existing._id;
-            } else {
-                taskId = await insertTask(ctx, {
-                    personId: args.personId,
-                    assignedLeaderId: args.assignedLeaderId,
-                    createdById: args.assignedById,
-                    dueDate: args.firstContactDueDate ?? today(),
-                    taskType: "first_contact",
-                    priority: "high",
-                    reason: args.reason ?? "Make the first follow-up contact",
-                });
-            }
+        // A reassignment never restarts first contact or changes a due date.
+        if (!history.length && args.createFirstContactTask !== false && isEvangelismContact(person)) {
+            const tasks = await ctx.db.query("follow_up_tasks").withIndex("by_person", q => q.eq("person_id", args.personId)).collect();
+            if (!tasks.some(task => task.task_type === "first_contact")) taskId = await insertTask(ctx, {
+                personId: args.personId, assignedLeaderId: args.assignedLeaderId,
+                createdById: args.assignedById, dueDate: args.firstContactDueDate ?? today(),
+                taskType: "first_contact", priority: "high", reason: args.reason ?? "Make the first follow-up contact",
+            });
         }
-
-        return {
-            assignment: await ctx.db.get(assignmentId),
-            task: taskId ? await ctx.db.get(taskId) : null,
-        };
+        return { assignment: await ctx.db.get(assignmentId), task: taskId ? await ctx.db.get(taskId) : null };
     },
 });
 
@@ -1712,6 +1756,44 @@ export const recordCommitment = mutationFor("crm:recordCommitment")({
             });
         }
         if (managesAttendance(ctx)) await reconcilePerson(ctx, args.personId);
+        return await ctx.db.get(result.id);
+    },
+});
+
+// A responsibility-list response is a dated intention, never an attendance write.
+export const recordSundayResponse = mutationFor("crm:recordSundayResponse")({
+    args: {
+        personId: v.id("people"), leaderId: v.id("people"), serviceDate: v.string(),
+        response: attendanceResponse, note: v.optional(v.string()),
+        expectedAssignmentId: v.union(v.id("follow_up_assignments"), v.null()),
+        expectedResponseVersion: v.string(),
+    },
+    handler: async (ctx, args) => {
+        const day = new Date(`${args.serviceDate}T00:00:00.000Z`);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(args.serviceDate) || !Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== args.serviceDate || day.getUTCDay() !== 0) throw new Error("Choose a valid Sunday date");
+        if ((args.note?.trim().length ?? 0) > 2000) throw new Error("Sunday notes must be 2000 characters or fewer");
+        const person = await requirePerson(ctx, args.personId);
+        requireFollowUpAllowed(person);
+        await requireLeader(ctx, args.leaderId);
+        const assignment = (await getActiveAssignments(ctx, args.personId)).sort((a,b) => b.assigned_at.localeCompare(a.assigned_at) || b._creationTime - a._creationTime)[0];
+        if ((assignment?._id ?? null) !== args.expectedAssignmentId) throw new Error("Assignment changed. Reload the Sunday list before saving");
+        if (!assignment || assignment.assigned_leader_id !== args.leaderId) throw new Error("Use this person's current responsible leader to record their Sunday response");
+        const rows = await ctx.db.query("gathering_commitments").withIndex("by_person_date", q => q.eq("person_id", args.personId).eq("gathering_date", args.serviceDate)).collect();
+        const current = latestSundayCommitments(rows)[0];
+        if (current && ["attended", "no_show"].includes(current.resolution)) throw new Error("Use the correction/history workflow for a Sunday with recorded attendance results");
+        const plans = await ctx.db.query("attendance_plans").withIndex("by_person_date", q => q.eq("person_id", args.personId).eq("service_date", args.serviceDate)).collect();
+        const latestPlan = plans.slice().sort((a,b) => b.updated_at.localeCompare(a.updated_at) || b._creationTime - a._creationTime)[0];
+        if (sundayResponseVersion(current, latestPlan) !== args.expectedResponseVersion) throw new Error("Sunday response changed. Reload the list before saving");
+        if (plans.some(plan => ["attended", "absent"].includes(plan.status))) throw new Error("Use the correction/history workflow for a Sunday with recorded attendance results");
+        const result = await upsertCommitment(ctx, { personId: args.personId, leaderId: args.leaderId, gatheringType: "sunday_service", gatheringDate: args.serviceDate, response: args.response, note: args.note });
+        if (result.becameYes) await ctx.db.patch(person._id, { promises_made: (person.promises_made ?? 0) + 1, updated_at: isoNow() });
+        if (["member", "leader"].includes(person.member_status)) {
+            const plan = plans.sort((a,b) => b.updated_at.localeCompare(a.updated_at) || b._creationTime - a._creationTime)[0];
+            const values = { person_id: person._id, leader_id: args.leaderId, service_date: args.serviceDate, status: args.response === "yes" ? "confirmed" as const : args.response === "no" ? "away" as const : "expected" as const, notes: args.note?.trim() || undefined, updated_at: isoNow() };
+            if (plan) await ctx.db.patch(plan._id, values);
+            else await ctx.db.insert("attendance_plans", { ...values, created_at: isoNow() });
+            for (const duplicate of plans.filter(row => row._id !== plan?._id)) await ctx.db.delete(duplicate._id);
+        }
         return await ctx.db.get(result.id);
     },
 });

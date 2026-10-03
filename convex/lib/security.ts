@@ -66,7 +66,7 @@ const leaderMutations = new Set([
   "people:addDiscipleshipReview", "people:update", "evangelism:create", "evangelism:update", "evangelism:markAsJoinedChurch", "evangelism:markAsConverted",
   "people:createGrowthAgreement", "people:reviewGrowthAgreement",
   "crm:createTask", "crm:completeTask", "crm:moveToLater", "crm:recordCommitment",
-  "crm:resolveCommitment", "crm:setAttendancePlan", "crm:updateMissedSundayReason",
+  "crm:resolveCommitment", "crm:setAttendancePlan", "crm:recordSundayResponse", "crm:updateMissedSundayReason",
   "corrections:correctFollowUp", "corrections:correctCommitment",
   "follow_ups:create", "follow_ups:resolvePromise", "follow_ups:bulkResolvePromises",
   "visitations:create", "visitations:update",
@@ -125,6 +125,7 @@ async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users"
       modify: async (_, doc) => canRecord(doc) && ownAction(doc),
       insert: async (_, doc) => canRecord(doc) && ownAction(doc),
     }, gathering_commitments: linked, attendance_plans: linked,
+    guest_invitations: { ...adminOnly, read: async (_, doc) => admin || Boolean(user.person_id && doc.responsible_leader_id === user.person_id) },
     growth_agreements: { ...linked, read: async (_, doc) => Boolean(user.can_view_confidential) && canRecord(doc) },
     growth_agreement_reviews: { ...linked, read: async (_, doc) => Boolean(user.can_view_confidential) && canRecord(doc) },
     attendance: { ...linked, modify: adminOnly.modify, insert: adminOnly.insert },
@@ -275,7 +276,7 @@ function authenticateBuilder(builder: any, name: string, write: boolean) {
           delete args.visited_by_name;
         }
       }
-      if (!isAdmin(user) && ["crm:recordCommitment", "crm:resolveCommitment", "crm:setAttendancePlan"].includes(name)) {
+      if (!isAdmin(user) && ["crm:recordCommitment", "crm:resolveCommitment", "crm:setAttendancePlan", "crm:recordSundayResponse"].includes(name)) {
         if (!user.person_id) throw new ConvexError("LINKED_PERSON_REQUIRED");
         args.leaderId = user.person_id;
       }
@@ -302,10 +303,10 @@ function authenticateBuilder(builder: any, name: string, write: boolean) {
     if (developmentSummary) developmentSummaryContexts.add(guardedContext);
     // A leader may record expectations, but cannot create a contradictory late
     // expectation after actual attendance. Check only an already scoped person.
-    if (!isAdmin(user) && write && ["crm:recordCommitment", "crm:completeTask"].includes(name)) {
+    if (write && (name === "crm:recordSundayResponse" || (!isAdmin(user) && ["crm:recordCommitment", "crm:completeTask"].includes(name)))) {
       const task = name === "crm:completeTask" ? await guardedContext.db.get(args.taskId) : null;
       const personId = args.personId ?? (task as any)?.person_id;
-      const day = args.commitment?.gatheringDate ?? args.gatheringDate;
+      const day = args.commitment?.gatheringDate ?? args.gatheringDate ?? args.serviceDate;
       if (personId && day && await guardedContext.db.get(personId)) {
         const rows = await ctx.db.query("attendance").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect();
         const meetings = await ctx.db.query("meeting_attendance").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect();

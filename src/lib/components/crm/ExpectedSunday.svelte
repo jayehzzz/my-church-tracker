@@ -136,7 +136,7 @@
   );
   const newcomerPending = $derived(newcomers.filter((row) => row.status === 'Said yes').length);
   const newcomerAttended = $derived(newcomers.filter((row) => row.status === 'Attended').length);
-  const newcomerMissed = $derived(newcomers.filter((row) => row.status !== 'Said yes' && row.status !== 'Attended').length);
+  const newcomerMissed = $derived(newcomers.filter((row) => row.status === 'Didn’t attend').length);
   const newcomerActive = $derived(newcomers.filter((row) => row.status !== 'Cancelled').length);
 
   const members = $derived((roster || []).map((person) => ({ person, status: memberStatus(person) })));
@@ -149,7 +149,7 @@
   const memberAttended = $derived(expectedMembers.filter((row) => row.status === 'Attended').length);
   const memberMissed = $derived(expectedMembers.filter((row) => row.status === 'Didn’t attend').length);
 
-  const expectedTotal = $derived(expectedMembers.length + newcomerActive);
+  const expectedTotal = $derived(!afterService && forecast.expected_total !== undefined ? forecast.expected_total : expectedMembers.length + newcomerActive);
   const recordedTotal = $derived(newcomerAttended + newcomerMissed + memberAttended + memberMissed);
   const attendedTotal = $derived(newcomerAttended + memberAttended);
 
@@ -189,6 +189,7 @@
 
   const lastSunday = $derived.by(() => {
     const previous = (results || [])
+      .filter(result => ['attended', 'no_show'].includes(result.resolution))
       .filter((result) => !['member', 'leader'].includes(result.person?.member_status))
       .filter((result) => !serviceDate || (result.gathering_date && result.gathering_date < serviceDate));
     if (!previous.length) return null;
@@ -240,9 +241,9 @@
       </div>
       <p class="mt-1 text-sm text-muted-foreground">
         {#if afterService}
-          {recordedTotal} of {expectedTotal} recorded · {attendedTotal} attended so far · confirmations stay pending until actual attendance or a missed result is recorded
+          Confirmation results: {recordedTotal} of {expectedTotal} recorded · {attendedTotal} attended so far · confirmations stay pending until actual attendance or a missed result is recorded
         {:else}
-          {plural(expectedTotal, 'person', 'people')} expected in total
+          {plural(expectedTotal, 'person', 'people')} expected in total{#if forecast.additional_expected_guests} · includes {forecast.additional_expected_guests} additional guests reported coming{/if}{#if forecast.tentative_guest_count} · {forecast.tentative_guest_count} tentative invitations excluded{/if}
         {/if}
       </p>
     </div>

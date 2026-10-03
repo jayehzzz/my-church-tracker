@@ -30,6 +30,7 @@ vi.mock('$lib/services/followUpCrmService.js', () => ({
 }));
 
 beforeEach(() => {
+  workspace.unassigned_contacts = [];
   const storage = new Map();
   vi.stubGlobal('localStorage', { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) });
   HTMLElement.prototype.scrollIntoView = vi.fn();
@@ -54,4 +55,24 @@ it('opens the selected worker metric from historical evidence rather than curren
   view.unmount();
   const returned = render(Page);
   await waitFor(() => expect(returned.getByRole('region', { name: 'Worker metric evidence' })).toHaveTextContent('Historical Person'));
+});
+
+
+it('keeps named partial batch errors visible after the weekly workspace refresh', async () => {
+  workspace.unassigned_contacts = [
+    {id:'saved-person',first_name:'Saved',last_name:'Person'},
+    {id:'failed-person',first_name:'Failed',last_name:'Person'},
+  ];
+  const { batchAssignContacts } = await import('$lib/services/followUpCrmService.js');
+  batchAssignContacts.mockResolvedValue({data:[{assignment:{person_id:'saved-person'}}],succeededPersonIds:['saved-person'],errors:[{personId:'failed-person',error:new Error('Assignment changed. Refresh and try again.')}],error:new Error('1 assigned; 1 failed')});
+  const { default: Page } = await import('./+page.svelte');
+  const view = render(Page);
+  await waitFor(() => expect(view.getByLabelText('Select Saved Person')).toBeInTheDocument());
+  await fireEvent.click(view.getByLabelText('Select Saved Person'));
+  await fireEvent.click(view.getByLabelText('Select Failed Person'));
+  await fireEvent.click(view.getByRole('button',{name:'Assign 2 contacts'}));
+  await waitFor(() => expect(view.getByRole('alert')).toHaveTextContent('Failed Person: Assignment changed. Refresh and try again.'));
+  expect(view.getByText('Assigned 1 person to Old Worker.')).toBeInTheDocument();
+  expect(view.getByLabelText('Select Failed Person')).toBeChecked();
+  expect(view.getByLabelText('Select Saved Person')).not.toBeChecked();
 });

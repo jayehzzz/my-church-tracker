@@ -15,6 +15,12 @@
   import { goto } from '$app/navigation';
   import { saveDomainReturn, takeDomainReturn } from '$lib/components/drilldown/domainReturnState.js';
   import { attentionRows, ATTENTION_LABELS } from '$lib/services/followUpAttention.js';
+  import SundayConfirmationList from '$lib/components/crm/SundayConfirmationList.svelte';
+  import ExpectedGuests from '$lib/components/crm/ExpectedGuests.svelte';
+  import { activeGuestInvitation, guestInvitationKey } from '$lib/services/expectedGuestLogic.js';
+  import { recordSundayResponse } from '$lib/services/followUpCrmService.js';
+  import AssignmentManager from '$lib/components/crm/AssignmentManager.svelte';
+  const canDelegate = $derived($session.status === 'demo' || ['owner', 'admin'].includes($session.user?.role));
   import MissedSundayFollowUp from '$lib/components/crm/MissedSundayFollowUp.svelte';
   import { recentMissedSundayPeople } from '$lib/utils/missedSundayHistory.js';
 
@@ -47,6 +53,7 @@
 
   const TABS = [
     { id: 'week', label: 'This week' },
+    { id: 'assignments', label: 'Assignments' },
     { id: 'sunday', label: 'Sunday' },
     { id: 'missed', label: 'Missed after saying yes' },
     { id: 'journey', label: 'First visits & salvation' },
@@ -123,7 +130,10 @@
   const weekTasks = $derived((workspace.tasks || []).filter((task) => !task.due_date || task.due_date <= weekEnd));
   const overdueCount = $derived(weekTasks.filter((task) => task.due_date && task.due_date < today).length);
   const unassignedCount = $derived((workspace.unassigned_contacts || []).length);
-  const sundayPending = $derived((workspace.sunday_commitments || workspace.confirmed_commitments || []).filter((item) => (item.resolution || 'pending') === 'pending').length);
+  const sundayPending = $derived(new Set([
+    ...(workspace.sunday_commitments || workspace.confirmed_commitments || []).filter(item => (item.resolution || 'pending') === 'pending').map(item => `person:${item.person_id || item.person?._id || item.person?.id}`),
+    ...(workspace.guest_invitations || []).filter(activeGuestInvitation).map(guestInvitationKey),
+  ]).size);
   const laterContacts = $derived((workspace.later_contacts || []).filter((contact) => personName(contact).toLowerCase().includes(laterSearch.trim().toLowerCase())));
   const missedCount = $derived(recentMissedSundayPeople(workspace.sunday_missed_history || [], today).length);
   const tabCounts = $derived({ week: weekTasks.length + unassignedCount, sunday: sundayPending, missed: missedCount, journey: journeyData ? (journeyData.first_timers || []).length + (journeyData.new_converts || []).length : 0, later: (workspace.later_contacts || []).length, team: 0 });
@@ -146,10 +156,11 @@
     const user = $session.user;
     return JSON.stringify([$session.status, user?.id || user?.sub || user?.email || user?.externalAuthId, user?.role, user?.canViewConfidential, user?.canViewGiving]);
   }
-  function returnFrame() { return { auth: authKey(), activeTab, boardView, assessmentPeriod, selectedLeaderId, attentionFilter, workerMetric, detailRowId: detailRow?.id || detailRow?._id, drawerPersonId: personId(drawerPerson), drawerOpen: isDrawerOpen, scrollY: window.scrollY }; }
+  function returnFrame() { return { auth: authKey(), activeTab, boardView, assessmentPeriod, selectedLeaderId, serviceDate: workspace.service_date, attentionFilter, workerMetric, detailRowId: detailRow?.id || detailRow?._id, drawerPersonId: personId(drawerPerson), drawerOpen: isDrawerOpen, scrollY: window.scrollY }; }
   function restoreFrame(frame) {
     if (!frame || frame.auth !== authKey()) return;
     activeTab = frame.activeTab; boardView = frame.boardView; assessmentPeriod = frame.assessmentPeriod;
+    workspace = { ...workspace, service_date: frame.serviceDate };
     selectedLeaderId = frame.selectedLeaderId; attentionFilter = frame.attentionFilter;
     workerMetric = frame.workerMetric;
     void loadWorkspace().then(() => {
@@ -267,8 +278,12 @@
   async function loadWorkspace({ quiet = false } = {}) {
     if (quiet) refreshing = true; else loading = true;
     errorMessage = '';
+    const options = dashboardOptions();
+    const requestedFor = authKey();
+    const requestKey = JSON.stringify(options);
     try {
-      const result = await getDashboard(dashboardOptions());
+      const result = await getDashboard(options);
+      if (requestedFor !== authKey() || requestKey !== JSON.stringify(dashboardOptions())) return;
       if (result.error) errorMessage = result.error.message || 'Follow-up could not be loaded.';
       else if (result.data) {
         workspace = result.data;
@@ -327,6 +342,20 @@
     successMessage = resolution === 'attended' ? `${personName(commitment.person)} attended. Their attendance history has been updated.` : resolution === 'no_show' && count >= 2 ? `${personName(commitment.person)} has missed ${count} Sundays after saying yes. Moving them to Later is now recommended.` : `${personName(commitment.person)} was marked as ${resolution === 'no_show' ? 'did not attend' : 'cancelled'}.`;
     await loadWorkspace({ quiet: true });
     return result;
+  }
+  async function handleSundayResponse(person, response, note) {
+    savingSundayNote = true;
+    const result = await recordSundayResponse(person, workspace.service_date, response, note);
+    savingSundayNote = false;
+    if (result.error) errorMessage = result.error.message;
+    else successMessage = `${personName(person)}: ${response} for ${formatDate(workspace.service_date)}.`;
+    await loadWorkspace({ quiet: true });
+    return result;
+  }
+  async function chooseConfirmationSunday(day) {
+    if (new Date(`${day}T12:00:00`).getDay() !== 0) { errorMessage = 'Choose a Sunday date.'; return; }
+    workspace = { ...workspace, service_date: day, sunday_confirmation_roster: null, attendance_roster: [], sunday_commitments: [], attendance_forecast: { service_date: day } };
+    await loadWorkspace({ quiet: true });
   }
   async function handleAttendanceStatus(person, status, gathering, note = '') {
     if (status === 'attended' && !gathering) {
@@ -393,14 +422,15 @@
   }
 
   async function changeSunday(amount) {
-    workspace = { ...workspace, service_date: addDays(workspace.service_date || today, amount) };
+    const day = addDays(workspace.service_date || today, amount);
+    workspace = { ...workspace, service_date: day, sunday_confirmation_roster: null, attendance_roster: [], sunday_commitments: [], attendance_forecast: { service_date: day } };
     await loadWorkspace({ quiet: true });
   }
   async function resetSundayToCurrent() {
     const now = new Date();
     const day = now.getDay();
     const diff = (7 - day) % 7;
-    workspace = { ...workspace, service_date: addDays(today, diff) };
+    workspace = { ...workspace, service_date: addDays(today, diff), sunday_confirmation_roster: null, attendance_roster: [], sunday_commitments: [], attendance_forecast: { service_date: addDays(today, diff) } };
     await loadWorkspace({ quiet: true });
   }
   async function handleViewLeader(leaderId) { attentionFilter = ''; workerMetric = null; selectedLeaderId = String(leaderId); activeTab = 'week'; await loadWorkspace({ quiet: true }); }
@@ -427,19 +457,23 @@
     if (result.error) errorMessage = result.error.message || 'The person could not be assigned.';
     else {
       const leader = (workspace.leaders || []).find((item) => String(personId(item)) === String(leaderId));
-      successMessage = `${personName(contact)} was assigned to ${leader ? personName(leader) : 'a worker'} with a first call on ${formatDate(dueDate)}.`;
+      successMessage = `${personName(contact)} was assigned to ${leader ? personName(leader) : 'a worker'} ${result.data?.task ? `with a first call on ${formatDate(dueDate)}` : ''}.`;
       await loadWorkspace({ quiet: true });
     }
   }
   async function handleBatchAssign(personIds, leaderId, dueDate) {
     const result = await batchAssignContacts(personIds, leaderId, dueDate);
-    if (result.error && !result.data?.length) {
-      errorMessage = result.error.message || 'Batch assignment could not be saved.';
-    } else {
+    const failureMessage = (result.errors || []).map(failure => {
+      const person = (workspace.unassigned_contacts || []).find(row => String(personId(row)) === String(failure.personId));
+      return `${person ? personName(person) : 'Person'}: ${failure.error.message}`;
+    }).join(' · ');
+    if (result.data?.length) {
       const leader = (workspace.leaders || []).find((item) => String(personId(item)) === String(leaderId));
-      successMessage = `Assigned ${personIds.length} ${personIds.length === 1 ? 'person' : 'people'} to ${leader ? personName(leader) : 'a worker'} with first call on ${formatDate(dueDate)}.`;
+      successMessage = `Assigned ${result.data.length} ${result.data.length === 1 ? 'person' : 'people'} to ${leader ? personName(leader) : 'a worker'}.`;
       await loadWorkspace({ quiet: true });
     }
+    if (failureMessage) errorMessage = [errorMessage, failureMessage].filter(Boolean).join(' · ');
+    return result;
   }
   async function handleQuickNoAnswer(task) {
     const leaderId = currentLeaderId(task.assigned_leader_id || personId(task.assigned_leader));
@@ -651,7 +685,7 @@
 
 <DashboardLayout>
   <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-    <PageHeader title="Follow-Up" subtitle="Weekly calls with new people until they settle. Every person has one worker and one next call." />
+    <PageHeader title="Follow-Up" subtitle="Follow-up for members and new people. Assign responsibility and plan the next conversation." />
     <div class="flex items-center gap-2">
       <label class="flex items-center gap-2 text-sm font-medium text-foreground"><span class="sr-only sm:not-sr-only">Worker</span><select bind:value={selectedLeaderId} onchange={handleLeaderChange} class="min-w-44 rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground shadow-sm focus:border-primary"><option value="all">Everyone</option>{#each workspace.leaders || [] as leader (personId(leader))}<option value={personId(leader)}>{personName(leader)}</option>{/each}</select></label>
       <Button variant="secondary" size="sm" loading={refreshing} onclick={() => loadWorkspace({ quiet: true })}>Refresh</Button>
@@ -664,7 +698,7 @@
 
   <div class="my-6 flex flex-col gap-3 border-b border-border sm:flex-row sm:items-end sm:justify-between">
     <nav class="flex gap-1 overflow-x-auto" aria-label="Follow-up sections">
-      {#each TABS as tab (tab.id)}
+      {#each TABS.filter(tab => tab.id !== 'assignments' || canDelegate) as tab (tab.id)}
         <button type="button" class="flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold {activeTab === tab.id ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}" onclick={() => selectTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined}>{tab.label}{#if tabCounts[tab.id]}<span class="rounded-full px-2 py-0.5 text-xs {tab.id === 'week' && overdueCount ? 'bg-destructive/10 text-destructive' : 'bg-secondary'}">{tabCounts[tab.id]}</span>{/if}</button>
       {/each}
     </nav>
@@ -685,7 +719,7 @@
           {#each attentionItems as row, index (`${row._id || row.id || row.person_id}-${index}`)}
             <div class="flex items-center justify-between gap-3 px-5 py-3">
               <div><p class="font-medium">{row.person ? personName(row.person) : row.unavailable ? 'Person unavailable' : personName(row)}</p><p class="text-xs text-muted-foreground">{row.attention_kind === 'task' ? `${String(row.task_type || 'Task').replaceAll('_', ' ')} · ${row.due_date ? formatDate(row.due_date) : 'No due date'}` : attentionFilter === 'expected-sunday' ? 'Expected for this Sunday' : 'Needs a worker'}</p></div>
-              {#if !row.unavailable}<Button size="sm" variant="ghost" onclick={() => row.attention_kind === 'task' ? detailRow = row : openEvidencePerson(row.person || row)}>{row.attention_kind === 'task' ? 'Task details' : 'View person'}</Button>{/if}
+              {#if !row.unavailable}<Button size="sm" variant="ghost" onclick={() => row.attention_kind === 'guest_invitation' ? (attentionFilter = '', activeTab = 'sunday') : row.attention_kind === 'task' ? detailRow = row : openEvidencePerson(row.person || row)}>{row.attention_kind === 'guest_invitation' ? 'View invitation' : row.attention_kind === 'task' ? 'Task details' : 'View person'}</Button>{/if}
             </div>
           {/each}
         </div>
@@ -694,12 +728,15 @@
         <div class="border-t border-border bg-secondary/20 p-5"><button type="button" class="mb-3 text-sm font-semibold text-primary" onclick={() => detailRow = null}>← Back to matching records</button><h3 class="font-semibold">{String(detailRow.task_type || 'Task').replaceAll('_', ' ')}</h3><p class="text-sm text-muted-foreground">Due {detailRow.due_date ? formatDate(detailRow.due_date) : 'date not set'} · {personName(detailRow.person)}</p><Button size="sm" variant="secondary" onclick={() => openEvidencePerson(detailRow.person || detailRow)}>View person</Button></div>
       {/if}
     </section>
+  {:else if activeTab === 'assignments' && canDelegate}
+    <AssignmentManager onChanged={() => loadWorkspace({ quiet: true })} onOpen={openPerson} />
   {:else if activeTab === 'week'}
     <FollowUpBoard
       unassigned={selectedLeaderId === 'all' ? workspace.unassigned_contacts || [] : []}
       tasks={workspace.tasks || []}
       commitments={workspace.sunday_commitments || workspace.confirmed_commitments || []}
       leaders={workspace.leaders || []}
+      {canDelegate}
       {today}
       {weekEnd}
       view={boardView}
@@ -712,6 +749,8 @@
       onOpen={openPerson}
     />
   {:else if activeTab === 'sunday'}
+    <ExpectedGuests rows={workspace.guest_invitations} serviceDate={workspace.service_date} forecast={workspace.attendance_forecast} canManage={canDelegate} {today} onChanged={() => loadWorkspace({ quiet: true })} onOpen={openPerson} />
+    <SundayConfirmationList rows={workspace.sunday_confirmation_roster} serviceDate={workspace.service_date} {canDelegate} saving={savingSundayNote} onRespond={handleSundayResponse} onOpen={openPerson} onCorrect={openCommitmentCorrection} onAssignments={() => activeTab = 'assignments'} onDateChange={chooseConfirmationSunday} />
     <ExpectedSunday
       roster={workspace.attendance_roster || []}
       commitments={workspace.sunday_commitments || workspace.confirmed_commitments || []}

@@ -1,3 +1,4 @@
+import { latestSundayCommitments } from "./sundayConfirmationLogic.js";
 /**
  * Pure rules used by the follow-up CRM.
  *
@@ -533,8 +534,8 @@ export function sortTasks(tasks = [], today = new Date()) {
 /**
  * Build a conservative attendance forecast for one service.
  *
- * Regular members/leaders form the baseline and are assumed present unless an
- * away plan exists. Irregular members/leaders need an explicit confirmed plan.
+ * Members/leaders need an explicit dated confirmed plan; ownership and profile
+ * labels never create a Sunday expectation.
  * Outreach contacts and guests need an explicit, unresolved Yes commitment.
  * Each person is counted once even if duplicate plans/commitments exist.
  */
@@ -573,19 +574,23 @@ export function buildAttendanceForecast({
   const confirmedReturningGuestPeople = [];
   const expectedById = new Map();
 
+  const datedCommitments = latestSundayCommitments(commitments).filter(row => formatCalendarDate(calendarDate(serviceDateFrom(row))) === targetDate);
+  const responseByPerson = new Map(datedCommitments.map(row => [String(personIdFrom(row)), row]));
+  const recordedResponseIds = new Set(commitments.filter(row => (!row.gathering_type || row.gathering_type === 'sunday_service') && formatCalendarDate(calendarDate(serviceDateFrom(row))) === targetDate).map(row => String(personIdFrom(row))));
   for (const [id, person] of peopleById) {
     if (isArchived(person) || !isMemberOrLeader(person)) continue;
     const disposition = planDisposition(plansByPerson.get(id));
 
     if (disposition === 'away') knownAwayPeople.push(person);
-    if (disposition === 'confirmed') {
+    if (disposition === 'confirmed' && (!recordedResponseIds.has(id) || isExplicitPendingYes(responseByPerson.get(id)))) {
       confirmedMemberPeople.push(person);
       expectedById.set(id, person);
     }
   }
 
+  const confirmedMemberIds = new Set(confirmedMemberPeople.map(person => String(recordId(person))));
   const confirmedNonMemberIds = new Set();
-  for (const commitment of commitments) {
+  for (const commitment of datedCommitments) {
     if (formatCalendarDate(calendarDate(serviceDateFrom(commitment))) !== targetDate) continue;
     if (!isExplicitPendingYes(commitment)) continue;
 
@@ -593,7 +598,11 @@ export function buildAttendanceForecast({
     if (rawId == null) continue;
     const id = String(rawId);
     const person = peopleById.get(id);
-    if (!person || isArchived(person) || isMemberOrLeader(person)) continue;
+    if (!person || isArchived(person)) continue;
+    if (isMemberOrLeader(person)) {
+      if (!confirmedMemberIds.has(id) && !["attended", "absent"].includes(plansByPerson.get(id)?.status)) { confirmedMemberPeople.push(person); confirmedMemberIds.add(id); expectedById.set(id, person); }
+      continue;
+    }
     if (planDisposition(plansByPerson.get(id)) === 'away') continue;
 
     if (!confirmedNonMemberIds.has(id)) {

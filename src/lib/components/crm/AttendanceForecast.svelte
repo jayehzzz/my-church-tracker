@@ -56,10 +56,11 @@
       <div class="bg-primary/5 p-5 sm:p-6">
         <p class="text-sm text-muted-foreground">Expected total</p>
         <p class="mt-2 text-4xl font-semibold tracking-tight text-foreground" aria-label={`${expectedTotal} people expected`}>{expectedTotal}</p>
-        <p class="mt-2 text-xs text-muted-foreground">People confirmed for this Sunday, including non-members who said yes.</p>
+        <p class="mt-2 text-xs text-muted-foreground">Sunday Yes responses plus guests reported coming. Linked people count once; tentative invitations are excluded.</p>
+        {#if forecast.additional_expected_guests || forecast.tentative_guest_count}<p class="mt-2 text-xs text-muted-foreground">{forecast.additional_expected_guests || 0} additional expected guests · {forecast.tentative_guest_count || 0} tentative · {forecast.unnamed_expected_guests || 0} names pending</p>{/if}
       </div>
       <div class="p-5 sm:p-6">
-        <p class="text-sm text-muted-foreground">Confirmed so far</p>
+        <p class="text-sm text-muted-foreground">Confirmation list Yes</p>
         <p class="mt-2 text-4xl font-semibold tracking-tight text-foreground" aria-label={`${confirmedTotal} people confirmed`}>{confirmedTotal}</p>
         <p class="mt-2 text-xs text-muted-foreground">
           {confirmedMembers} members ·
@@ -78,7 +79,7 @@
     </div>
 
     <div class="flex flex-col gap-3 border-t border-border px-5 py-4 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
-      <p>Only dated confirmations count toward this forecast.</p>
+      <p>Dated invitations do not record attendance, first visits or outreach activity.</p>
       {#if onManage}<Button variant="secondary" size="sm" onclick={onManage}>Manage roster</Button>{/if}
     </div>
   </Card>
