@@ -35,6 +35,7 @@
   let urgencyFilter = $state('all');
   let selectedUnassigned = $state([]);
   let batchLeaderId = $state('');
+  let batchAssigning = $state(false);
 
   $effect(() => {
     if (!assignDate && today) assignDate = today;
@@ -151,9 +152,12 @@
   }
 
   async function handleBatchAssignSubmit() {
-    if (!selectedUnassigned.length || !batchLeaderId) return;
-    const result = await onBatchAssign(selectedUnassigned, batchLeaderId, assignDate);
-    selectedUnassigned = (result?.errors || []).map(row => String(row.personId));
+    if (batchAssigning || !selectedUnassigned.length || !batchLeaderId) return;
+    batchAssigning = true;
+    try {
+      const result = await onBatchAssign(selectedUnassigned, batchLeaderId, assignDate);
+      selectedUnassigned = (result?.errors || []).map(row => String(row.personId));
+    } finally { batchAssigning = false; }
   }
 
   const promiseByPerson = $derived(
@@ -580,7 +584,7 @@
   <!-- Batch Action Toolbar for Unassigned Contacts -->
   {#if canDelegate && rawNeedsWorker.length > 0 && selectedUnassigned.length > 0}
     <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-foreground">
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <span class="font-semibold text-amber-500">
           {selectedUnassigned.length} selected
         </span>
@@ -609,7 +613,7 @@
         >
           Cancel
         </button>
-        <Button size="sm" onclick={handleBatchAssignSubmit}>
+        <Button size="sm" loading={batchAssigning} onclick={handleBatchAssignSubmit}>
           Assign {selectedUnassigned.length} contacts
         </Button>
       </div>

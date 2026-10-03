@@ -436,7 +436,7 @@
   }
   async function handleBatchAssign(personIds, leaderId, dueDate) {
     const result = await batchAssignContacts(personIds, leaderId, dueDate);
-    errorMessage = (result.errors || []).map(failure => {
+    const failureMessage = (result.errors || []).map(failure => {
       const person = (workspace.unassigned_contacts || []).find(row => String(personId(row)) === String(failure.personId));
       return `${person ? personName(person) : 'Person'}: ${failure.error.message}`;
     }).join(' · ');
@@ -445,6 +445,7 @@
       successMessage = `Assigned ${result.data.length} ${result.data.length === 1 ? 'person' : 'people'} to ${leader ? personName(leader) : 'a worker'}.`;
       await loadWorkspace({ quiet: true });
     }
+    if (failureMessage) errorMessage = [errorMessage, failureMessage].filter(Boolean).join(' · ');
     return result;
   }
   async function handleQuickNoAnswer(task) {
