@@ -321,6 +321,9 @@
         <SundayReliabilitySummary commitments={profileData?.commitments || []} summary={profileData?.sunday_reliability || null} compact showRate={showSundayRate} />
         {#if profileError}<div role="alert" class="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{profileError} <button type="button" class="font-semibold underline" onclick={() => retryProfile += 1}>Try again</button></div>{/if}
 
+        {#if profileData?.guest_invitations?.length}
+          <details class="mt-4 rounded-lg border border-border p-3"><summary class="cursor-pointer text-sm font-semibold">Guest invitation history</summary><ul class="mt-3 space-y-2 text-sm">{#each profileData.guest_invitations as invitation (invitation._id)}<li class="border-l-2 border-border pl-3"><p>{invitation.service_date} · {invitation.entered_in_error ? 'Entered in error' : invitation.attendance_service_id ? 'Actual attendance recorded' : invitation.state.replaceAll('_', ' ')}</p><p class="text-xs text-muted-foreground">{invitation.report_source === 'inviter_report' ? `Reported by ${invitation.inviter_name || 'the inviter'}` : 'Reported by the guest'} · {invitation.history.length} history entries</p></li>{/each}</ul></details>
+        {/if}
         {#if profileData?.assignment_history?.length}
           <details class="rounded-lg border border-border p-3">
             <summary class="cursor-pointer text-sm font-semibold">Assignment history</summary>

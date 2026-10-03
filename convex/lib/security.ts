@@ -125,6 +125,7 @@ async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users"
       modify: async (_, doc) => canRecord(doc) && ownAction(doc),
       insert: async (_, doc) => canRecord(doc) && ownAction(doc),
     }, gathering_commitments: linked, attendance_plans: linked,
+    guest_invitations: { ...adminOnly, read: async (_, doc) => admin || Boolean(user.person_id && doc.responsible_leader_id === user.person_id) },
     growth_agreements: { ...linked, read: async (_, doc) => Boolean(user.can_view_confidential) && canRecord(doc) },
     growth_agreement_reviews: { ...linked, read: async (_, doc) => Boolean(user.can_view_confidential) && canRecord(doc) },
     attendance: { ...linked, modify: adminOnly.modify, insert: adminOnly.insert },

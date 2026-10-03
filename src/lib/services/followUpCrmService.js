@@ -1,4 +1,6 @@
 import { sundayConfirmationRows, latestSundayCommitments, sundayResponseVersion } from "./sundayConfirmationLogic.js";
+import { extendGuestForecast, guestInvitationName, guestInvitationVersion } from "./expectedGuestLogic.js";
+import { assertDate, validatePersonInput, normalizeEmail, normalizePhone } from "../../../convex/peopleValidation.ts";
 import { canFollowUp, isOutreachTask, isDelegatedFollowUpTask } from "../../../convex/lib/contactPolicy.ts";
 import { api } from "../../../convex/_generated/api.js";
 import { browser } from "$app/environment";
@@ -368,7 +370,7 @@ function currentOwnerFor(state, personId) {
 
 function allLocalPeople(state) {
   const byId = new Map();
-  [...state.people, ...state.contacts].forEach((person) => {
+  [...mockPeople, ...state.people, ...state.contacts].forEach((person) => {
     byId.set(String(person._id || person.id), person);
   });
   return [...byId.values()];
@@ -540,12 +542,17 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
       return String(assignment?.assigned_leader_id) === String(leaderId);
     });
 
-  const forecast = buildAttendanceForecast({
+  const guestInvitations = (state.guestInvitations || []).filter(row => row.service_date === targetSunday && (!leaderId || String(row.responsible_leader_id) === String(leaderId))).map(row => {
+    const person = allLocalPeople(state).find(person => String(person._id || person.id) === String(row.person_id)) || null;
+    const leader = allLocalPeople(state).find(person => String(person._id || person.id) === String(row.responsible_leader_id));
+    return { ...row, person, person_archived: person?.member_status === "archived", display_name: guestInvitationName({ ...row, person }), leader_name: leader ? fullName(leader) : null, version: guestInvitationVersion(row) };
+  });
+  const forecast = extendGuestForecast(buildAttendanceForecast({
     people: allLocalPeople(state).filter(person => !leaderId || String(currentOwnerFor(state, person._id || person.id)) === String(leaderId)),
     attendancePlans: state.attendancePlans,
     commitments: latestSundayCommitments(state.commitments),
     serviceDate: targetSunday,
-  });
+  }), guestInvitations);
   const attendanceRoster = allLocalPeople(state)
     .filter((person) => ["member", "leader"].includes(person.member_status))
     .filter(person => !leaderId || String(currentOwnerFor(state, person._id || person.id)) === String(leaderId))
@@ -649,6 +656,7 @@ function buildLocalDashboard({ leaderId, serviceDate, periodStart, periodEnd } =
     contacts: crmContacts,
     team_stats: teamStats,
     attendance_forecast: forecast,
+    guest_invitations: guestInvitations,
     attendance_roster: attendanceRoster,
     sunday_confirmation_roster: sundayConfirmationRows({ people: allLocalPeople(state), assignments: state.assignments, commitments: state.commitments, plans: state.attendancePlans, serviceDate: targetSunday, leaderId }),
     recent_sunday_results: state.commitments
@@ -734,6 +742,7 @@ function normalizeDashboard(data, source) {
       confirmed_guests: stat.confirmed_guests ?? stat.confirmed_non_members ?? stat.confirmed_this_sunday ?? 0,
     })),
     attendance_roster: data?.attendance_roster || [],
+    guest_invitations: data?.guest_invitations ?? null,
     sunday_confirmation_roster: data?.sunday_confirmation_roster ?? null,
     recent_sunday_results: data?.recent_sunday_results || [],
     sunday_missed_history: data?.sunday_missed_history || [],
@@ -874,6 +883,7 @@ function buildLocalContactProfile(personId) {
     .sort((a, b) => String(b.assigned_at).localeCompare(String(a.assigned_at)))[0] || null;
   return {
     person,
+    guest_invitations: (state.guestInvitations || []).filter(row => String(row.person_id) === String(personId)),
     sunday_reliability: summarizeSundayCommitments(
       state.commitments.filter((commitment) => String(commitment.person_id) === String(personId)),
     ),
@@ -963,7 +973,7 @@ export async function getAssignmentDirectory() {
   }
   if (!isDemoMode()) return { data: null, error: unavailableError(), source: "unavailable" };
   const state = readLocalState();
-  const people = new Map([...state.people, ...state.contacts].map(person => [String(person._id || person.id), person]));
+  const people = new Map(allLocalPeople(state).map(person => [String(person._id || person.id), person]));
   const owners = new Map(state.assignments.filter(row => row.status === "active").sort((a,b) => a.assigned_at.localeCompare(b.assigned_at)).map(row => [String(row.person_id), row]));
   const data = [...people.values()].filter(person => person.member_status !== "archived").map(person => {
     const id = person._id || person.id;
@@ -976,6 +986,70 @@ export async function getAssignmentDirectory() {
     };
   }).sort((a,b) => a.name.localeCompare(b.name));
   return { data, error: null, source: "demo" };
+}
+
+// This path has an explicit demo implementation; connected request failures
+// always return their error and never substitute local invitations.
+export async function saveExpectedGuest(action, args) {
+  const client = getClient();
+  if (client) {
+    try { return { data: await client.mutation(api.expectedGuests[action], args), error: null, source: "convex" }; }
+    catch (error) { return { data: null, error, source: "convex" }; }
+  }
+  if (!isDemoMode()) return { data: null, error: unavailableError(), source: "unavailable" };
+  try {
+    if (action === "attendance") throw new Error("Demo invitations do not create check-ins. Record actual attendance through the connected church register.");
+    const state = structuredClone(readLocalState());
+    state.guestInvitations ||= [];
+    const people = allLocalPeople(state), at = new Date().toISOString();
+    let row = state.guestInvitations.find(row => row._id === args.invitationId);
+    if (action !== "create" && (!row || guestInvitationVersion(row) !== args.expectedVersion)) throw new Error("Invitation changed. Reload before saving");
+    if (action !== "create" && (!args.changeReason?.trim() || args.changeReason.length > 500)) throw new Error("Add a correction reason of 1–500 characters");
+    const before = row ? { ...row, history: undefined } : null;
+    if (["create", "update"].includes(action)) {
+      if (action === "create" && !["tentative", "coming"].includes(args.state)) throw new Error("Add an invitation as tentative or coming");
+      if (row?.person_id && args.nameUnknown) throw new Error("This invitation is already linked to a known person");
+      assertDate("Sunday", args.serviceDate);
+      if (new Date(`${args.serviceDate}T12:00:00Z`).getUTCDay() !== 0) throw new Error("Choose a Sunday date");
+      if (args.nameUnknown && (!args.inviterId || args.reportSource !== "inviter_report")) throw new Error("An unnamed guest needs an inviter and an inviter report");
+      const inviter = people.find(person => String(person._id || person.id) === String(args.inviterId));
+      if (args.reportSource === "inviter_report" && !inviter) throw new Error("Choose the inviter");
+      const firstName = args.firstName?.trim() || undefined;
+      if (args.nameUnknown && (firstName || args.lastName?.trim())) throw new Error("Leave the guest name blank while it is not known");
+      if ([firstName, args.lastName].some(value => value?.length > 100) || (args.note?.length || 0) > 2000) throw new Error("Names must be at most 100 characters and notes at most 2000");
+      validatePersonInput({ ...(args.nameUnknown ? {} : { first_name: firstName }), phone: args.phone || undefined, email: args.email || undefined }, !args.nameUnknown);
+      if (args.state === "no_show" && args.serviceDate >= dateOnly()) throw new Error("Record non-arrival only after the Sunday");
+      if (args.state === "no_show" && !["coming", "no_show"].includes(row?.state)) throw new Error("A tentative invitation is not a missed confirmation. Cancel it instead");
+      const data = { service_date: args.serviceDate, name_unknown: args.nameUnknown, first_name: firstName, last_name: args.lastName?.trim() || undefined,
+        inviter_id: args.inviterId, inviter_name: inviter ? fullName(inviter) : undefined, responsible_leader_id: args.leaderId,
+        phone: args.phone || undefined, email: normalizeEmail(args.email), state: args.state, report_source: args.reportSource, note: args.note?.trim() || undefined, entered_in_error: args.enteredInError || false };
+      if (action === "create") {
+        row = { ...data, _id: makeId("demo-invitation"), friend_number: Math.max(0, ...state.guestInvitations.filter(item => item.inviter_id === args.inviterId && item.service_date === args.serviceDate).map(item => item.friend_number)) + 1, revision: 0, history: [], created_at: at, updated_at: at };
+        state.guestInvitations.push(row);
+      } else {
+        if (row.inviter_id !== data.inviter_id || row.service_date !== data.service_date) row.friend_number = Math.max(0, ...state.guestInvitations.filter(item => item._id !== row._id && item.inviter_id === data.inviter_id && item.service_date === data.service_date).map(item => item.friend_number)) + 1;
+        Object.assign(row, data);
+      }
+    } else if (action === "link") {
+      if (row.entered_in_error) throw new Error("Correct the invalidated invitation before linking it");
+      if (Boolean(args.personId) === Boolean(args.createPerson)) throw new Error("Choose an existing person or explicitly create one");
+      let person = people.find(person => String(person._id || person.id) === String(args.personId));
+      if (args.createPerson) {
+        if (row.person_id || row.name_unknown || !row.first_name) throw new Error("Add the real name before creating a person, and do not create another linked person");
+        if (people.some(person => person.member_status !== "archived" && ((normalizeEmail(row.email) && normalizeEmail(row.email) === normalizeEmail(person.email)) || (normalizePhone(row.phone) && normalizePhone(row.phone) === normalizePhone(person.phone))))) throw new Error("An existing person has matching contact details. Link them instead");
+        person = { _id: makeId("demo-person"), first_name: row.first_name, last_name: row.last_name || "", member_status: "guest", phone: row.phone, email: row.email, invited_by_id: row.inviter_id, created_at: at, updated_at: at };
+        state.people.push(person);
+      }
+      if (!person || person.member_status === "archived" || person.contact_category === "do_not_contact" || person.is_paused) throw new Error("Choose an active, unrestricted person");
+      if (String(person._id || person.id) === String(row.inviter_id)) throw new Error("The guest cannot be their own inviter");
+      Object.assign(row, { person_id: person._id || person.id, name_unknown: false, first_name: person.first_name, last_name: person.last_name || undefined });
+    } else throw new Error("Unsupported invitation action");
+    row.history.push({ at, action: action === "link" ? args.createPerson ? "known_person_created_and_linked" : "existing_person_linked" : action === "create" ? "invitation_added" : "invitation_corrected", change_reason: args.changeReason, before, after: { ...row, history: undefined } });
+    if (action !== "create") row.revision++;
+    row.updated_at = at;
+    writeLocalState(state);
+    return { data: row, error: null, source: "demo" };
+  } catch (error) { return { data: null, error, source: "demo" }; }
 }
 
 export async function assignContact(personId, leaderId, dueDate = dateOnly(), options = {}) {

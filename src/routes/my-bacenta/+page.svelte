@@ -11,6 +11,7 @@
   import CareTaskForm from '$lib/components/forms/CareTaskForm.svelte';
   import ContactDrawer from '$lib/components/crm/ContactDrawer.svelte';
   import SundayConfirmationList from '$lib/components/crm/SundayConfirmationList.svelte';
+  import ExpectedGuests from '$lib/components/crm/ExpectedGuests.svelte';
   import Modal from '$lib/components/ui/Modal.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import * as followUp from '$lib/services/followUpCrmService.js';
@@ -344,6 +345,7 @@
         {:else}
           {#if sundayListError}<p role="alert" class="text-sm text-destructive">{sundayListError}</p>{/if}
           <SundayConfirmationList rows={sundayDashboard?.sunday_confirmation_roster ?? null} serviceDate={sundayListDate} {saving} onRespond={saveSundayResponse} onOpen={openPerson} onCorrect={commitment => goto(`/people/${encodeURIComponent(commitment.person_id)}`)} onDateChange={changeSundayListDate} />
+          <ExpectedGuests rows={sundayDashboard?.guest_invitations ?? null} serviceDate={sundayListDate} forecast={sundayDashboard?.attendance_forecast || {}} today={today()} onOpen={openPerson} />
           <p class="text-sm text-muted-foreground">Actual attendance comes from the church register. Open a person's history for Sunday corrections and cancellation details.</p>
         {/if}
       {/if}

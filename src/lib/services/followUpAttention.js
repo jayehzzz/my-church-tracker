@@ -27,8 +27,12 @@ export function attentionRows(workspace, filter, today) {
       const person = commitment.person;
       if (person) byId.set(String(person._id || person.id), person);
     }
-    return (workspace?.attendance_forecast?.expected_person_ids || []).map((id) =>
-      byId.get(String(id)) || { _id: id, unavailable: true });
+    for (const invitation of workspace?.guest_invitations || []) if (invitation.person) byId.set(String(invitation.person_id), invitation.person);
+    const pendingIds = new Set(workspace?.attendance_forecast?.expected_guest_invitation_ids || []);
+    return [
+      ...(workspace?.attendance_forecast?.expected_person_ids || []).map((id) => byId.get(String(id)) || { _id: id, unavailable: true }),
+      ...(workspace?.guest_invitations || []).filter(row => !row.person_id && pendingIds.has(row._id || row.id)).map(row => ({ ...row, name: row.display_name, attention_kind: 'guest_invitation' })),
+    ];
   }
   return [];
 }

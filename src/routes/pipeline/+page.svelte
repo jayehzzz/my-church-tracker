@@ -16,6 +16,8 @@
   import { saveDomainReturn, takeDomainReturn } from '$lib/components/drilldown/domainReturnState.js';
   import { attentionRows, ATTENTION_LABELS } from '$lib/services/followUpAttention.js';
   import SundayConfirmationList from '$lib/components/crm/SundayConfirmationList.svelte';
+  import ExpectedGuests from '$lib/components/crm/ExpectedGuests.svelte';
+  import { activeGuestInvitation, guestInvitationKey } from '$lib/services/expectedGuestLogic.js';
   import { recordSundayResponse } from '$lib/services/followUpCrmService.js';
   import AssignmentManager from '$lib/components/crm/AssignmentManager.svelte';
   const canDelegate = $derived($session.status === 'demo' || ['owner', 'admin'].includes($session.user?.role));
@@ -128,7 +130,10 @@
   const weekTasks = $derived((workspace.tasks || []).filter((task) => !task.due_date || task.due_date <= weekEnd));
   const overdueCount = $derived(weekTasks.filter((task) => task.due_date && task.due_date < today).length);
   const unassignedCount = $derived((workspace.unassigned_contacts || []).length);
-  const sundayPending = $derived((workspace.sunday_commitments || workspace.confirmed_commitments || []).filter((item) => (item.resolution || 'pending') === 'pending').length);
+  const sundayPending = $derived(new Set([
+    ...(workspace.sunday_commitments || workspace.confirmed_commitments || []).filter(item => (item.resolution || 'pending') === 'pending').map(item => `person:${item.person_id || item.person?._id || item.person?.id}`),
+    ...(workspace.guest_invitations || []).filter(activeGuestInvitation).map(guestInvitationKey),
+  ]).size);
   const laterContacts = $derived((workspace.later_contacts || []).filter((contact) => personName(contact).toLowerCase().includes(laterSearch.trim().toLowerCase())));
   const missedCount = $derived(recentMissedSundayPeople(workspace.sunday_missed_history || [], today).length);
   const tabCounts = $derived({ week: weekTasks.length + unassignedCount, sunday: sundayPending, missed: missedCount, journey: journeyData ? (journeyData.first_timers || []).length + (journeyData.new_converts || []).length : 0, later: (workspace.later_contacts || []).length, team: 0 });
@@ -714,7 +719,7 @@
           {#each attentionItems as row, index (`${row._id || row.id || row.person_id}-${index}`)}
             <div class="flex items-center justify-between gap-3 px-5 py-3">
               <div><p class="font-medium">{row.person ? personName(row.person) : row.unavailable ? 'Person unavailable' : personName(row)}</p><p class="text-xs text-muted-foreground">{row.attention_kind === 'task' ? `${String(row.task_type || 'Task').replaceAll('_', ' ')} · ${row.due_date ? formatDate(row.due_date) : 'No due date'}` : attentionFilter === 'expected-sunday' ? 'Expected for this Sunday' : 'Needs a worker'}</p></div>
-              {#if !row.unavailable}<Button size="sm" variant="ghost" onclick={() => row.attention_kind === 'task' ? detailRow = row : openEvidencePerson(row.person || row)}>{row.attention_kind === 'task' ? 'Task details' : 'View person'}</Button>{/if}
+              {#if !row.unavailable}<Button size="sm" variant="ghost" onclick={() => row.attention_kind === 'guest_invitation' ? (attentionFilter = '', activeTab = 'sunday') : row.attention_kind === 'task' ? detailRow = row : openEvidencePerson(row.person || row)}>{row.attention_kind === 'guest_invitation' ? 'View invitation' : row.attention_kind === 'task' ? 'Task details' : 'View person'}</Button>{/if}
             </div>
           {/each}
         </div>
@@ -744,6 +749,7 @@
       onOpen={openPerson}
     />
   {:else if activeTab === 'sunday'}
+    <ExpectedGuests rows={workspace.guest_invitations} serviceDate={workspace.service_date} forecast={workspace.attendance_forecast} canManage={canDelegate} {today} onChanged={() => loadWorkspace({ quiet: true })} onOpen={openPerson} />
     <SundayConfirmationList rows={workspace.sunday_confirmation_roster} serviceDate={workspace.service_date} {canDelegate} saving={savingSundayNote} onRespond={handleSundayResponse} onOpen={openPerson} onCorrect={openCommitmentCorrection} onAssignments={() => activeTab = 'assignments'} onDateChange={chooseConfirmationSunday} />
     <ExpectedSunday
       roster={workspace.attendance_roster || []}

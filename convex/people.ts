@@ -2,6 +2,7 @@ import { developmentGatherings, developmentPresent } from "../src/lib/utils/deve
 import { queryFor, mutationFor, authenticatedUser, forbidden, isAdmin, canViewGiving } from "./lib/security";
 
 import { v } from "convex/values";
+import { changeInvitation } from "./lib/guestInvitations";
 import {
     assertDate,
     canonicalMemberStatus,
@@ -38,7 +39,7 @@ async function historyCounts(ctx: any, personId: any) {
         visitations, visitsLed, followUps, followUpsLed, assignments,
         assignmentsLed, tasks, tasksAssigned, commitments, commitmentsLed,
         plans, plansLed, invitedPeople, agreements, agreementReviews, collectedPeople, supportedAgreements,
-        collectorCredits, collectedContactCredits, registerEntries, visitEvidence, importRows,
+        collectorCredits, collectedContactCredits, registerEntries, visitEvidence, importRows, guestInvitations, invitationsByPerson, invitationsLed,
     ] = await Promise.all([
         ctx.db.query("attendance").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
         ctx.db.query("meeting_attendance").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
@@ -66,6 +67,9 @@ async function historyCounts(ctx: any, personId: any) {
         ctx.db.query("service_register_entries").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
         ctx.db.query("attendance_visit_evidence").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
         ctx.db.query("church_import_rows").withIndex("by_target_person", (q: any) => q.eq("target_person_id", personId)).collect(),
+        ctx.db.query("guest_invitations").withIndex("by_person", (q: any) => q.eq("person_id", personId)).collect(),
+        ctx.db.query("guest_invitations").withIndex("by_inviter", (q: any) => q.eq("inviter_id", personId)).collect(),
+        ctx.db.query("guest_invitations").withIndex("by_leader", (q: any) => q.eq("responsible_leader_id", personId)).collect(),
     ]);
 
     return {
@@ -73,7 +77,7 @@ async function historyCounts(ctx: any, personId: any) {
         visitations, visitsLed, followUps, followUpsLed, assignments,
         assignmentsLed, tasks, tasksAssigned, commitments, commitmentsLed,
         plans, plansLed, invitedPeople, agreements, agreementReviews, collectedPeople, supportedAgreements,
-        collectorCredits, collectedContactCredits, registerEntries, visitEvidence, importRows,
+        collectorCredits, collectedContactCredits, registerEntries, visitEvidence, importRows, guestInvitations, invitationsByPerson, invitationsLed,
     };
 }
 
@@ -421,6 +425,7 @@ async function mergeSafety(ctx: any, sourceId: any, targetId: any) {
         ...sourceReferences.tasksAssigned,
         ...sourceReferences.commitmentsLed,
         ...sourceReferences.plansLed,
+        ...sourceReferences.invitationsLed,
         ...assignmentsCreatedBySource,
         ...tasksCreatedBySource,
         ...tasksCompletedBySource,
@@ -510,6 +515,15 @@ export const mergeReviewed = mutationFor("people:mergeReviewed")({
         await patchAll(refs.visitEvidence, { person_id: args.targetId });
         await patchAll(refs.importRows, { target_person_id: args.targetId });
         await patchAll(refs.supportedAgreements, { supporting_person_id: args.targetId });
+        const invitationIds = new Set([...refs.guestInvitations, ...refs.invitationsByPerson, ...refs.invitationsLed].map(row => row._id));
+        for (const invitationId of invitationIds) {
+            const row = await ctx.db.get(invitationId) as any;
+            await changeInvitation(ctx, row, {
+                ...(row.person_id === args.sourceId ? { person_id: args.targetId } : {}),
+                ...(row.inviter_id === args.sourceId ? { inviter_id: args.targetId } : {}),
+                ...(row.responsible_leader_id === args.sourceId ? { responsible_leader_id: args.targetId } : {}),
+            }, "person_records_merged", "Linked references moved to the reviewed retained person", authenticatedUser(ctx)._id);
+        }
         await patchAll(review.assignmentsCreatedBySource, { assigned_by_id: args.targetId });
         await patchAll(review.tasksCreatedBySource, { created_by_id: args.targetId });
         await patchAll(review.tasksCompletedBySource, { completed_by_id: args.targetId });

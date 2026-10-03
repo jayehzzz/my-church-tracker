@@ -724,7 +724,7 @@
       </div>
 
       <p class="text-xs text-muted-foreground">
-        Outreach contact = collected through evangelism but has not attended yet. Non-member = has attended but has not joined. Choose Member only when membership is confirmed. Attendance records mark the first visit as First timer and later visits before membership as Returning guest; these are visit types, not permanent profile statuses.
+        Outreach contact = collected through evangelism but has not attended yet. Non-member = has not joined, including an invited guest who has not attended yet. Choose Member only when membership is confirmed. Attendance records mark the first visit as First timer and later visits before membership as Returning guest; these are visit types, not permanent profile statuses.
       </p>
 
       {#if showMoreDetails}

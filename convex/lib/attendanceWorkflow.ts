@@ -1,6 +1,8 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { canFollowUp } from "./contactPolicy";
+import { managesAttendance } from "./security";
+import { reconcileGuestInvitations } from "./guestInvitations";
 
 type Ctx = MutationCtx | QueryCtx;
 export type Gathering = { serviceId?: Id<"services">; meetingId?: Id<"meetings"> };
@@ -106,7 +108,7 @@ export async function reconcileMeetingCounts(ctx: MutationCtx, id: Id<"meetings"
     const links = meeting.program_id ? await ctx.db.query("meeting_program_leaders").withIndex("by_program", q => q.eq("program_id", meeting.program_id!)).collect() : [];
     await ctx.db.patch(id, { attendance_count: rows.length + count(meeting.unnamed_guests_count, "Unnamed guests"), leaders_count: rows.filter(r => links.some(l => l.person_id === r.person_id)).length, updated_at: now() });
 }
-async function personGatherings(ctx: Ctx, personId: Id<"people">) {
+export async function personGatherings(ctx: Ctx, personId: Id<"people">) {
     const a = await ctx.db.query("attendance").withIndex("by_person", q => q.eq("person_id", personId)).collect();
     const m = await ctx.db.query("meeting_attendance").withIndex("by_person", q => q.eq("person_id", personId)).collect();
     const result: Array<{serviceId?: Id<"services">; meetingId?: Id<"meetings">; date: string; type: string; sunday: boolean; entry: string}> = [];
@@ -125,6 +127,7 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
     const person = await ctx.db.get(personId);
     if (!person) return;
     const events = await personGatherings(ctx, personId);
+    if (managesAttendance(ctx)) await reconcileGuestInvitations(ctx, personId, events);
     const commitments = (await ctx.db.query("gathering_commitments").withIndex("by_person", q => q.eq("person_id", personId)).collect()).filter(c => !c.entered_in_error);
     const interactions = (await ctx.db.query("follow_ups").withIndex("by_contact", q => q.eq("contact_id", personId)).collect()).filter(f => !f.entered_in_error);
     for (const c of commitments) {

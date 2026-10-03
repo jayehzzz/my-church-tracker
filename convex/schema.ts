@@ -601,6 +601,33 @@ export default defineSchema({
       .index("by_status_due_date", ["status", "due_date"])
       .index("by_status_completed_at", ["status", "completed_at"]),
 
+    // Pending guests do not require (or invent) a person or outreach record.
+    guest_invitations: defineTable({
+        person_id: v.optional(v.id("people")),
+        inviter_id: v.optional(v.id("people")),
+        inviter_name: v.optional(v.string()), // Attribution snapshot, not a guest name.
+        responsible_leader_id: v.optional(v.id("people")),
+        name_unknown: v.boolean(),
+        first_name: v.optional(v.string()),
+        last_name: v.optional(v.string()),
+        phone: v.optional(v.string()),
+        email: v.optional(v.string()),
+        friend_number: v.number(),
+        service_date: v.string(),
+        state: v.union(v.literal("tentative"), v.literal("coming"), v.literal("cancelled"), v.literal("no_show")),
+        report_source: v.union(v.literal("inviter_report"), v.literal("guest_report")),
+        note: v.optional(v.string()),
+        entered_in_error: v.optional(v.boolean()),
+        attendance_service_id: v.optional(v.id("services")),
+        revision: v.number(),
+        history: v.array(v.object({ at: v.string(), actor_user_id: v.optional(v.id("crm_users")), action: v.string(), change_reason: v.optional(v.string()), before: v.optional(v.any()), after: v.optional(v.any()) })),
+        created_at: v.string(),
+        updated_at: v.string(),
+    }).index("by_date", ["service_date"])
+      .index("by_person", ["person_id"])
+      .index("by_inviter", ["inviter_id"])
+      .index("by_leader", ["responsible_leader_id"]),
+
     gathering_commitments: defineTable({
         correction_revision: v.optional(v.number()),
         entered_in_error: v.optional(v.boolean()),

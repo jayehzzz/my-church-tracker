@@ -2,6 +2,8 @@ import { sundayConfirmationRows, latestSundayCommitments, sundayResponseVersion 
 import { candidates, selectGathering, setActualAttendance, reconcilePerson, present } from "./lib/attendanceWorkflow";
 import { canDiscoverOutreach, cancelPendingOutreach, requireFollowUpAllowed, isDelegatedFollowUpTask } from "./lib/contactPolicy";
 import { authenticatedUser, managesAttendance, isAdmin, forbidden } from "./lib/security";
+import { expectedGuestsForSunday } from "./lib/guestInvitations";
+import { extendGuestForecast } from "../src/lib/services/expectedGuestLogic.js";
 import { queryFor, mutationFor } from "./lib/security";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -1021,7 +1023,9 @@ export const getDashboard = queryFor("crm:getDashboard")({
             })
             .sort((a, b) => a.name.localeCompare(b.name));
 
+        const guestInvitations = await expectedGuestsForSunday(ctx, serviceDate, args.leaderId);
         return {
+            guest_invitations: guestInvitations,
             service_date: serviceDate,
             generated_for_leader_id: args.leaderId ?? null,
             leaders: leaders
@@ -1055,7 +1059,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 .slice(0, 40),
             attendance_roster: attendanceRoster,
             sunday_confirmation_roster: confirmationRoster,
-            attendance_forecast: {
+            attendance_forecast: extendGuestForecast({
                 service_date: serviceDate,
                 // Legacy API aliases remain zero so old clients do not infer a profile status.
                 regular_baseline: 0,
@@ -1070,7 +1074,7 @@ export const getDashboard = queryFor("crm:getDashboard")({
                 total_expected: allExpectedIds.size,
                 expected_total: allExpectedIds.size,
                 expected_person_ids: [...allExpectedIds],
-            },
+            }, guestInvitations),
         };
     },
 });
@@ -1275,6 +1279,7 @@ export const getContactProfile = queryFor("crm:getContactProfile")({
 
         return {
             person,
+            guest_invitations: await ctx.db.query("guest_invitations").withIndex("by_person", q => q.eq("person_id", args.personId)).collect(),
             sunday_reliability: sundayReliability(commitments),
             assignment_history: assignments.map(row => ({
                 ...row, assigned_leader_name: personName(leaderById.get(row.assigned_leader_id)),
