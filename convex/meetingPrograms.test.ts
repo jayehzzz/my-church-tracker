@@ -80,3 +80,15 @@ describe("programme leadership and weekly attendance", () => {
     await expect(as("a").mutation(api.meetings.record, { id: meeting!._id, program_id: ids.a, meeting_type: "bacenta", meeting_date: "2026-09-24", attendanceData: [{ person_id: ids.regular, status: "absent" }], markComplete: true })).rejects.toThrow();
   });
 });
+
+it('archives and restores a template without deleting its meetings or roster', async () => {
+  const { t, ids, as } = await fixture();
+  const meetingId = await t.run(ctx => ctx.db.insert('meetings', { program_id: ids.a, meeting_type: 'bacenta', meeting_date: '2026-10-07', status: 'completed', attendance_count: 0, created_at: now, updated_at: now }));
+  await as('owner').mutation(api.meetingPrograms.archive, { id: ids.a });
+  expect((await as('owner').query(api.meetingPrograms.getAll, {})).map(program => program._id)).not.toContain(ids.a);
+  expect((await as('owner').query(api.meetingPrograms.getAll, { includeArchived: true })).find(program => program._id === ids.a)?.member_ids).toContain(ids.regular);
+  expect(await t.run(ctx => ctx.db.get(meetingId))).not.toBeNull();
+  await as('owner').mutation(api.meetingPrograms.update, { id: ids.a, active: true });
+  expect((await as('owner').query(api.meetingPrograms.getAll, {})).map(program => program._id)).toContain(ids.a);
+  await expect(as('a').mutation(api.meetingPrograms.archive, { id: ids.a })).rejects.toThrow();
+});

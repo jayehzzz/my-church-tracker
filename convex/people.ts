@@ -2,6 +2,7 @@ import { developmentGatherings, developmentPresent } from "../src/lib/utils/deve
 import { queryFor, mutationFor, authenticatedUser, forbidden, isAdmin, canViewGiving } from "./lib/security";
 
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { changeInvitation } from "./lib/guestInvitations";
 import {
     assertDate,
@@ -72,7 +73,10 @@ async function historyCounts(ctx: any, personId: any) {
         ctx.db.query("guest_invitations").withIndex("by_leader", (q: any) => q.eq("responsible_leader_id", personId)).collect(),
     ]);
 
+    const serviceTemplates = (await ctx.db.query("service_templates").collect())
+        .filter((template: any) => template.expected_person_ids.includes(personId));
     return {
+        serviceTemplates,
         attendance, meetingAttendance, programmeLeaders, programmeMembers,
         visitations, visitsLed, followUps, followUpsLed, assignments,
         assignmentsLed, tasks, tasksAssigned, commitments, commitmentsLed,
@@ -489,6 +493,12 @@ export const mergeReviewed = mutationFor("people:mergeReviewed")({
             await Promise.all(records.map((record) => ctx.db.patch(record._id, values)));
         };
         const refs = review.sourceReferences;
+        for (const template of refs.serviceTemplates) {
+            await ctx.db.patch(template._id, {
+                expected_person_ids: [...new Set<Id<"people">>(template.expected_person_ids.map((id: Id<"people">) => id === args.sourceId ? args.targetId : id))],
+                updated_at: now,
+            });
+        }
         await patchAll(refs.attendance, { person_id: args.targetId });
         await patchAll(refs.meetingAttendance, { person_id: args.targetId });
         await patchAll(refs.programmeLeaders, { person_id: args.targetId });

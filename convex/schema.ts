@@ -2,6 +2,13 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+    service_templates: defineTable({
+        key: v.literal("sunday"),
+        service_time: v.string(),
+        location: v.string(),
+        expected_person_ids: v.array(v.id("people")),
+        updated_at: v.string(),
+    }).index("by_key", ["key"]),
     // Recovery snapshots are written atomically before relational deletion.
     // Deliberately no public mutation to restore or overwrite live records.
     record_recovery: defineTable({

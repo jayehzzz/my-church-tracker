@@ -37,6 +37,7 @@ import type * as search from "../search.js";
 import type * as seed from "../seed.js";
 import type * as seed_simple from "../seed_simple.js";
 import type * as servicePhotos from "../servicePhotos.js";
+import type * as serviceTemplates from "../serviceTemplates.js";
 import type * as services from "../services.js";
 import type * as visitations from "../visitations.js";
 
@@ -76,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   seed: typeof seed;
   seed_simple: typeof seed_simple;
   servicePhotos: typeof servicePhotos;
+  serviceTemplates: typeof serviceTemplates;
   services: typeof services;
   visitations: typeof visitations;
 }>;

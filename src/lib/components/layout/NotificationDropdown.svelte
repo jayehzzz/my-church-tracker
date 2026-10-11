@@ -121,7 +121,7 @@
             <h3 class="font-bold text-foreground text-sm leading-tight flex items-center gap-2">
               Notifications
               {#if $unreadCount > 0}
-                <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-destructive text-destructive-foreground">
+                <span class="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-secondary text-muted-foreground">
                   {$unreadCount} new
                 </span>
               {/if}
@@ -224,11 +224,7 @@
 
             <!-- Icon -->
             <div
-              class="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center {item.priority === 'urgent'
-                ? 'bg-destructive/15 text-destructive'
-                : item.priority === 'success'
-                ? 'bg-emerald-500/15 text-emerald-400'
-                : 'bg-primary/15 text-primary'}"
+              class="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center bg-secondary text-muted-foreground"
             >
               {#if item.icon === 'phone'}
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

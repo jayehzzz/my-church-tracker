@@ -42,6 +42,10 @@
   let activeTab = $state("overview");
   let meetings = $state([]);
   let programs = $state([]);
+  let archivedPrograms = $state([]);
+  let archiveProgram = $state(null);
+  let archiving = $state(false);
+  let archiveError = $state('');
   let people = $state([]);
   let loading = $state(true);
   let error = $state(null);
@@ -576,6 +580,31 @@
     if (!result.error) programs = result.data || [];
   }
 
+  async function loadArchivedPrograms() {
+    const result = await meetingProgramsService.getAll({ includeArchived: true });
+    if (result.error) { error = result.error.message || 'Archived templates could not be loaded.'; return; }
+    archivedPrograms = (result.data || []).filter(program => !program.active);
+  }
+  async function confirmArchive() {
+    if (!archiveProgram || archiving) return;
+    archiving = true; archiveError = '';
+    const result = await meetingProgramsService.archive(archiveProgram.id);
+    archiving = false;
+    if (result.error) { archiveError = result.error.message || 'Could not archive this template.'; return; }
+    programs = programs.filter(program => program.id !== archiveProgram.id);
+    archiveProgram = null;
+    await loadArchivedPrograms();
+  }
+  async function restoreProgram(program) {
+    if (archiving) return;
+    archiving = true;
+    const result = await meetingProgramsService.restore(program.id);
+    archiving = false;
+    if (result.error) { error = result.error.message || 'Could not restore this template.'; return; }
+    await handleProgramSaved();
+    await loadArchivedPrograms();
+  }
+
   function requestDelete(meeting) {
     selectedMeeting = meeting;
     isDeleteModalOpen = true;
@@ -922,7 +951,7 @@
                       {namedAttendanceCount(meeting)} named{meeting.unnamed_guests_count ? ` + ${meeting.unnamed_guests_count} unnamed non-members` : ""}
                     </p>
                   </div>
-                  <div class="flex gap-2">
+                  <div class="flex flex-wrap gap-2">
                     <Button size="sm" variant="secondary" onclick={() => openMeetingRecord(meeting)}>View meeting</Button>
                     <Button
                       size="sm"
@@ -931,10 +960,11 @@
                     >
                       {meeting.status === "attendance_needed" ? "Take attendance" : "Edit attendance"}
                     </Button>
-                    {#if isAdmin}<Button size="sm" variant="ghost" aria-label="Delete meeting" onclick={() => requestDelete(meeting)}>
+                    {#if isAdmin}<Button size="sm" variant="ghost" aria-label="Remove meeting" onclick={() => requestDelete(meeting)}>
                       <svg class="h-4 w-4 text-destructive" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
+                      Remove meeting
                     </Button>{/if}
                   </div>
                 </div>
@@ -996,6 +1026,7 @@
             </dl>
             <div class="mt-auto pt-5">
               <a href={`/meetings/programmes/${program.id}`} class="mb-2 block text-center text-sm font-semibold text-primary hover:underline">View {program.name} history and follow-up →</a>
+              {#if isAdmin}<Button fullWidth variant="ghost" onclick={() => { archiveError = ""; archiveProgram = program; }}>Archive template</Button>{/if}
               <Button fullWidth variant="secondary" onclick={() => openNewMeeting(program.id)}>
                 Record {program.name} attendance
               </Button>
@@ -1003,6 +1034,9 @@
           </article>
         {/each}
       </div>
+      {#if isAdmin}<details class="mt-5 rounded-xl border border-border bg-card p-4" ontoggle={event => { if (event.currentTarget.open) void loadArchivedPrograms(); }}><summary class="cursor-pointer text-sm font-medium">Archived templates</summary><p class="my-3 text-sm text-muted-foreground">Meeting records and rosters are kept. Restore a template to use it again.</p>
+        {#each archivedPrograms as program (program.id)}<div class="flex flex-wrap items-center justify-between gap-2 border-t border-border py-3"><a class="text-sm hover:underline" href={`/meetings/programmes/${program.id}`}>{program.name} · View history</a><Button size="sm" variant="secondary" disabled={archiving} onclick={() => restoreProgram(program)}>Restore {program.name}</Button></div>{:else}<p class="text-sm text-muted-foreground">No archived templates.</p>{/each}
+      </details>{/if}
     {/if}
   </div>
 </DashboardLayout>
@@ -1091,7 +1125,7 @@
   {/snippet}
 </Modal>
 
-<Modal bind:isOpen={isDeleteModalOpen} title="Delete meeting" size="sm" tone="destructive">
+<Modal bind:isOpen={isDeleteModalOpen} title="Remove meeting" size="sm" tone="destructive">
   <div class="space-y-3 text-center">
     <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
       <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -1099,13 +1133,20 @@
       </svg>
     </div>
     <p class="text-foreground">
-      Delete <strong>{selectedMeeting ? programmeName(selectedMeeting) : "this meeting"}</strong>
+      Remove <strong>{selectedMeeting ? programmeName(selectedMeeting) : "this meeting"}</strong>
       and its attendance from {selectedMeeting ? formatDate(selectedMeeting.meeting_date) : "this date"}?
     </p>
     <p class="text-sm text-muted-foreground">Named attendance will be removed and matching commitments and open gathering tasks cancelled. A recovery snapshot is retained for an administrator.</p>
   </div>
   {#snippet footer()}
     <Button variant="secondary" onclick={() => (isDeleteModalOpen = false)} disabled={deleting}>Cancel</Button>
-    <Button variant="danger" onclick={confirmDelete} loading={deleting}>Delete meeting</Button>
+    <Button variant="danger" onclick={confirmDelete} loading={deleting}>Remove meeting</Button>
   {/snippet}
+</Modal>
+
+<Modal isOpen={Boolean(archiveProgram)} title="Archive meeting template" size="sm" closable={!archiving} closeOnBackdrop={!archiving} closeOnEscape={!archiving} onclose={() => { if (!archiving) archiveProgram = null; }}>
+  <div class="space-y-4"><p class="text-sm">Archive <strong>{archiveProgram?.name}</strong>? It will leave active meeting choices. Its dated meetings, attendance and roster will remain, and you can restore it under Archived templates.</p>
+    {#if archiveError}<p role="alert" class="text-sm text-destructive">{archiveError}</p>{/if}
+    <div class="flex flex-wrap justify-end gap-2"><Button variant="secondary" disabled={archiving} onclick={() => archiveProgram = null}>Cancel</Button><Button loading={archiving} onclick={confirmArchive}>Archive template</Button></div>
+  </div>
 </Modal>

@@ -23,7 +23,6 @@
   import AssignmentManager from '$lib/components/crm/AssignmentManager.svelte';
   const canDelegate = $derived($session.status === 'demo' || ['owner', 'admin'].includes($session.user?.role));
   import MissedSundayFollowUp from '$lib/components/crm/MissedSundayFollowUp.svelte';
-  import { recentMissedSundayPeople } from '$lib/utils/missedSundayHistory.js';
 
   let actualAttendance = $state(null);
   let isActualAttendanceOpen = $state(false);
@@ -133,13 +132,7 @@
 
   const today = dateOnly(new Date());
   const weekEnd = addDays(today, 7);
-  const weekTasks = $derived((workspace.tasks || []).filter((task) => !task.due_date || task.due_date <= weekEnd));
-  const overdueCount = $derived(weekTasks.filter((task) => task.due_date && task.due_date < today).length);
-  const unassignedCount = $derived((workspace.unassigned_contacts || []).length);
-  const sundayPending = $derived(Number(workspace.attendance_forecast?.expected_total || 0));
   const laterContacts = $derived((workspace.later_contacts || []).filter((contact) => personName(contact).toLowerCase().includes(laterSearch.trim().toLowerCase())));
-  const missedCount = $derived(recentMissedSundayPeople(workspace.sunday_missed_history || [], today).length);
-  const tabCounts = $derived({ week: weekTasks.length + unassignedCount, sunday: sundayPending, missed: missedCount, journey: journeyData ? (journeyData.first_timers || []).length + (journeyData.new_converts || []).length : 0, later: (workspace.later_contacts || []).length, team: 0 });
   const attentionItems = $derived(attentionRows(workspace, attentionFilter, today));
   const attentionAvailable = $derived(attentionFilter !== 'expected-sunday'
     || (Array.isArray(workspace.attendance_forecast?.expected_person_ids)
@@ -715,7 +708,7 @@
   <div class="my-6 flex flex-col gap-3 border-b border-border sm:flex-row sm:items-end sm:justify-between">
     <nav class="flex gap-1 overflow-x-auto" aria-label="Follow-up sections">
       {#each TABS.filter(tab => tab.id !== 'assignments' || canDelegate) as tab (tab.id)}
-        <button type="button" class="flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold {activeTab === tab.id ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}" onclick={() => selectTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined}>{tab.label}{#if tabCounts[tab.id]}<span class="rounded-full px-2 py-0.5 text-xs {tab.id === 'week' && overdueCount ? 'bg-destructive/10 text-destructive' : 'bg-secondary'}">{tabCounts[tab.id]}</span>{/if}</button>
+        <button type="button" class="flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold {activeTab === tab.id ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'}" onclick={() => selectTab(tab.id)} aria-current={activeTab === tab.id ? 'page' : undefined}>{tab.label}</button>
       {/each}
     </nav>
     {#if activeTab === 'week'}<div class="mb-2 flex self-start rounded-lg border border-border bg-secondary/40 p-1 sm:self-auto" aria-label="This week layout"><button type="button" class="rounded-md px-3 py-1.5 text-xs font-semibold {boardView === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}" onclick={() => boardView = 'list'}>List</button><button type="button" class="rounded-md px-3 py-1.5 text-xs font-semibold {boardView === 'board' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}" onclick={() => boardView = 'board'}>Board</button></div>{/if}

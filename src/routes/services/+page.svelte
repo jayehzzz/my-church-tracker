@@ -36,6 +36,7 @@
     ColumnFilterDropdown,
     FullscreenWrapper,
   } from "$lib/components/ui";
+  import SundayTemplateForm from "$lib/components/forms/SundayTemplateForm.svelte";
   import ServiceForm from "$lib/components/forms/ServiceForm.svelte";
   import { formatJourneyStatus } from "$lib/services/peopleService.js";
 
@@ -143,6 +144,7 @@
   });
 
   // Modal state
+  let templateOpen = $state(false);
   let isFormOpen = $state(false);
   let isDeleteModalOpen = $state(false);
   let isDetailsModalOpen = $state(false);
@@ -749,6 +751,7 @@
       />
     </div>
 
+    <div class="flex flex-wrap gap-2"><Button variant="secondary" onclick={() => templateOpen = true}>Sunday defaults</Button>
     <Button onclick={handleAddService}>
       <svg
         class="mr-2 h-4 w-4"
@@ -764,7 +767,7 @@
         />
       </svg>
       Record service
-    </Button>
+    </Button></div>
   </div>
 
   <!-- Mock Data Banner -->
@@ -1764,3 +1767,5 @@
 </Modal>
 
 <ServiceDrilldown bind:state={drilldown} {services} attendance={attendanceRecords} {people} status={loading ? "loading" : error ? "unavailable" : "ready"} error={error || ""} onretry={loadServices} wholeNumberAverages={true} onedit={service => { drilldown = null; handleServiceClick(service); }} onprofile={(id) => goto(`/people/${encodeURIComponent(id)}`)} />
+
+<SundayTemplateForm bind:isOpen={templateOpen} />

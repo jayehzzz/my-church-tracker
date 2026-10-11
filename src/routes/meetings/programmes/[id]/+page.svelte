@@ -6,12 +6,15 @@
   import PageHeader from "$lib/components/shared/PageHeader.svelte";
   import MeetingForm from "$lib/components/forms/MeetingForm.svelte";
   import MeetingProgramForm from "$lib/components/forms/MeetingProgramForm.svelte";
-  import { Button, Badge, Input } from "$lib/components/ui";
+  import { Button, Badge, Input, Modal } from "$lib/components/ui";
   import * as meetingProgramsService from "$lib/services/meetingProgramsService";
   import * as meetingsService from "$lib/services/meetingsService";
   import * as meetingFollowUpsService from "$lib/services/meetingFollowUpsService";
   import * as peopleService from "$lib/services/peopleService";
 
+  let removingMeeting = $state(null);
+  let removing = $state(false);
+  let removeError = $state("");
   let loading = $state(true);
   let error = $state("");
   let actionError = $state("");
@@ -42,6 +45,16 @@
   const meetingsById = $derived(new Map(programmeMeetings.map(meeting => [String(meeting.id), meeting])));
   const isAdmin = $derived(["owner", "admin", "demo"].includes($session.user?.role));
 
+  async function removeMeeting() {
+    if (!removingMeeting || removing) return;
+    removing = true; removeError = '';
+    const result = await meetingsService.remove(removingMeeting.id);
+    removing = false;
+    if (result.error) { removeError = result.error.message || 'Meeting could not be removed.'; return; }
+    removingMeeting = null;
+    await load();
+  }
+
   function name(personId) {
     const person = peopleById.get(String(personId));
     return person ? `${person.first_name} ${person.last_name}`.trim() : "Person unavailable";
@@ -68,7 +81,7 @@
     error = "";
     const id = $page.params.id;
     const [programResult, meetingResult, peopleResult, followUpResult] = await Promise.all([
-      meetingProgramsService.getAll(), meetingsService.getAll(), peopleService.getAll(), meetingFollowUpsService.getForProgram(id),
+      meetingProgramsService.getAll({ includeArchived: isAdmin }), meetingsService.getAll(), peopleService.getAll(), meetingFollowUpsService.getForProgram(id),
     ]);
     const failed = [programResult, meetingResult, peopleResult, followUpResult].find(result => result.error);
     if (failed) error = failed.error?.message || "Could not load this programme";
@@ -124,9 +137,10 @@
         <PageHeader title={program.name} subtitle={`${program.meeting_type === "bacenta" ? "Bacenta" : "Meeting programme"} · ${program.default_day || "Day not set"}${program.default_start_time ? ` at ${program.default_start_time}` : ""}`} />
         <div class="flex flex-wrap gap-2">
           <Button variant="secondary" onclick={() => (isProgramFormOpen = true)}>Edit programme</Button>
-          <Button onclick={() => recordMeeting()}>Record this meeting</Button>
+          {#if program.active}<Button onclick={() => recordMeeting()}>Record this meeting</Button>{/if}
         </div>
       </div>
+      {#if !program.active}<p class="mt-4 text-sm text-muted-foreground">Archived template · Meeting history and roster are kept. Restore it from Meetings → Meeting setup → Archived templates to use it again.</p>{/if}
       <div class="mt-5 flex flex-wrap gap-1 rounded-xl border border-border bg-secondary/30 p-1" role="tablist" aria-label="Programme sections">
         {#each [{ id: "overview", label: "Overview" }, { id: "attendance", label: "Attendance" }, { id: "people", label: "People" }, { id: "followup", label: "Follow-up" }] as tab}
           <button type="button" role="tab" aria-selected={activeTab === tab.id} onclick={() => (activeTab = tab.id)} class="rounded-lg px-4 py-2 text-sm font-medium {activeTab === tab.id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}">{tab.label}</button>
@@ -167,7 +181,7 @@
         <section class="mt-6 space-y-3">
           {#if programmeMeetings.length === 0}<p class="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">No meetings recorded yet.</p>{/if}
           {#each programmeMeetings as meeting}
-            <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"><div><p class="font-medium">{shortDate(meeting.meeting_date)}</p><p class="text-sm text-muted-foreground">{meeting.total_attendance || 0} attended · {meeting.status || "Pending"}</p></div><Button variant="secondary" size="sm" onclick={() => recordMeeting(meeting)}>{meeting.status === "completed" ? "Correct attendance" : "Take attendance"}</Button></div>
+            <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-4"><div><p class="font-medium">{shortDate(meeting.meeting_date)}</p><p class="text-sm text-muted-foreground">{meeting.total_attendance || 0} attended · {meeting.status || "Pending"}</p></div><div class="flex flex-wrap gap-2"><Button variant="secondary" size="sm" onclick={() => recordMeeting(meeting)}>{meeting.status === "completed" ? "Correct attendance" : "Take attendance"}</Button>{#if isAdmin}<Button size="sm" variant="ghost" onclick={() => { removeError = ""; removingMeeting = meeting; }}>Remove meeting</Button>{/if}</div></div>
           {/each}
         </section>
       {:else if activeTab === "people"}
@@ -222,3 +236,7 @@
 {#if isProgramFormOpen && program}
   <MeetingProgramForm bind:isOpen={isProgramFormOpen} {program} {people} canManageLeaders={isAdmin} onsave={load} />
 {/if}
+
+<Modal isOpen={Boolean(removingMeeting)} title="Remove meeting" size="sm" closable={!removing} closeOnBackdrop={!removing} closeOnEscape={!removing} onclose={() => removingMeeting = null}>
+  <div class="space-y-4"><p class="text-sm">Remove the meeting on {shortDate(removingMeeting?.meeting_date)}? Its named attendance will be removed and matching commitments and open gathering tasks cancelled. An administrator recovery snapshot is retained.</p>{#if removeError}<p role="alert" class="text-sm text-destructive">{removeError}</p>{/if}<div class="flex justify-end gap-2"><Button variant="secondary" disabled={removing} onclick={() => removingMeeting = null}>Cancel</Button><Button loading={removing} onclick={removeMeeting}>Remove meeting</Button></div></div>
+</Modal>
