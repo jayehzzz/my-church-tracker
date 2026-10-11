@@ -1,6 +1,20 @@
 import { api } from "../../../convex/_generated/api.js";
 import { mockServices, mockAttendance, mockPeople, getServiceById as getMockServiceById } from "../data/mockData.js";
-import { getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
+import { getConvexClient, getConvexHttpClient, isDemoMode, unavailableError } from "$lib/convex.js";
+
+// Keep the people list aligned with attendance and newly recorded services.
+export async function watchServiceWorkspace({ onServices, onPeople, onAttendance, onError } = {}) {
+  if (isDemoMode()) return () => {};
+  const stops = [];
+  try {
+    const client = await getConvexClient();
+    if (!client) throw unavailableError();
+    for (const [query, callback] of [[api.services.getAll, onServices], [api.people.getAll, onPeople], [api.attendance.getAll, onAttendance]]) {
+      stops.push(client.onUpdate(query, {}, data => callback?.((data || []).map(mapDoc)), error => onError?.(error)));
+    }
+    return () => stops.forEach(stop => stop());
+  } catch (error) { stops.forEach(stop => stop()); onError?.(error); return () => {}; }
+}
 
 function getClient() {
   return getConvexHttpClient();

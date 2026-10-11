@@ -14,6 +14,24 @@ beforeAll(async () => {
 afterAll(() => vi.unstubAllEnvs());
 
 describe("follow-up CRM service", () => {
+  it('uses explicit first-timer attendance for demo people, rather than treating every attendee as a first timer', async () => {
+    const { getJourneyOverview } = await import('./followUpCrmService.js');
+    const { mockPeople, mockServices, mockAttendance } = await import('$lib/data/mockData.js');
+    const person = { id: 'demo-first-timer-evidence', first_name: 'Explicit', member_status: 'guest' };
+    const service = { id: 'demo-first-timer-service', service_date: '2026-10-11', service_type: 'sunday_service' };
+    const attendance = { id: 'demo-first-timer-row', person_id: person.id, service_id: service.id, first_timer: false };
+    mockPeople.push(person); mockServices.push(service); mockAttendance.push(attendance);
+    try {
+      expect((await getJourneyOverview()).data.first_timers.some(row => row.person.id === person.id)).toBe(false);
+      attendance.first_timer = true;
+      expect((await getJourneyOverview()).data.first_timers.find(row => row.person.id === person.id)?.events).toMatchObject([{ date: '2026-10-11' }]);
+    } finally {
+      mockPeople.splice(mockPeople.indexOf(person), 1);
+      mockServices.splice(mockServices.indexOf(service), 1);
+      mockAttendance.splice(mockAttendance.indexOf(attendance), 1);
+    }
+  });
+
   it("builds an explicitly selected demo dashboard when Convex is not configured", async () => {
     const result = await getDashboard();
 

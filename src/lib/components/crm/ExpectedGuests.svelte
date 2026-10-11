@@ -9,6 +9,8 @@
   let form = $state(blank());
   let attendanceOpen = $state(false), attendanceGuest = $state(null), notice = $state('');
   let request = 0;
+  export function addGuest() { return open('create'); }
+  export function editInvitation(row) { return open('update', row); }
   const states = { tentative: 'Hoping to bring someone', coming: 'Reported coming', cancelled: 'Cancelled', no_show: 'Did not arrive', attended: 'Attendance recorded' };
   const visible = $derived((rows || []).filter(row => `${row.display_name || guestInvitationName(row)} ${row.inviter_name || ''}`.toLowerCase().includes(search.trim().toLowerCase())));
   const comingCount = $derived(new Set((rows || []).filter(activeGuestInvitation).map(guestInvitationKey)).size);

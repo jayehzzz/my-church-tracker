@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/svelte';
 import { afterEach, expect, it, vi } from 'vitest';
 import JourneyOverview from './JourneyOverview.svelte';
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const overview = {
   first_timers: [{
@@ -58,4 +58,38 @@ it('filters history by search and date and exposes retry and empty states', asyn
   expect(onRetry).toHaveBeenCalledOnce();
   const empty = render(JourneyOverview, { props: { data: { first_timers: [], new_converts: [], unnamed_decisions: [] } } });
   expect(empty.getByText('No people have been explicitly recorded as first timers.')).toBeInTheDocument();
+});
+
+it('shows unique people in an inclusive period and reacts to shared record changes', async () => {
+  const onOpen = vi.fn();
+  const data = { ...overview, first_timers: [
+    { ...overview.first_timers[0], events: [...overview.first_timers[0].events, { id: 's3', date: '2026-09-20', label: 'sunday service' }] },
+    { person: { id: 'p3', first_name: 'Outside', last_name: 'Period' }, events: [{ id: 's4', date: '2026-08-31', label: 'sunday service' }] },
+  ] };
+  const view = render(JourneyOverview, { data, firstTimersOnly: true, fromDate: '2026-09-06', toDate: '2026-09-20', onOpen });
+  expect(view.getByRole('status')).toHaveTextContent('1 person recorded as first timers in this period');
+  expect(view.getAllByRole('button', { name: 'Ama Mensah' })).toHaveLength(1);
+  expect(view.queryByText('Outside Period')).not.toBeInTheDocument();
+  await fireEvent.click(view.getByRole('button', { name: 'View person' }));
+  expect(onOpen).toHaveBeenCalledWith(data.first_timers[0].person);
+  await view.rerender({ data: { ...data, first_timers: [...data.first_timers, { person: { id: 'p4', first_name: 'New', last_name: 'Arrival' }, events: [{ id: 's5', date: '2026-09-20' }] }] } });
+  expect(view.getByRole('status')).toHaveTextContent('2 people recorded as first timers in this period');
+  expect(view.getByText('New Arrival')).toBeInTheDocument();
+  await fireEvent.input(view.getByLabelText('From date'), { target: { value: '2026-09-21' } });
+  expect(view.getByRole('alert')).toHaveTextContent('start date must be on or before');
+  expect(view.queryByText('Ama Mensah')).not.toBeInTheDocument();
+});
+
+it('provides this-month, last-30-days and all-time shortcuts', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-11T12:00:00'));
+  const view = render(JourneyOverview, { data: overview });
+  await fireEvent.click(view.getByRole('button', { name: 'This month' }));
+  expect(view.getByLabelText('From date')).toHaveValue('2026-10-01');
+  expect(view.getByLabelText('To date')).toHaveValue('2026-10-11');
+  await fireEvent.click(view.getByRole('button', { name: 'Last 30 days' }));
+  expect(view.getByLabelText('From date')).toHaveValue('2026-09-12');
+  await fireEvent.click(view.getByRole('button', { name: 'All time' }));
+  expect(view.getByLabelText('From date')).toHaveValue('');
+  expect(view.getByRole('button', { name: 'Ama Mensah' })).toBeInTheDocument();
 });

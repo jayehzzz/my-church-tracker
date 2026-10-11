@@ -795,21 +795,15 @@ export async function getJourneyOverview(options = {}) {
   if (!client) {
     if (!isDemoMode()) return { data: null, error: unavailableError(), source: "unavailable" };
     const eventsByPerson = new Map();
-    const peopleById = new Map(mockPeople.map(person => [String(person._id || person.id), person]));
+    const peopleById = new Map([...mockEvangelismContacts, ...mockPeople].map(person => [String(person._id || person.id), person]));
     for (const row of mockAttendance) {
+      if (row.first_timer !== true) continue;
       const service = mockServices.find(item => String(item._id || item.id) === String(row.service_id));
       const person = peopleById.get(String(row.person_id));
       if (!service || !person) continue;
       const events = eventsByPerson.get(String(row.person_id)) || [];
       events.push({ id: service.id, date: service.service_date, label: service.service_type.replaceAll("_", " "), time: service.service_time, location: service.location });
       eventsByPerson.set(String(row.person_id), events);
-    }
-    for (const meeting of mockMeetings) {
-      for (const id of meeting.attendees || []) {
-        const events = eventsByPerson.get(String(id)) || [];
-        events.push({ id: meeting.id, date: meeting.meeting_date, label: meeting.title || meeting.meeting_type.replaceAll("_", " "), time: meeting.start_time, location: meeting.location });
-        eventsByPerson.set(String(id), events);
-      }
     }
     const firstTimers = [...eventsByPerson.entries()].flatMap(([id, events]) => {
       const person = peopleById.get(id);
@@ -837,6 +831,15 @@ export async function getJourneyOverview(options = {}) {
 // Convex subscriptions give active workers timely shared updates. The caller
 // owns the returned cleanup function so switching a filter or leaving the page
 // stops the old subscription rather than leaving a background poll running.
+export async function watchJourneyOverview(options = {}, { onUpdate, onError } = {}) {
+  if (isDemoMode()) return () => {};
+  try {
+    const client = await getConvexClient();
+    if (!client) { onError?.(unavailableError()); return () => {}; }
+    return client.onUpdate(api.crm.getJourneyOverview, options.leaderId ? { leaderId: options.leaderId } : {}, data => onUpdate?.(data), error => onError?.(error));
+  } catch (error) { onError?.(error); return () => {}; }
+}
+
 export async function watchDashboard(options = {}, { onUpdate, onError } = {}) {
   if (isDemoMode()) return () => {};
   try {

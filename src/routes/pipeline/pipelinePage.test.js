@@ -27,6 +27,8 @@ vi.mock('$lib/services/followUpCrmService.js', () => ({
   assignContact: vi.fn(), batchAssignContacts: vi.fn(), completeTask: vi.fn(), createTask: vi.fn(), quickLogNoAnswer: vi.fn(),
   reactivateContact: vi.fn(), resolveCommitment: vi.fn(), setAttendancePlan: vi.fn(),
   updateMissedSundayReason: vi.fn(),
+  getJourneyOverview: vi.fn(async () => ({ data: { first_timers: [], new_converts: [] } })),
+  watchJourneyOverview: vi.fn(async () => () => {}),
 }));
 
 beforeEach(() => {
@@ -67,6 +69,8 @@ it('keeps named partial batch errors visible after the weekly workspace refresh'
   batchAssignContacts.mockResolvedValue({data:[{assignment:{person_id:'saved-person'}}],succeededPersonIds:['saved-person'],errors:[{personId:'failed-person',error:new Error('Assignment changed. Refresh and try again.')}],error:new Error('1 assigned; 1 failed')});
   const { default: Page } = await import('./+page.svelte');
   const view = render(Page);
+  await waitFor(() => expect(view.getByRole('button', { name: /This week/ })).toBeInTheDocument());
+  await fireEvent.click(view.getByRole('button', { name: /This week/ }));
   await waitFor(() => expect(view.getByLabelText('Select Saved Person')).toBeInTheDocument());
   await fireEvent.click(view.getByLabelText('Select Saved Person'));
   await fireEvent.click(view.getByLabelText('Select Failed Person'));
