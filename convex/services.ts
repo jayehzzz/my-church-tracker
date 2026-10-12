@@ -1,7 +1,7 @@
 import { queryFor, mutationFor } from "./lib/security";
 import { actualDate, confirmExplicitFirstVisit, date, deleteGathering, prepareServiceCounts, reconcileServiceCounts, serviceRows, syncServiceAttendance } from "./lib/attendanceWorkflow";
 
-import { v } from "convex/values";
+import { v, ConvexError } from "convex/values";
 
 async function servicePhotoReferences(ctx: any, serviceId: any) {
     const photos = await ctx.db.query("service_photos")
@@ -36,6 +36,13 @@ async function enrichService(ctx: any, service: any, attendance: any[], personCa
         photo_ids: photos.ids,
         individuals,
     };
+}
+
+function validateServiceDate(serviceDate: string, serviceType: string) {
+    date(serviceDate);
+    if (serviceType === "sunday_service" && new Date(`${serviceDate}T12:00:00Z`).getUTCDay() !== 0) {
+        throw new ConvexError("Choose a Sunday for a Sunday service.");
+    }
 }
 
 // Get all services sorted by date descending
@@ -87,7 +94,7 @@ export const create = mutationFor("services:create")({
         photos: v.optional(v.array(v.string())),
     },
     handler: async (ctx, args) => {
-        date(args.service_date);
+        validateServiceDate(args.service_date, args.service_type);
         if (args.total_attendance) actualDate(args.service_date);
         if (args.individuals?.length) throw new Error("Use record to save named attendance atomically");
         const id = await ctx.db.insert("services", { ...args, individuals: undefined, created_at: new Date().toISOString() });
@@ -118,9 +125,11 @@ export const update = mutationFor("services:update")({
     handler: async (ctx, args) => {
         const { id, ...updates } = args;
         if (updates.individuals) throw new Error("Use record to save named attendance atomically");
-        if (updates.service_date) {
-            date(updates.service_date);
-            if (updates.total_attendance ?? (await ctx.db.get(id))?.total_attendance) actualDate(updates.service_date);
+        const existing = await ctx.db.get(id);
+        if (!existing) throw new ConvexError("Service not found");
+        if (updates.service_date || updates.service_type) {
+            validateServiceDate(updates.service_date ?? existing.service_date, updates.service_type ?? existing.service_type);
+            if (updates.total_attendance ?? existing.total_attendance) actualDate(updates.service_date ?? existing.service_date);
         }
         await prepareServiceCounts(ctx, id);
         await ctx.db.patch(id, { ...updates, updated_at: new Date().toISOString() });
@@ -160,7 +169,7 @@ export const record = mutationFor("services:record")({
     },
     handler: async (ctx, args) => {
         const { id, attendanceData, photoIds = [], ...serviceData } = args;
-        date(serviceData.service_date);
+        validateServiceDate(serviceData.service_date, serviceData.service_type);
         if (serviceData.total_attendance) actualDate(serviceData.service_date);
         if (!id && args.request_id) {
             const previous = await ctx.db.query("services").filter(q => q.eq(q.field("request_id"), args.request_id)).first();

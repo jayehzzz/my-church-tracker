@@ -5,7 +5,11 @@ const t = convexTest(schema, modules);
 const owner = t.withIdentity({ tokenIdentifier: 'https://browser-fixture.example|owner', issuer: 'https://browser-fixture.example', subject: 'owner' });
 const stamp = '2026-08-01T12:00:00Z';
 let ids: any;
-async function initialize() {
+let initialization: Promise<void> | undefined;
+function initialize() {
+  return initialization ??= initializeFixture();
+}
+async function initializeFixture() {
   if (ids) return;
   ids = await t.run(async ctx => {
     const person = await ctx.db.insert('people', {first_name:'Browser', last_name:'Guest', member_status:'guest', created_at:stamp, updated_at:stamp});

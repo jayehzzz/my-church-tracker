@@ -99,6 +99,46 @@ describe("authoritative attendance transactions", () => {
         expect(await t.run(ctx => ctx.db.get(s!._id))).toMatchObject({ total_attendance: 5 });
         expect((await t.run(ctx => ctx.db.get(ids.person)))?.first_visit_date).toBeUndefined();
     });
+    it("corrects a legacy Monday record into the existing Sunday intention without losing it", async () => {
+        for (const path of ["record", "update"] as const) {
+            const { t, owner, ids, service } = await fixture();
+            await t.run(ctx => ctx.db.patch(ids.person, { member_status: "member" }));
+            const plan = await owner.mutation(api.crm.setAttendancePlan, { personId: ids.person, leaderId: ids.leader, serviceDate: "2026-10-11", status: "confirmed", notes: "Keep this Sunday intention" });
+            // Reproduce a weekday record written by the old form/backend.
+            const saved = await service({ service_date: "2026-10-04", total_attendance: 5, attendanceData: [{ ...checkin(ids.person), first_timer: false }] });
+            await t.run(async ctx => {
+                await ctx.db.patch(saved!._id, { service_date: "2026-10-12" });
+                const derived = (await ctx.db.query("attendance_plans").collect()).find(p => p.generated_from_attendance);
+                await ctx.db.patch(derived!._id, { service_date: "2026-10-12" });
+            });
+            if (path === "record") await service({ id: saved!._id, service_date: "2026-10-11", total_attendance: 5, attendanceData: [{ ...checkin(ids.person), first_timer: false }] });
+            else await owner.mutation(api.services.update, { id: saved!._id, service_date: "2026-10-11" });
+            expect(await t.run(ctx => ctx.db.get(plan!._id))).toMatchObject({ service_date: "2026-10-11", service_id: saved!._id, status: "attended", attendance_previous_status: "confirmed", notes: "Keep this Sunday intention", leader_id: ids.leader });
+            expect(await t.run(ctx => ctx.db.query("attendance_plans").collect())).toHaveLength(1);
+            expect(await t.run(ctx => ctx.db.get(saved!._id))).toMatchObject({ service_date: "2026-10-11", total_attendance: 5, unnamed_attendance_count: 4 });
+            const row = (await t.run(ctx => ctx.db.query("attendance").collect()))[0];
+            await owner.mutation(api.attendance.remove, { id: row._id });
+            expect(await t.run(ctx => ctx.db.get(plan!._id))).toMatchObject({ status: "confirmed", notes: "Keep this Sunday intention" });
+        }
+    });
+    it("preserves both independently entered plans when a correction genuinely conflicts", async () => {
+        const { t, owner, ids, service } = await fixture();
+        await t.run(ctx => ctx.db.patch(ids.person, { member_status: "member" }));
+        const original = await t.run(ctx => ctx.db.insert("attendance_plans", { person_id: ids.person, leader_id: ids.leader, service_date: "2026-10-04", status: "confirmed", notes: "Original intention", created_at: stamp, updated_at: stamp }));
+        const saved = await service({ service_date: "2026-10-04", total_attendance: 1, attendanceData: [{ ...checkin(ids.person), first_timer: false }] });
+        const destination = await t.run(ctx => ctx.db.insert("attendance_plans", { person_id: ids.person, leader_id: ids.leader, service_date: "2026-10-11", status: "confirmed", notes: "Separate intention", created_at: stamp, updated_at: stamp }));
+        await expect(owner.mutation(api.services.update, { id: saved!._id, service_date: "2026-10-11" })).rejects.toThrow(/Review their plans/);
+        expect(await t.run(ctx => ctx.db.get(original))).toMatchObject({ service_date: "2026-10-04", status: "attended", notes: "Original intention" });
+        expect(await t.run(ctx => ctx.db.get(destination))).toMatchObject({ service_date: "2026-10-11", status: "confirmed", notes: "Separate intention" });
+        expect(await t.run(ctx => ctx.db.get(saved!._id))).toMatchObject({ service_date: "2026-10-04" });
+    });
+    it("rejects new weekday Sunday records and service type changes atomically", async () => {
+        const { t, owner, service } = await fixture();
+        await expect(service({ service_date: "2026-10-12" })).rejects.toThrow(/Choose a Sunday/);
+        const midweek = await service({ service_date: "2026-10-12", service_type: "midweek_service" });
+        await expect(owner.mutation(api.services.update, { id: midweek!._id, service_type: "sunday_service" })).rejects.toThrow(/Choose a Sunday/);
+        expect(await t.run(ctx => ctx.db.get(midweek!._id))).toMatchObject({ service_date: "2026-10-12", service_type: "midweek_service" });
+    });
     it("requires an existing, explicitly selected gathering on ambiguous dates", async () => {
         const { t, owner, service, commitment } = await fixture();
         const c = await commitment();
@@ -213,7 +253,7 @@ describe("attendance and care correction edge cases", () => {
         const c=await commitment(); const s=await service({total_attendance:1,guests_count:1,attendanceData:[checkin(ids.person)]});
         await commitment({gatheringDate:'2026-07-26'});
         await expect(owner.mutation(api.services.update,{id:s!._id,service_date:'2026-07-26'})).rejects.toThrow(/conflicts/);
-        await expect(owner.mutation(api.services.update,{id:s!._id,service_date:'2099-01-01'})).rejects.toThrow(/future/);
+        await expect(owner.mutation(api.services.update,{id:s!._id,service_date:'2099-01-04'})).rejects.toThrow(/future/);
         expect((await t.run(ctx=>ctx.db.get(c!._id)))?.gathering_date).toBe('2026-08-02');
         expect((await t.run(ctx=>ctx.db.get(s!._id)))?.service_date).toBe('2026-08-02');
     });

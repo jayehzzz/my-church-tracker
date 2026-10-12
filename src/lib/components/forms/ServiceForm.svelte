@@ -1,8 +1,10 @@
 <script>
+  import { untrack } from "svelte";
   import * as templates from "$lib/services/serviceTemplatesService.js";
   import { Modal, Button, Input, Select } from "$lib/components/ui";
   import {
     buildAttendanceData,
+    suggestedSundayDate,
     isGuest,
     isOutreachContact,
     resolveServiceCounts,
@@ -11,7 +13,7 @@
     validateServiceSetup,
   } from "$lib/utils/serviceRecording.js";
 
-  let { isOpen = $bindable(false), service = null, onsave, ...restProps } = $props();
+  let { isOpen = $bindable(false), service = null, serviceRecords = [], onsave, ...restProps } = $props();
 
   let template = $state(null);
   let templateLoading = $state(false);
@@ -139,7 +141,7 @@
 
   function emptyForm() {
     return {
-      service_date: new Date().toISOString().slice(0, 10),
+      service_date: untrack(() => suggestedSundayDate(serviceRecords)),
       service_type: "sunday_service",
       service_time: "09:00",
       location: "",
@@ -392,7 +394,7 @@
       onsave?.(result.data);
       isOpen = false;
     } catch (saveError) {
-      errors = { submit: saveError?.message || "The service record could not be saved" };
+      errors = { submit: (typeof saveError?.data === "string" ? saveError.data : saveError?.message) || "The service record could not be saved" };
     } finally {
       saving = false;
     }
@@ -427,6 +429,7 @@
 
         {#if templateLoading}<p role="status" class="text-sm text-muted-foreground">Loading Sunday defaults…</p>{/if}
         {#if templateError}<div role="alert" class="text-sm text-destructive">{templateError}<div class="mt-2 flex gap-2"><Button size="sm" variant="secondary" onclick={() => loadTemplate(++templateRequest)}>Retry defaults</Button><Button size="sm" variant="ghost" onclick={() => templateError = ''}>Use blank setup</Button></div></div>{/if}
+        {#if formData.service_type === 'sunday_service'}<p class="text-sm text-muted-foreground">Use the Sunday the service was held, even when entering attendance on Monday. New records start with the most recent Sunday; if it is already recorded, the next unrecorded Sunday is suggested.</p>{/if}
         {#if template && formData.service_type === 'sunday_service'}<p class="text-sm text-muted-foreground">Sunday defaults loaded · {usualIds.size} usual {usualIds.size === 1 ? 'person' : 'people'}. You can change the time or venue for this service.</p>{/if}
         <fieldset disabled={templateLoading} class="rounded-xl border border-border bg-card p-4">
           <div class="grid grid-cols-1 gap-4 md:grid-cols-3">

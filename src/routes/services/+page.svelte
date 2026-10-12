@@ -1719,6 +1719,7 @@
 
 <!-- Service Form Modal -->
 <ServiceForm
+  serviceRecords={services}
   bind:isOpen={isFormOpen}
   service={selectedService}
   onsave={handleSave}

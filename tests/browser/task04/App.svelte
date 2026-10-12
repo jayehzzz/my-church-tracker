@@ -11,7 +11,7 @@
   import { resolveCommitment, completeTask } from '$lib/services/followUpCrmService.js';
   let state = $state(null), error = $state('');
   let serviceOpen=$state(false), meetingOpen=$state(false), careOpen=$state(false), actualOpen=$state(false);
-  let editingCare=$state(null);
+  let editingCare=$state(null), newService=$state(false);
   const mappedPeople = $derived((state?.people || []).map(p => ({...p,id:p._id})));
   const guest = $derived(state?.people.find(p=>p._id===state.ids.person));
   async function refresh() { try {state=await request({kind:'state'});} catch(e){error=e.message;} }
@@ -30,7 +30,8 @@
   {#if error}<p role="alert">{error}</p>{/if}
   {#if state}
     <div class="flex flex-wrap gap-4">
-      <button onclick={()=>serviceOpen=true}>Edit morning service</button>
+      <button onclick={()=>{newService=false;serviceOpen=true;}}>Edit morning service</button>
+      <button onclick={()=>{newService=true;serviceOpen=true;}}>Record Sunday service</button>
       <button onclick={()=>actualOpen=true}>Resolve CRM attendance</button>
       <button onclick={()=>meetingOpen=true}>Record meeting</button>
       <button onclick={()=>{editingCare=null;careOpen=true;}}>Log care</button>
@@ -51,7 +52,7 @@
       {#each state.meetings as meeting}<p>Meeting {meeting.meeting_date}: total {meeting.attendance_count}, unnamed {meeting.unnamed_guests_count}</p>{/each}
       {#each state.history as item}<p>History {item.follow_up_date}: {item.notes || item.outcome}</p>{/each}
     </div>
-    <ServiceForm bind:isOpen={serviceOpen} service={{...state.services[0],id:state.services[0]._id}} onsave={refresh} />
+    <ServiceForm bind:isOpen={serviceOpen} service={newService ? null : {...state.services[0],id:state.services[0]._id}} serviceRecords={state.services} onsave={refresh} />
     <MeetingForm bind:isOpen={meetingOpen} people={mappedPeople} initialOneOff={true} onsave={refresh} />
     <VisitationForm bind:isOpen={careOpen} visitation={editingCare} people={mappedPeople} initialPersonId={state.ids.person} onsave={refresh} />
     <GatheringAttendanceDialog bind:isOpen={actualOpen} gatheringDate="2026-08-02" personName="Browser Guest" onconfirm={resolve} />
