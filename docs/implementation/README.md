@@ -29,6 +29,21 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 ## Handoffs
 
+### Live release — Sunday dates and attendance correction (12 October 2026)
+
+- Released PR #8, source `8ea993ed5e85edac605eb377efcf317c1830ae73`, merge `0895f11411534caed297eca38c07b964c96e03fe`, with the owner's explicit live-release approval. New service forms suggest the Sunday just held, skipping already-recorded Sundays; weekday Sunday records are rejected in the UI and backend. The existing Sunday intention is retained when correcting a conflicting attendance-generated plan; genuine independent-plan conflicts still roll back.
+- Practice backend `standing-mongoose-699` deployed without refreshing data. Preview `dpl_W9gp4P5y12kXEQ2vr1khKttU7wQi` is READY at the permanent Practice alias, with verified staging/live/rehearsal build settings and source commit. Authenticated backend service query passed. Anonymous Practice HTTP reaches Vercel deployment protection; a signed-in browser workflow was not exercised.
+- Fresh file-inclusive backup `20261012T174813Z-586178b8` passed integrity/hash/health checks. Production backend `elated-bee-284` deployed before merge. Vercel Production `dpl_AsLBRbQxVgqbWyuY5WNT9j4Hftbh` is READY, built from the merge commit and assigned to `https://my-church-tracker.vercel.app`; live HTTP serves the Svelte app.
+- Corrected the identified production service from Monday, 12 October, to Sunday, 11 October through `services:update`. Verified every attendance row and original aggregate total was preserved, and all six pre-existing Sunday plans retained their IDs, leader, notes and prior status. Private before/after audit and inherited-work patch are under `~/.codex/private/church-sunday-date-correction-20261012/`.
+- Checks passed: 407 frontend tests, 132 backend tests, backend TypeScript, coverage, build and two isolated Playwright workflows. Required PR Verify run `38287047799` passed before merge. Post-merge Verify run `38287464758` is still running at this handoff.
+- The released remote branch was automatically deleted. Implementation used a clean isolated checkout from `c63e4e2`; the saved checkout remains on `codex/confirmed-attendance-prefill` to preserve its inherited uncommitted ServiceForm work and earlier release handoff. This new handoff is also uncommitted. Bring that pending branch onto updated `main` before continuing its implementation; no inherited code was committed or published here.
+
+### Live release — Sunday people and setup updates (12 October 2026)
+
+- Released PR #7 at merge commit `c63e4e28cf1ec8b0ec21ad0ae8ac42cef8efc367`. The matching Convex backend is deployed to production `elated-bee-284`; the additive `service_templates` table/index and functions deployed successfully, with no data migration or deliberate church-record write. Fresh file-inclusive backup `20261012T163619Z-7770177c` completed before deployment.
+- Vercel production deployment **dpl_Z5r6GMzJYUsrgAUii1SyBNZDHEMw** is READY and serves **https://my-church-tracker.vercel.app**. It is built from the merge commit. The live browser reached the expected sign-in boundary. Post-merge GitHub Verify run **38278624268** passed unit tests, backend tests, backend TypeScript, coverage, Playwright and build. The signed-in feature workflows remain for the owner to exercise after signing in; this browser has no authenticated church session.
+- Release gates are complete. Local checkout is on `main` at `c63e4e2`; the merged local feature branch was deleted. This handoff entry is an uncommitted documentation-only edit on `main` and was not part of the production deployment.
+
 ### Calmer follow-up, meeting removal and Sunday defaults (11 October 2026)
 
 - Continued clean `codex/sunday-people-view` at `66df646`, preserving the pending Sunday people / first-timer changes already in PR #7. No inherited uncommitted edits. Follow-Up tabs no longer show notification-like count badges; the bell uses one neutral unread dot and notification icons and weekly follow-up rows use quieter styling. Missed-after-yes now has recent/history, search, repeated-miss and no-call-planned filters, with dates/reasons/corrections behind disclosure and the worker/next action visible. The summary explicitly counts distinct people in the last four completed Sundays.

@@ -1,5 +1,6 @@
 <script>
   import * as templates from "$lib/services/serviceTemplatesService.js";
+  import * as followUpCrm from "$lib/services/followUpCrmService.js";
   import { Modal, Button, Input, Select } from "$lib/components/ui";
   import {
     buildAttendanceData,
@@ -18,6 +19,8 @@
   let templateError = $state('');
   let templateRequest = 0;
   const usualIds = $derived(new Set(template?.expected_person_ids || []));
+  let confirmedIds = $state(new Set());
+  let confirmedLoadError = $state('');
   let activeStep = $state(1);
   let formData = $state(emptyForm());
   let saving = $state(false);
@@ -67,7 +70,9 @@
 
   const filteredPeople = $derived(() => {
     let result = people;
-    if (attendeeFilter === "usual") {
+    if (attendeeFilter === "confirmed") {
+      result = result.filter(person => confirmedIds.has(String(personId(person))));
+    } else if (attendeeFilter === "usual") {
       result = result.filter(person => person.member_status !== "archived" && usualIds.has(personId(person)));
     } else if (attendeeFilter === "members") {
       result = result.filter((person) => ["member", "leader"].includes(person.member_status));
@@ -118,6 +123,8 @@
     initialFormSnapshot = JSON.stringify(nextFormData);
     attendanceDataLoaded = false;
     confirmedExistingIds = new Set();
+    confirmedIds = new Set();
+    confirmedLoadError = '';
     template = null; templateError = ''; templateLoading = false;
     const key = ++templateRequest;
     if (!service) void loadTemplate(key);
@@ -200,7 +207,22 @@
         } else {
           selectedPersonIds = new Set();
           attendanceMetadata = {};
-          if (formData.service_type === "sunday_service" && usualIds.size) attendeeFilter = "usual";
+          if (formData.service_type === "sunday_service") {
+            const forecastResult = await followUpCrm.getDashboard({ serviceDate: formData.service_date });
+            const forecastIds = forecastResult.data?.attendance_forecast?.expected_person_ids;
+            if (forecastResult.error || !Array.isArray(forecastIds)) {
+              confirmedLoadError = 'Sunday confirmations could not be loaded. No one has been preselected.';
+            } else {
+              confirmedIds = new Set(forecastIds.map(String).filter(id => ids.some(personId => String(personId) === id)));
+              selectedPersonIds = new Set(confirmedIds);
+              attendanceMetadata = Object.fromEntries([...confirmedIds].map(id => {
+                const person = people.find(candidate => String(personId(candidate)) === id);
+                const isFirstGuestVisit = !priorAttendance[id] && (isGuest(person) || isOutreachContact(person));
+                return [id, { first_timer: isFirstGuestVisit, explicit_first_visit: false }];
+              }));
+              attendeeFilter = "confirmed";
+            }
+          } else if (usualIds.size) attendeeFilter = "usual";
         }
       } else {
         selectedPersonIds = new Set();
@@ -244,6 +266,15 @@
       ...attendanceMetadata,
       [id]: { ...current, [field]: !current[field] },
     };
+  }
+
+  function invalidateAttendancePrefill() {
+    if (!attendanceDataLoaded) return;
+    attendanceDataLoaded = false;
+    selectedPersonIds = new Set();
+    attendanceMetadata = {};
+    confirmedIds = new Set();
+    confirmedLoadError = '';
   }
 
   async function goToStep(step) {
@@ -430,9 +461,9 @@
         {#if template && formData.service_type === 'sunday_service'}<p class="text-sm text-muted-foreground">Sunday defaults loaded · {usualIds.size} usual {usualIds.size === 1 ? 'person' : 'people'}. You can change the time or venue for this service.</p>{/if}
         <fieldset disabled={templateLoading} class="rounded-xl border border-border bg-card p-4">
           <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <Input label="Service Date" type="date" bind:value={formData.service_date} error={errors.service_date} required disabled={saving} />
+            <Input label="Service Date" type="date" bind:value={formData.service_date} onchange={invalidateAttendancePrefill} error={errors.service_date} required disabled={saving} />
             <Input label="Start Time" type="time" bind:value={formData.service_time} disabled={saving} />
-            <Select label="Service Type" bind:value={formData.service_type} options={serviceTypeOptions} error={errors.service_type} disabled={saving} />
+            <Select label="Service Type" bind:value={formData.service_type} onchange={invalidateAttendancePrefill} options={serviceTypeOptions} error={errors.service_type} disabled={saving} />
           </div>
           <div class="mt-4"><Input label="Location" bind:value={formData.location} disabled={saving} placeholder="Main auditorium, hall, or venue" /></div>
         </fieldset>
@@ -448,7 +479,7 @@
     {:else if activeStep === 2}
       <section class="space-y-4" aria-labelledby="service-attendance-title">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div><h3 id="service-attendance-title" class="text-base font-semibold text-foreground">Record named attendance</h3><p class="mt-1 text-sm text-muted-foreground">Check in the people you know. Confirm a first timer when you know this was their first visit. The final headcount can include unnamed attendees.</p></div>
+          <div><h3 id="service-attendance-title" class="text-base font-semibold text-foreground">Record named attendance</h3><p class="mt-1 text-sm text-muted-foreground">People confirmed for this Sunday start selected. Untick anyone who did not attend, and select anyone else who was there. Saving records actual attendance. Confirm a first timer when you know this was their first visit; the final headcount can include unnamed attendees.</p></div>
           <div class="flex gap-4 rounded-lg bg-secondary/25 px-4 py-2 text-center">
             <div><p class="text-lg font-semibold text-foreground">{namedSummary.named}</p><p class="text-[11px] text-muted-foreground">Checked in</p></div>
             <div><p class="text-lg font-semibold text-info">{namedSummary.returningGuests}</p><p class="text-[11px] text-muted-foreground">Returning guests</p></div>
@@ -457,14 +488,15 @@
         </div>
 
         {#if errors.attendance}<div class="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">{errors.attendance}</div>{/if}
+        {#if confirmedLoadError}<div role="status" class="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">{confirmedLoadError}</div>{/if}
 
         <div class="grid grid-cols-2 gap-1 rounded-lg bg-secondary/30 p-1 sm:grid-cols-4" aria-label="Attendance directory filters">
-          {#each [...(formData.service_type === "sunday_service" && usualIds.size ? [["usual", "Usual people"]] : []), ["members", "Members"], ["guests", "Non-member profiles"], ["contacts", "Outreach contacts"], ["all", "Everyone"]] as option}
+          {#each [...(formData.service_type === "sunday_service" ? [["confirmed", `Confirmed (${confirmedIds.size})`]] : []), ...(formData.service_type === "sunday_service" && usualIds.size ? [["usual", "Usual people"]] : []), ["members", "Members"], ["guests", "Non-member profiles"], ["contacts", "Outreach contacts"], ["all", "Everyone"]] as option}
             <button type="button" class="rounded-md px-3 py-2 text-xs font-medium transition-colors {attendeeFilter === option[0] ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}" onclick={() => attendeeFilter = option[0]}>{option[1]}</button>
           {/each}
         </div>
 
-        {#if attendeeFilter === "usual"}<p class="text-sm text-muted-foreground">Your usual Sunday list. Select each person who is here; nobody is checked in automatically.</p>{/if}
+        {#if attendeeFilter === "confirmed"}<p class="text-sm text-muted-foreground">Confirmed for {formData.service_date}. They start selected as a checklist; untick anyone who did not attend.</p>{:else if attendeeFilter === "usual"}<p class="text-sm text-muted-foreground">Your usual Sunday list. Select each person who is here.</p>{/if}
         <div class="flex flex-col gap-2 sm:flex-row">
           <div class="min-w-0 flex-1"><Input label="" bind:value={searchQuery} placeholder="Search by name..." disabled={saving} /></div>
           <Button variant="secondary" onclick={() => showQuickAdd = !showQuickAdd} disabled={saving}>+ Add first timer</Button>
@@ -487,7 +519,7 @@
           {#if loadingPeople}
             <div class="flex min-h-52 items-center justify-center text-sm text-muted-foreground">Loading people…</div>
           {:else if filteredPeople().length === 0}
-            <div class="flex min-h-52 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"><p>No people match this view.</p><button type="button" class="text-primary hover:underline" onclick={() => attendeeFilter = "all"}>Show everyone</button></div>
+            <div class="flex min-h-52 flex-col items-center justify-center gap-2 text-sm text-muted-foreground"><p>{attendeeFilter === "confirmed" ? 'No one is confirmed for this Sunday yet.' : 'No people match this view.'}</p><button type="button" class="text-primary hover:underline" onclick={() => attendeeFilter = "all"}>Show everyone</button></div>
           {:else}
             <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
               {#each filteredPeople() as person (personId(person))}
