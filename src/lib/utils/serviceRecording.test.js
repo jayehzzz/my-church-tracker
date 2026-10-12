@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAttendanceData,
+  localServiceDate,
+  suggestedSundayDate,
   isGuest,
   isOutreachContact,
   resolveServiceCounts,
@@ -89,5 +91,34 @@ describe("service recording", () => {
     expect(buildAttendanceData(new Set(["p1"]), { p1: { first_timer: true, explicit_first_visit: true } })).toEqual([{
       person_id: "p1", gave_tithe: false, made_salvation_decision: false, first_timer: true, explicit_first_visit: true,
     }]);
+  });
+});
+
+describe('Sunday service dates', () => {
+  it('uses the Sunday just held on Sunday, Monday and Saturday, including a year boundary', () => {
+    for (const day of ['2026-10-11', '2026-10-12', '2026-10-17']) {
+      expect(suggestedSundayDate([], new Date(`${day}T12:00:00`))).toBe('2026-10-11');
+    }
+    expect(suggestedSundayDate([], new Date('2027-01-01T12:00:00'))).toBe('2026-12-27');
+  });
+  it('skips recorded Sundays and Sunday specials but ignores an accidental Monday record', () => {
+    const services = [
+      { service_type: 'sunday_service', service_date: '2026-10-12' },
+      { service_type: 'special_service', service_date: '2026-10-11' },
+      { service_type: 'sunday_service', service_date: '2026-10-18' },
+    ];
+    expect(suggestedSundayDate(services, new Date('2026-10-12T12:00:00'))).toBe('2026-10-25');
+    expect(suggestedSundayDate(services.slice(0, 1), new Date('2026-10-12T12:00:00'))).toBe('2026-10-11');
+  });
+  it('uses the local calendar date around midnight', () => {
+    const day = new Date(2026, 9, 12, 0, 1);
+    expect(localServiceDate(day)).toBe('2026-10-12');
+    expect(suggestedSundayDate([], day)).toBe('2026-10-11');
+  });
+  it('rejects weekdays for Sunday services while allowing midweek services', () => {
+    expect(validateServiceSetup({ service_date: '2026-10-12', service_type: 'sunday_service' }).service_date).toMatch(/Choose a Sunday/);
+    expect(validateServiceSetup({ service_date: '2026-10-12', service_type: 'midweek_service' })).toEqual({});
+    expect(validateServiceSetup({ service_date: '2099-01-04', service_type: 'sunday_service' }).service_date).toMatch(/once the service date arrives/);
+    expect(validateServiceSetup({ service_date: '2026-02-30', service_type: 'sunday_service' }).service_date).toMatch(/valid/);
   });
 });

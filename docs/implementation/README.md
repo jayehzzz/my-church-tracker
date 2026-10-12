@@ -29,6 +29,14 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 ## Handoffs
 
+### Sunday date defaults and correction failure (12 October 2026)
+
+- Prepared in an isolated checkout from `main` `c63e4e2`. Preserved the saved checkout's uncommitted confirmed-attendance prefill and earlier release handoff; neither is included in this release. The owner explicitly approved publishing this fix to the live site.
+- New service forms suggest the most recent Sunday, skipping recorded Sundays to the next unrecorded Sunday, using the browser's local calendar date. Sunday records reject weekday dates in both UI and backend; future attendance is blocked in the form. Editing preserves the existing date until corrected.
+- Production request `f507b5571f74d65f` failed because a generated Monday attendance plan collided with an existing Sunday intention. Corrections now discard only the redundant generated mirror, retain the destination plan's leader/notes/previous status, and reconcile actual attendance atomically. Independent plan conflicts still roll back and return a readable error.
+- Checks passed: 407 frontend tests, 132 backend tests, backend TypeScript, coverage, production build, and both isolated Playwright workflows (including Monday-to-Sunday entry). The shared browser fixture now waits for initialization across concurrent tests.
+- Release preparation: clean source commit will be pushed as `codex/sunday-date-correction`; deploy matching Practice backend/Preview, wait for GitHub Verify, then deploy production backend and merge. Fresh file-inclusive production backup: `20261012T174813Z-586178b8`. One Monday record with eight named attendees is identified for correction to Sunday, 11 October, after release; verify totals and retained plans afterward.
+
 ### Calmer follow-up, meeting removal and Sunday defaults (11 October 2026)
 
 - Continued clean `codex/sunday-people-view` at `66df646`, preserving the pending Sunday people / first-timer changes already in PR #7. No inherited uncommitted edits. Follow-Up tabs no longer show notification-like count badges; the bell uses one neutral unread dot and notification icons and weekly follow-up rows use quieter styling. Missed-after-yes now has recent/history, search, repeated-miss and no-call-planned filters, with dates/reasons/corrections behind disclosure and the worker/next action visible. The summary explicitly counts distinct people in the last four completed Sundays.

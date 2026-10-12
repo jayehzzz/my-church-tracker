@@ -1,3 +1,19 @@
+export function localServiceDate(today = new Date()) {
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}
+
+export function suggestedSundayDate(services = [], today = new Date()) {
+  const day = new Date(`${localServiceDate(today)}T12:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - day.getUTCDay());
+  const recorded = new Set(services.filter(service =>
+    ["sunday_service", "special_service", "easter_service", "christmas_service"].includes(service.service_type)
+  ).map(service => service.service_date));
+  // Start with the Sunday just held, including when attendance is entered later.
+  // If already recorded, suggest the next Sunday rather than a duplicate record.
+  while (recorded.has(day.toISOString().slice(0, 10))) day.setUTCDate(day.getUTCDate() + 7);
+  return day.toISOString().slice(0, 10);
+}
+
 export function toCount(value, fallback = 0) {
   if (value === "" || value === null || value === undefined) return fallback;
   const parsed = Number(value);
@@ -54,6 +70,16 @@ export function validateServiceSetup(formData) {
   const errors = {};
   if (!formData.service_date) errors.service_date = "Service date is required";
   if (!formData.service_type) errors.service_type = "Service type is required";
+  if (formData.service_date) {
+    const day = new Date(`${formData.service_date}T12:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(formData.service_date) || !Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== formData.service_date) {
+      errors.service_date = "Choose a valid service date";
+    } else if (formData.service_type === "sunday_service" && day.getUTCDay() !== 0) {
+      errors.service_date = "Choose a Sunday for a Sunday service";
+    } else if (formData.service_date > localServiceDate()) {
+      errors.service_date = "Attendance can only be recorded once the service date arrives";
+    }
+  }
   return errors;
 }
 
