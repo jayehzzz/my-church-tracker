@@ -12,4 +12,11 @@ test("Monday entry starts on Sunday and prevents accidentally choosing Monday", 
   await form.getByLabel("Service Date").fill("2026-10-11");
   await form.getByRole("button", { name: /2 Attendance/ }).click();
   await expect(form.getByRole("heading", { name: "Record named attendance" })).toBeVisible();
+  const confirmed = form.getByRole("button", { name: "Browser Leader Leader", exact: true });
+  await expect(confirmed).toHaveAttribute("aria-pressed", "true");
+  await expect(form.getByRole("button", { name: "Confirmed (1)", exact: true })).toBeVisible();
+  await confirmed.click();
+  await expect(confirmed).toHaveAttribute("aria-pressed", "false");
+  await form.getByRole("button", { name: "Everyone", exact: true }).click();
+  await expect(form.getByRole("button", { name: "Browser Guest Non-member profile", exact: true })).toBeVisible();
 });

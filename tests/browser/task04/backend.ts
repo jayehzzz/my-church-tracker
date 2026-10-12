@@ -22,6 +22,7 @@ async function initializeFixture() {
   // service can finalize a pending Sunday promise when that service is the only
   // candidate, which would remove the ambiguity this fixture is meant to test.
   for (const service_time of ['10:00', '18:00']) await owner.mutation(api.services.record, {request_id:service_time, service_date:'2026-08-02', service_time, service_type:'sunday_service', total_attendance:2, guests_count:0, salvation_decisions:0, tithers_count:0, attendanceData:[]});
+  await owner.mutation(api.crm.recordCommitment, {personId:ids.leader, leaderId:ids.leader, gatheringType:'sunday_service', gatheringDate:'2026-10-11', response:'yes'});
   ids.commitment = (await owner.mutation(api.crm.recordCommitment, {personId:ids.person, leaderId:ids.leader, gatheringType:'sunday_service', gatheringDate:'2026-08-02', response:'yes'}))!._id;
 }
 export async function request({kind, name, args = {}}: any) {
