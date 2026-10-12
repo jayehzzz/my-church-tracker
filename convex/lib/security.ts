@@ -164,6 +164,7 @@ async function securedContext(ctx: QueryCtx | MutationCtx, user: Doc<"crm_users"
       insert: async (_, doc) => admin || (canPerson(String(doc.person_id)) && doc.collector_id === user.person_id),
     },
     service_register_entries: adminOnly,
+    service_templates: adminOnly,
     attendance_visit_evidence: visitEvidenceRead
       ? { ...adminOnly, read: async (_, doc) => canPerson(String(doc.person_id)) }
       : adminOnly,

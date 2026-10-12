@@ -1,9 +1,15 @@
 <script>
-  let { data = null, loading = false, error = '', onRetry = null, onOpen = null } = $props();
+  let { data = null, loading = false, error = '', onRetry = null, onOpen = null, firstTimersOnly = false, fromDate = $bindable(''), toDate = $bindable(''), showDates = true } = $props();
   let activeList = $state('first_timers');
   let search = $state('');
-  let fromDate = $state('');
-  let toDate = $state('');
+  const today = new Date();
+  function dateOnly(value) { return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`; }
+  function choosePeriod(period) {
+    toDate = period === 'all' ? '' : dateOnly(today);
+    if (period === 'month') fromDate = `${toDate.slice(0, 7)}-01`;
+    else if (period === '30days') { const start = new Date(today); start.setDate(start.getDate() - 29); fromDate = dateOnly(start); }
+    else fromDate = '';
+  }
 
   const firstTimers = $derived(data?.first_timers || []);
   const converts = $derived(data?.new_converts || []);
@@ -41,20 +47,28 @@
 <section class="overflow-hidden rounded-xl border border-border bg-card" aria-label="First visits and salvation overview">
   <header class="border-b border-border p-5">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div><h2 class="text-lg font-semibold text-foreground">First visits & salvation</h2><p class="mt-1 text-sm text-muted-foreground">First timers are people explicitly recorded as first timers when they joined.</p></div>
-      {#if data?.unnamed_decisions_available && unnamedCount}
+      <div><h2 class="text-lg font-semibold text-foreground">{activeList === 'first_timers' ? 'First timers' : 'Salvation decisions'}</h2><p class="mt-1 text-sm text-muted-foreground">First timers are people explicitly recorded as first timers when they joined.</p></div>
+      {#if activeList === 'new_converts' && data?.unnamed_decisions_available && unnamedCount}
         <div class="rounded-lg bg-secondary/60 px-3 py-2 text-sm"><span class="font-semibold text-foreground">{unnamedCount}</span><span class="ml-1 text-muted-foreground">unnamed service decisions</span></div>
       {/if}
     </div>
-    <div class="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Journey records">
+    {#if !firstTimersOnly}<div class="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Journey records">
       <button type="button" role="tab" aria-selected={activeList === 'first_timers'} class="rounded-lg px-3 py-2 text-sm font-semibold {activeList === 'first_timers' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-foreground'}" onclick={() => activeList = 'first_timers'}>First timers <span class="ml-1 opacity-80">{firstTimers.length}</span></button>
       <button type="button" role="tab" aria-selected={activeList === 'new_converts'} class="rounded-lg px-3 py-2 text-sm font-semibold {activeList === 'new_converts' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-foreground'}" onclick={() => activeList = 'new_converts'}>New converts <span class="ml-1 opacity-80">{converts.length}</span></button>
-    </div>
-    <div class="mt-4 grid gap-3 sm:grid-cols-3">
-      <label class="sm:col-span-1"><span class="sr-only">Search people and gatherings</span><input type="search" bind:value={search} placeholder="Search name, phone or gathering" class="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" /></label>
+    </div>{/if}
+    {#if showDates}<div class="mt-4 flex flex-wrap gap-2" aria-label="First timer period">
+      <button type="button" class="rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary" onclick={() => choosePeriod('month')}>This month</button>
+      <button type="button" class="rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary" onclick={() => choosePeriod('30days')}>Last 30 days</button>
+      <button type="button" class="rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary" onclick={() => choosePeriod('all')}>All time</button>
+    </div>{/if}
+    <div class="mt-4 grid gap-3 {showDates ? 'sm:grid-cols-3' : ''}">
+      <label><span class="sr-only">Search people and gatherings</span><input type="search" bind:value={search} placeholder="Search name, phone or worker" class="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" /></label>
+      {#if showDates}
       <label class="flex items-center gap-2 text-xs text-muted-foreground">From <input aria-label="From date" type="date" bind:value={fromDate} class="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-2 text-sm text-foreground" /></label>
       <label class="flex items-center gap-2 text-xs text-muted-foreground">To <input aria-label="To date" type="date" bind:value={toDate} class="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-2 text-sm text-foreground" /></label>
+      {/if}
     </div>
+    {#if !loading && !error && (!fromDate || !toDate || fromDate <= toDate)}<p class="mt-3 text-sm font-semibold" role="status">{matchingPeople.length} {matchingPeople.length === 1 ? 'person' : 'people'}{activeList === 'first_timers' ? ' recorded as first timers' : ' with salvation decisions'}{fromDate || toDate ? ' in this period' : ' · all time'}</p>{/if}
     {#if fromDate && toDate && fromDate > toDate}<p class="mt-2 text-sm text-destructive" role="alert">The start date must be on or before the end date.</p>{/if}
   </header>
 
@@ -76,11 +90,12 @@
               {#if record.assigned_worker}<span>Worker: {personName(record.assigned_worker)}</span>{/if}
               {#if record.person.member_status === 'archived'}<span class="font-medium text-warning">Archived profile</span>{/if}
             </div>
-            <ul class="mt-3 space-y-1.5">
+            <p class="mt-2 text-sm text-muted-foreground">{activeList === 'first_timers' ? 'First visit' : 'Decision recorded'}: {formatDate(record.visibleEvents[0]?.date)}</p>
+            <details class="mt-2 text-xs text-muted-foreground"><summary class="cursor-pointer hover:text-foreground">Visit details</summary><ul class="mt-2 space-y-1.5">
               {#each record.visibleEvents as event (`${event.id || 'date'}-${event.date}`)}
                 <li class="text-xs text-muted-foreground"><span class="font-semibold capitalize text-foreground">{event.label}</span><span> · {formatDate(event.date)}</span>{#if event.time}<span> · {event.time}</span>{/if}{#if event.location}<span> · {event.location}</span>{/if}</li>
               {/each}
-            </ul>
+            </ul></details>
           </div>
           <button type="button" class="self-start rounded-lg px-3 py-2 text-xs font-semibold text-primary hover:bg-secondary" onclick={() => openRecord(record)}>View person</button>
         </article>

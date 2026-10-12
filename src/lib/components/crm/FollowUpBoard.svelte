@@ -339,7 +339,7 @@
   {#if chips(entry).length}
     <div class="mt-1.5 flex flex-wrap gap-1.5">
       {#each chips(entry) as chip (chip.id)}
-        <Badge size="sm" variant={chip.variant}>{chip.text}</Badge>
+        <span class="text-xs text-muted-foreground">{chip.text}</span>
       {/each}
     </div>
   {/if}
@@ -351,7 +351,7 @@
 
 {#snippet listRow(entry, group)}
   <div
-    class="grid cursor-pointer gap-3 px-4 py-3 md:grid-cols-[1.6fr_1fr_auto] md:items-center md:gap-4 border-l-4 transition-colors hover:bg-secondary/20 {group.id === 'overdue' ? 'border-l-destructive bg-destructive/[0.02]' : group.id === 'today' ? 'border-l-primary bg-primary/[0.02]' : group.id === 'unassigned' ? 'border-l-amber-500 bg-amber-500/[0.02]' : 'border-l-transparent'}"
+    class="grid cursor-pointer gap-3 px-4 py-3 md:grid-cols-[1.6fr_1fr_auto] md:items-center md:gap-4 border-l-4 transition-colors hover:bg-secondary/20 {group.id === 'overdue' ? 'border-l-border' : group.id === 'today' ? 'border-l-primary bg-primary/[0.02]' : group.id === 'unassigned' ? 'border-l-border' : 'border-l-transparent'}"
     onclick={(event) => {
       if (event.target.closest('button, a, input, select, textarea, label')) return;
       onOpen(entry.person);
@@ -377,7 +377,7 @@
       {/if}
 
       <span
-        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold {group.id === 'overdue' ? 'bg-destructive/15 text-destructive' : group.id === 'today' ? 'bg-primary/15 text-primary' : 'bg-secondary text-foreground'}"
+        class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold {group.id === 'overdue' ? 'bg-secondary text-foreground' : group.id === 'today' ? 'bg-primary/15 text-primary' : 'bg-secondary text-foreground'}"
       >
         {initials(entry.person)}
       </span>
@@ -461,7 +461,7 @@
           />
         {/if}
         <span
-          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold {group.id === 'overdue' ? 'bg-destructive/15 text-destructive' : group.id === 'today' ? 'bg-primary/15 text-primary' : 'bg-secondary text-foreground'}"
+          class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold {group.id === 'overdue' ? 'bg-secondary text-foreground' : group.id === 'today' ? 'bg-primary/15 text-primary' : 'bg-secondary text-foreground'}"
         >
           {initials(entry.person)}
         </span>
@@ -553,7 +553,7 @@
         {#if rawOverdue.length}
           <button
             type="button"
-            class="rounded-md px-2.5 py-1 font-semibold transition-colors {urgencyFilter === 'overdue' ? 'bg-destructive/20 text-destructive shadow-sm' : 'text-destructive/80 hover:text-destructive'}"
+            class="rounded-md px-2.5 py-1 font-semibold transition-colors {urgencyFilter === 'overdue' ? 'bg-secondary text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}"
             onclick={() => urgencyFilter = 'overdue'}
           >
             Overdue ({rawOverdue.length})

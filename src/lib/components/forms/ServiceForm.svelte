@@ -1,4 +1,5 @@
 <script>
+  import * as templates from "$lib/services/serviceTemplatesService.js";
   import { Modal, Button, Input, Select } from "$lib/components/ui";
   import {
     buildAttendanceData,
@@ -12,6 +13,11 @@
 
   let { isOpen = $bindable(false), service = null, onsave, ...restProps } = $props();
 
+  let template = $state(null);
+  let templateLoading = $state(false);
+  let templateError = $state('');
+  let templateRequest = 0;
+  const usualIds = $derived(new Set(template?.expected_person_ids || []));
   let activeStep = $state(1);
   let formData = $state(emptyForm());
   let saving = $state(false);
@@ -61,7 +67,9 @@
 
   const filteredPeople = $derived(() => {
     let result = people;
-    if (attendeeFilter === "members") {
+    if (attendeeFilter === "usual") {
+      result = result.filter(person => person.member_status !== "archived" && usualIds.has(personId(person)));
+    } else if (attendeeFilter === "members") {
       result = result.filter((person) => ["member", "leader"].includes(person.member_status));
     } else if (attendeeFilter === "guests") {
       result = result.filter(isGuest);
@@ -76,7 +84,7 @@
   });
 
   $effect(() => {
-    if (!isOpen) return;
+    if (!isOpen) { templateRequest++; return; }
     const nextFormData = service ? {
       ...emptyForm(),
       service_date: service.service_date || "",
@@ -110,7 +118,24 @@
     initialFormSnapshot = JSON.stringify(nextFormData);
     attendanceDataLoaded = false;
     confirmedExistingIds = new Set();
+    template = null; templateError = ''; templateLoading = false;
+    const key = ++templateRequest;
+    if (!service) void loadTemplate(key);
   });
+
+  async function loadTemplate(key) {
+    templateLoading = true;
+    const result = await templates.get();
+    if (key !== templateRequest) return;
+    templateLoading = false;
+    if (result.error) { templateError = 'Sunday defaults could not be loaded. Retry or continue with a blank setup.'; return; }
+    template = result.data;
+    if (template) {
+      formData.service_time = template.service_time;
+      formData.location = template.location;
+      initialFormSnapshot = JSON.stringify(formData);
+    }
+  }
 
   function emptyForm() {
     return {
@@ -152,6 +177,7 @@
     try {
       const peopleService = await import("$lib/services/peopleService");
       const peopleResult = await peopleService.getAll();
+      if (peopleResult.error) throw peopleResult.error;
       people = peopleResult.data || [];
       const ids = people.map(personId).filter(Boolean);
 
@@ -174,6 +200,7 @@
         } else {
           selectedPersonIds = new Set();
           attendanceMetadata = {};
+          if (formData.service_type === "sunday_service" && usualIds.size) attendeeFilter = "usual";
         }
       } else {
         selectedPersonIds = new Set();
@@ -220,6 +247,7 @@
   }
 
   async function goToStep(step) {
+    if (templateLoading) return;
     if (step > 1) {
       const setupErrors = validateServiceSetup(formData);
       if (Object.keys(setupErrors).length) {
@@ -397,14 +425,17 @@
       <section class="space-y-5" aria-labelledby="service-setup-title">
         <div><h3 id="service-setup-title" class="text-base font-semibold text-foreground">Set up the service</h3><p class="mt-1 text-sm text-muted-foreground">Start with the essentials. Attendance and outcomes come next.</p></div>
 
-        <div class="rounded-xl border border-border bg-card p-4">
+        {#if templateLoading}<p role="status" class="text-sm text-muted-foreground">Loading Sunday defaults…</p>{/if}
+        {#if templateError}<div role="alert" class="text-sm text-destructive">{templateError}<div class="mt-2 flex gap-2"><Button size="sm" variant="secondary" onclick={() => loadTemplate(++templateRequest)}>Retry defaults</Button><Button size="sm" variant="ghost" onclick={() => templateError = ''}>Use blank setup</Button></div></div>{/if}
+        {#if template && formData.service_type === 'sunday_service'}<p class="text-sm text-muted-foreground">Sunday defaults loaded · {usualIds.size} usual {usualIds.size === 1 ? 'person' : 'people'}. You can change the time or venue for this service.</p>{/if}
+        <fieldset disabled={templateLoading} class="rounded-xl border border-border bg-card p-4">
           <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
             <Input label="Service Date" type="date" bind:value={formData.service_date} error={errors.service_date} required disabled={saving} />
             <Input label="Start Time" type="time" bind:value={formData.service_time} disabled={saving} />
             <Select label="Service Type" bind:value={formData.service_type} options={serviceTypeOptions} error={errors.service_type} disabled={saving} />
           </div>
           <div class="mt-4"><Input label="Location" bind:value={formData.location} disabled={saving} placeholder="Main auditorium, hall, or venue" /></div>
-        </div>
+        </fieldset>
 
         <div class="rounded-xl border border-border bg-card p-4">
           <div class="mb-4"><h4 class="text-sm font-semibold text-foreground">Message</h4><p class="mt-1 text-xs text-muted-foreground">Optional details that make the service easy to identify later.</p></div>
@@ -428,11 +459,12 @@
         {#if errors.attendance}<div class="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">{errors.attendance}</div>{/if}
 
         <div class="grid grid-cols-2 gap-1 rounded-lg bg-secondary/30 p-1 sm:grid-cols-4" aria-label="Attendance directory filters">
-          {#each [["members", "Members"], ["guests", "Non-member profiles"], ["contacts", "Outreach contacts"], ["all", "Everyone"]] as option}
+          {#each [...(formData.service_type === "sunday_service" && usualIds.size ? [["usual", "Usual people"]] : []), ["members", "Members"], ["guests", "Non-member profiles"], ["contacts", "Outreach contacts"], ["all", "Everyone"]] as option}
             <button type="button" class="rounded-md px-3 py-2 text-xs font-medium transition-colors {attendeeFilter === option[0] ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}" onclick={() => attendeeFilter = option[0]}>{option[1]}</button>
           {/each}
         </div>
 
+        {#if attendeeFilter === "usual"}<p class="text-sm text-muted-foreground">Your usual Sunday list. Select each person who is here; nobody is checked in automatically.</p>{/if}
         <div class="flex flex-col gap-2 sm:flex-row">
           <div class="min-w-0 flex-1"><Input label="" bind:value={searchQuery} placeholder="Search by name..." disabled={saving} /></div>
           <Button variant="secondary" onclick={() => showQuickAdd = !showQuickAdd} disabled={saving}>+ Add first timer</Button>

@@ -357,11 +357,7 @@
           </svg>
           <!-- Notification Badge -->
           {#if $unreadCount > 0}
-            <span
-              class="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full flex items-center justify-center shadow-md"
-            >
-              {$unreadCount}
-            </span>
+            <span class="absolute right-1 top-1 h-2 w-2 rounded-full bg-muted-foreground" aria-label="Unread notifications"></span>
           {/if}
         </button>
 

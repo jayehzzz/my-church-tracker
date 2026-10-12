@@ -1,0 +1,24 @@
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/svelte';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import SundayTemplateForm from './SundayTemplateForm.svelte';
+import * as templates from '$lib/services/serviceTemplatesService.js';
+vi.mock('svelte/transition', () => ({ fade: () => ({}), fly: () => ({}), scale: () => ({}) }));
+vi.mock('$lib/services/serviceTemplatesService.js', () => ({ get: vi.fn(), save: vi.fn() }));
+vi.mock('$lib/services/peopleService.js', () => ({ getAll: vi.fn(async () => ({ data: [{ id: 'guest', first_name: 'Regular', last_name: 'Guest', member_status: 'guest' }, { id: 'member', first_name: 'Regular', last_name: 'Member', member_status: 'member' }] })) }));
+afterEach(cleanup);
+beforeEach(() => { vi.clearAllMocks(); templates.get.mockResolvedValue({ data: null }); templates.save.mockResolvedValue({ data: {} }); });
+it('searches and saves regular guests with shared time and venue, retaining a failed draft for retry', async () => {
+  templates.save.mockResolvedValueOnce({ error: new Error('Try saving again') });
+  const view = render(SundayTemplateForm, { isOpen: true });
+  await view.findByRole('checkbox', { name: /Regular Guest/ });
+  await fireEvent.input(view.getByLabelText('Usual venue'), { target: { value: 'Practice hall' } });
+  await fireEvent.input(view.getByRole('searchbox', { name: 'Search usual people' }), { target: { value: 'Guest' } });
+  expect(view.queryByRole('checkbox', { name: /Regular Member/ })).not.toBeInTheDocument();
+  await fireEvent.click(view.getByRole('checkbox', { name: /Regular Guest/ }));
+  await fireEvent.click(view.getByRole('button', { name: 'Save Sunday defaults' }));
+  expect(await view.findByRole('alert')).toHaveTextContent('Try saving again');
+  expect(view.getByLabelText('Usual venue')).toHaveValue('Practice hall');
+  await fireEvent.click(view.getByRole('button', { name: 'Save Sunday defaults' }));
+  await waitFor(() => expect(templates.save).toHaveBeenCalledTimes(2));
+  expect(templates.save).toHaveBeenLastCalledWith({ service_time: '09:00', location: 'Practice hall', expected_person_ids: ['guest'] });
+});

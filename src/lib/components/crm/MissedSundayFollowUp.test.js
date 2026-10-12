@@ -48,3 +48,13 @@ describe('MissedSundayFollowUp', () => {
     expect(onPlanCall).toHaveBeenCalledWith(rows[0]);
   });
 });
+
+it('narrows recent follow-up to people without a planned call and searches reasons and dates', async () => {
+  const unplanned = { ...history[0], person_id: 'person-2', person: { name: 'Alex Person' }, next_task: null };
+  const view = render(MissedSundayFollowUp, { history: [history[0], unplanned], today: '2026-09-24' });
+  await fireEvent.click(view.getByRole('button', { name: 'No call planned' }));
+  expect(view.queryByRole('button', { name: 'Jamie Person' })).not.toBeInTheDocument();
+  expect(view.getByRole('button', { name: 'Alex Person' })).toBeInTheDocument();
+  await fireEvent.input(view.getByRole('searchbox', { name: 'Search missed Sunday people' }), { target: { value: 'Transport' } });
+  expect(view.getByRole('button', { name: 'Alex Person' })).toBeInTheDocument();
+});

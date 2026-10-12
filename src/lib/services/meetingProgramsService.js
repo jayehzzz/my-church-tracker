@@ -237,6 +237,21 @@ export async function archive(id) {
   }
 }
 
+export async function restore(id) {
+  const client = getClient();
+  if (!client) {
+    if (!isDemoMode()) return unavailable();
+    const program = mockMeetingPrograms.find(item => String(item.id) === String(id));
+    if (!program) return { error: new Error('Programme not found') };
+    program.active = true;
+    return { error: null };
+  }
+  try {
+    await client.mutation(api.meetingPrograms.update, { id, active: true });
+    return { error: null };
+  } catch (error) { return { error }; }
+}
+
 export async function addGuest(programId, guest) {
   const client = getClient();
   if (!client || !isConvexId(programId)) {

@@ -1,5 +1,5 @@
 <script>
-  import { Button, Modal, Badge } from '$lib/components/ui';
+  import { Button, Modal, Badge, SearchableSelect } from '$lib/components/ui';
   import GatheringAttendanceDialog from './GatheringAttendanceDialog.svelte';
   import { getAssignmentDirectory, saveExpectedGuest } from '$lib/services/followUpCrmService.js';
   import { activeGuestInvitation, guestInvitationKey, guestInvitationName, guestInvitationResult, guestInvitationVersion } from '$lib/services/expectedGuestLogic.js';
@@ -9,6 +9,8 @@
   let form = $state(blank());
   let attendanceOpen = $state(false), attendanceGuest = $state(null), notice = $state('');
   let request = 0;
+  export function addGuest() { return open('create'); }
+  export function editInvitation(row) { return open('update', row); }
   const states = { tentative: 'Hoping to bring someone', coming: 'Reported coming', cancelled: 'Cancelled', no_show: 'Did not arrive', attended: 'Attendance recorded' };
   const visible = $derived((rows || []).filter(row => `${row.display_name || guestInvitationName(row)} ${row.inviter_name || ''}`.toLowerCase().includes(search.trim().toLowerCase())));
   const comingCount = $derived(new Set((rows || []).filter(activeGuestInvitation).map(guestInvitationKey)).size);
@@ -99,7 +101,8 @@
     {#if directoryError}<p role="alert" class="text-destructive">{directoryError}</p>{/if}
     {#if mode === 'link'}
       <p class="text-sm text-muted-foreground">Search the existing people before creating another record. Linking keeps this invitation and its inviter/history. It does not change an existing person's inviter, permanent leader assignment or attendance.</p>
-      <label class="block text-sm">Existing person or new record<select bind:value={linkPerson} class="mt-1 w-full rounded-lg border border-border bg-input p-2"><option value="">Choose a person</option>{#each directory as person (person._id)}<option value={person._id} disabled={Boolean(person.blocked_reason)}>{person.name}{person.phone ? ` · ${person.phone}` : person.email ? ` · ${person.email}` : ''}{person.blocked_reason ? ` · ${person.blocked_reason}` : ''}</option>{/each}{#if !editing?.name_unknown && !editing?.person_id}<option value="new">Create a person from the saved real name and details</option>{/if}</select></label>
+      <SearchableSelect label="Existing person or new record" bind:value={linkPerson} placeholder="Search people by name, phone or email" options={[{ value: '', label: 'Choose a person' }, ...directory.filter(person => !person.blocked_reason).map(person => ({ value: person._id, label: `${person.name}${person.phone ? ` · ${person.phone}` : person.email ? ` · ${person.email}` : ''}` })), ...(!editing?.name_unknown && !editing?.person_id ? [{ value: 'new', label: 'Create a person from the saved real name and details' }] : [])]} />
+      {#if directory.some(person => person.blocked_reason)}<p class="text-xs text-muted-foreground">Restricted or archived people cannot be linked.</p>{/if}
       {#if editing?.name_unknown}<p class="text-sm text-muted-foreground">To create a new person, first save the guest's real name using Edit details.</p>{/if}
     {:else if mode === 'attendance-correction'}
       <p class="text-sm">This explicitly removes the linked person's check-in from the church register for this service. If several invitations link to them, all reflect the same corrected check-in.</p>
@@ -109,9 +112,9 @@
       <label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={form.nameUnknown} disabled={Boolean(editing?.person_id)} onchange={nameUnknownChanged} />Name not known yet</label>
       {#if !form.nameUnknown}<div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">Guest first name<input bind:value={form.firstName} maxlength="100" required class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label><label class="text-sm">Guest surname (optional)<input bind:value={form.lastName} maxlength="100" class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label></div>{/if}
       <div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">Guest phone (optional)<input type="tel" bind:value={form.phone} class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label><label class="text-sm">Guest email (optional)<input type="email" bind:value={form.email} class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label></div>
-      <label class="block text-sm">Inviter<select bind:value={form.inviterId} class="mt-1 w-full rounded-lg border border-border bg-input p-2"><option value="">Not recorded</option>{#each directory as person (person._id)}<option value={person._id}>{person.name}</option>{/each}</select></label>
+      <SearchableSelect label="Inviter" bind:value={form.inviterId} placeholder="Search for the inviter" options={[{ value: '', label: 'Not recorded' }, ...directory.map(person => ({ value: person._id, label: person.name }))]} />
       <label class="block text-sm">Who reported the plan?<select bind:value={form.reportSource} disabled={form.nameUnknown} class="mt-1 w-full rounded-lg border border-border bg-input p-2"><option value="inviter_report">The inviter</option><option value="guest_report">The guest</option></select></label>
-      <div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">Sunday<input type="date" bind:value={form.serviceDate} required class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label><label class="text-sm">Responsible leader (optional)<select bind:value={form.leaderId} class="mt-1 w-full rounded-lg border border-border bg-input p-2"><option value="">Not assigned</option>{#each leaders as person (person._id)}<option value={person._id}>{person.name}</option>{/each}</select></label></div>
+      <div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">Sunday<input type="date" bind:value={form.serviceDate} required class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label><SearchableSelect label="Responsible leader (optional)" bind:value={form.leaderId} placeholder="Search leaders" options={[{ value: '', label: 'Not assigned' }, ...leaders.map(person => ({ value: person._id, label: person.name }))]} /></div>
       <label class="block text-sm">Invitation status<select bind:value={form.state} class="mt-1 w-full rounded-lg border border-border bg-input p-2"><option value="tentative">Tentative — hoping to come or bring someone</option><option value="coming">Reported coming</option>{#if editing}<option value="cancelled">Cancelled</option>{#if form.serviceDate < today}<option value="no_show">Did not arrive after being reported coming</option>{/if}{/if}</select></label>
       <label class="block text-sm">Invitation note (optional)<textarea rows="2" maxlength="2000" bind:value={form.note} class="mt-1 w-full rounded-lg border border-border bg-input p-2"></textarea></label>
       {#if editing}<label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={enteredInError} />This invitation was entered in error (exclude from counts)</label><p class="text-xs text-muted-foreground">Edits apply to invitation details. Independent Sunday responses stay recorded; review them separately if the plan changed. Use the person profile to change a linked person's contact details.</p>{/if}

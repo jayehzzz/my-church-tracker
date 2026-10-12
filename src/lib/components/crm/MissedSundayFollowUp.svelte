@@ -1,5 +1,4 @@
 <script>
-  import Badge from '$lib/components/ui/Badge.svelte';
   import Button from '$lib/components/ui/Button.svelte';
   import { completedSundayWindow, recentMissedSundayPeople } from '$lib/utils/missedSundayHistory.js';
 
@@ -21,7 +20,9 @@
     missed_sundays: (person.missed_sundays || []).filter(item => item.gathering_date >= window.start && item.gathering_date <= window.end),
   })).map(person => ({ ...person, missed_count: new Set(person.missed_sundays.map(item => item.gathering_date)).size })));
   const repeatedCount = $derived(recentPeople.filter(person => person.missed_count > 1).length);
-  const displayedPeople = $derived(recentPeople.filter(person => missFilter === 'all' || person.missed_count > 1));
+  const displayedPeople = $derived(recentPeople.filter(person => (missFilter !== 'repeated' || person.missed_count > 1)
+    && (missFilter !== 'needs-call' || !person.next_task)
+    && [personName(person.person), personName(person.assigned_leader), ...person.missed_sundays.flatMap(item => [item.gathering_date, displayedReason(item)])].some(value => value.toLowerCase().includes(search.trim().toLowerCase()))));
   const historyRows = $derived(history.flatMap(person => (person.missed_sundays || []).map(commitment => ({ person, commitment }))));
   const matchingHistory = $derived(historyRows.filter(row => {
     const query = search.trim().toLowerCase();
@@ -49,7 +50,7 @@
 <section class="overflow-hidden rounded-xl border border-border bg-card" aria-label="Missed after saying yes">
   <div class="border-b border-border px-5 py-4">
     <h2 class="text-lg font-semibold text-foreground">Missed after saying yes</h2>
-    <p class="mt-1 text-sm text-muted-foreground">Sunday confirmations with a recorded missed result. Cancellations and results still awaiting attendance are not included.</p>
+    <p class="mt-1 text-sm text-muted-foreground">Check in with people who said yes but missed Sunday. A missed visit is context for a conversation, not an urgent alert.</p>
   </div>
 
   <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3">
@@ -57,10 +58,8 @@
       <button type="button" aria-pressed={view === 'recent'} class="rounded-md px-3 py-1.5 text-sm font-semibold {view === 'recent' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}" onclick={() => view = 'recent'}>Recent</button>
       <button type="button" aria-pressed={view === 'history'} class="rounded-md px-3 py-1.5 text-sm font-semibold {view === 'history' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'}" onclick={() => view = 'history'}>History</button>
     </div>
-    {#if view === 'recent'}<div class="flex rounded-lg border border-border bg-secondary/40 p-1" role="group" aria-label="Missed Sunday filter"><button type="button" aria-pressed={missFilter === 'all'} class="rounded-md px-3 py-1.5 text-sm {missFilter === 'all' ? 'bg-background font-semibold' : ''}" onclick={() => missFilter = 'all'}>All misses</button><button type="button" aria-pressed={missFilter === 'repeated'} class="rounded-md px-3 py-1.5 text-sm {missFilter === 'repeated' ? 'bg-background font-semibold' : ''}" onclick={() => missFilter = 'repeated'}>Repeated misses</button></div>{/if}
-    {#if view === 'history'}
-      <label class="w-full sm:w-72"><span class="sr-only">Search missed Sunday history</span><input type="search" bind:value={search} placeholder="Search person, worker, date or reason" class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary" /></label>
-    {/if}
+    {#if view === 'recent'}<div class="flex max-w-full flex-wrap rounded-lg border border-border bg-secondary/40 p-1" role="group" aria-label="Missed Sunday filter"><button type="button" aria-pressed={missFilter === 'all'} class="rounded-md px-3 py-1.5 text-sm {missFilter === 'all' ? 'bg-background font-semibold' : ''}" onclick={() => missFilter = 'all'}>Everyone</button><button type="button" aria-pressed={missFilter === 'repeated'} class="rounded-md px-3 py-1.5 text-sm {missFilter === 'repeated' ? 'bg-background font-semibold' : ''}" onclick={() => missFilter = 'repeated'}>Repeated misses</button><button type="button" aria-pressed={missFilter === 'needs-call'} class="rounded-md px-3 py-1.5 text-sm {missFilter === 'needs-call' ? 'bg-background font-semibold' : ''}" onclick={() => missFilter = 'needs-call'}>No call planned</button></div>{/if}
+    <label class="w-full sm:w-72"><span class="sr-only">{view === 'history' ? 'Search missed Sunday history' : 'Search missed Sunday people'}</span><input type="search" bind:value={search} placeholder="Search person, worker, date or reason" class="w-full rounded-lg border border-border bg-secondary px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary" /></label>
   </div>
 
   {#if view === 'recent'}
@@ -71,21 +70,23 @@
     {#if displayedPeople.length}
       <div class="divide-y divide-border">
         {#each displayedPeople as row (row.person_id)}
-          {@const latest = row.missed_sundays.find(item => item.gathering_date >= window.start && item.gathering_date <= window.end)}
+          {@const latest = row.missed_sundays.toSorted((a, b) => b.gathering_date.localeCompare(a.gathering_date))[0]}
           {@const nextTask = row.next_task}
           <article class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
                 <button type="button" class="text-left font-semibold text-foreground hover:underline" onclick={() => onOpen(row.person)}>{personName(row.person)}</button>
-                {#if row.missed_count > 1}<Badge size="sm" variant="warning">Repeated miss</Badge>{/if}
+
               </div>
               <p class="mt-1 text-sm text-muted-foreground">Missed {row.missed_count} {row.missed_count === 1 ? 'Sunday' : 'Sundays'} in the last four completed Sundays · latest {dateLabel(latest?.gathering_date)}</p>
-              <p class="mt-1 text-sm text-foreground">Reason: {displayedReason(latest)}</p>
               <p class="mt-1 text-xs text-muted-foreground">Worker: {personName(row.assigned_leader)}{nextTask ? ` · ${String(nextTask.task_type || 'Follow-up').replaceAll('_', ' ')} due ${dateLabel(nextTask.due_date)}` : ' · No next call planned'}</p>
+              <details class="mt-3 text-sm"><summary class="cursor-pointer text-muted-foreground">Dates, reason and corrections</summary>
+                <p class="mt-2 text-foreground">Reason: {displayedReason(latest)}</p>
+                <p class="mt-1 text-xs text-muted-foreground">Missed: {row.missed_sundays.map(item => dateLabel(item.gathering_date)).join(' · ')}</p>
+                <div class="mt-2 flex flex-wrap gap-2"><Button size="sm" variant="secondary" onclick={() => onEditReason(latest)}>{displayedReason(latest) === 'Reason not recorded' ? 'Add reason' : 'Edit reason'}</Button><Button size="sm" variant="ghost" onclick={() => onCorrect(latest, 'mistake')}>Correct result</Button></div>
+              </details>
             </div>
             <div class="flex shrink-0 flex-wrap gap-2">
-              <Button size="sm" variant="secondary" onclick={() => onEditReason(latest)}> {displayedReason(latest) === 'Reason not recorded' ? 'Add reason' : 'Edit reason'}</Button>
-              <Button size="sm" variant="ghost" onclick={() => onCorrect(latest, 'mistake')}>Correct result</Button>
               {#if nextTask}
                 <Button size="sm" variant="ghost" onclick={() => onOpen(row.person)}>View person</Button>
               {:else if canPlan(row.person) && row.assigned_leader_id}
@@ -96,7 +97,7 @@
         {/each}
       </div>
     {:else}
-      <p class="px-5 py-12 text-center text-sm text-muted-foreground">{missFilter === 'repeated' ? 'No one missed more than one confirmed Sunday in this period.' : 'No confirmed Sunday misses in the last four completed Sundays.'}</p>
+      <p class="px-5 py-12 text-center text-sm text-muted-foreground">{search.trim() ? 'No people match your search.' : missFilter === 'needs-call' ? 'Everyone in this view already has a call planned.' : missFilter === 'repeated' ? 'No one missed more than one confirmed Sunday in this period.' : 'No confirmed Sunday misses in the last four completed Sundays.'}</p>
     {/if}
   {:else if matchingHistory.length}
     <div class="divide-y divide-border">
