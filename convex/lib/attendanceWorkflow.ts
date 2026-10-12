@@ -1,5 +1,6 @@
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { ConvexError } from "convex/values";
 import { canFollowUp } from "./contactPolicy";
 import { managesAttendance } from "./security";
 import { reconcileGuestInvitations } from "./guestInvitations";
@@ -150,7 +151,19 @@ export async function reconcilePerson(ctx: MutationCtx, personId: Id<"people">) 
     for (const p of plans.filter(p => p.person_id === personId)) {
         let event = p.service_id ? events.find(e => e.serviceId === p.service_id && e.sunday) : undefined;
         if (!event) event = events.find(e => e.date === p.service_date && e.sunday);
-        if (event && event.date !== p.service_date && plans.some(other => other._id !== p._id && other.person_id === personId && other.service_date === event.date)) throw new Error("The corrected date conflicts with another attendance plan for this person.");
+        if (event && event.date !== p.service_date) {
+            const destination = plans.filter(other => other._id !== p._id && other.person_id === personId && other.service_date === event.date);
+            if (destination.length) {
+                // A derived plan is a mirror of actual attendance, not a second
+                // intention. Keep the existing Sunday intention and its notes,
+                // leader and previous status; the normal date match below links it.
+                if (p.generated_from_attendance && destination.every(other => !other.service_id || other.service_id === event.serviceId)) {
+                    await ctx.db.delete(p._id);
+                    continue;
+                }
+                throw new ConvexError("The corrected date conflicts with another attendance plan for this person. Review their plans before changing the service date.");
+            }
+        }
         if (event) await ctx.db.patch(p._id, { service_id: event.serviceId, service_date: event.date, status: "attended", attendance_previous_status: p.attendance_previous_status ?? (p.status === "attended" ? "expected" : p.status), updated_at: now() });
         else if (p.service_id && p.generated_from_attendance) await ctx.db.delete(p._id);
         else if (p.service_id) await ctx.db.patch(p._id, { service_id: undefined, status: (p.attendance_previous_status ?? "expected") as "expected" | "away" | "confirmed" | "absent", attendance_previous_status: undefined, updated_at: now() });
