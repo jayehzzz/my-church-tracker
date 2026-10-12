@@ -14,6 +14,7 @@
   let editingCare=$state(null), newService=$state(false);
   const mappedPeople = $derived((state?.people || []).map(p => ({...p,id:p._id})));
   const guest = $derived(state?.people.find(p=>p._id===state.ids.person));
+  const commitment = $derived(state?.commitments.find(c=>c._id===state.ids.commitment));
   async function refresh() { try {state=await request({kind:'state'});} catch(e){error=e.message;} }
   async function resolve(gathering) { const result=await resolveCommitment(state.ids.commitment,'attended',gathering); await refresh(); return result; }
   async function finishCare() {
@@ -46,7 +47,7 @@
     </div>
     <div aria-label="Saved results" class="space-y-2">
       <p>Named check-ins: {state.attendance.length} · Promises kept: {guest?.promises_kept || 0} · First visit: {guest?.first_visit_date || 'none'}</p>
-      <p>Commitment: {state.commitments[0]?.resolution} · Date: {state.commitments[0]?.gathering_date}</p>
+      <p>Commitment: {commitment?.resolution} · Date: {commitment?.gathering_date}</p>
       <p>Care interactions: {state.care.length} · History entries: {state.history.length} · Open care tasks: {state.tasks.filter(t=>t.task_type==='member_care' && t.status==='open').length} · Completed care tasks: {state.tasks.filter(t=>t.task_type==='member_care' && t.status==='completed').length}</p>
       {#each state.services as service}<p>Service {service.service_time} on {service.service_date}: total {service.total_attendance}, unnamed {service.unnamed_attendance_count}</p>{/each}
       {#each state.meetings as meeting}<p>Meeting {meeting.meeting_date}: total {meeting.attendance_count}, unnamed {meeting.unnamed_guests_count}</p>{/each}
