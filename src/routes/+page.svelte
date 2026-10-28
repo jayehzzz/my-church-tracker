@@ -308,5 +308,5 @@
 </Modal>
 
 <Modal bind:isOpen={firstTimerDrilldown} title={`${$dateRange.label || 'Selected period'} · First timers`} size="lg">
-  <JourneyOverview data={{ first_timers: kpiSources?.firstTimerPeople || [] }} {loading} {error} onRetry={() => loadDashboardData($dateRange)} firstTimersOnly showDates={false} onOpen={person => goto(`/people/${encodeURIComponent(person.id)}`)} />
+  <JourneyOverview data={{ first_timers: kpiSources?.firstTimerPeople || [] }} {loading} {error} onRetry={() => loadDashboardData($dateRange)} firstTimersOnly showDates={false} fromDate={$dateRange.startDate || ''} toDate={$dateRange.endDate || ''} onOpen={person => goto(`/people/${encodeURIComponent(person.id)}`)} />
 </Modal>

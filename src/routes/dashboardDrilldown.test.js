@@ -64,7 +64,8 @@ it('opens the overview First timers card as the matching people list, including 
   const view = render(Page);
   await fireEvent.click(await view.findByRole('button', { name: 'Inspect First timers' }));
   expect(view.getByRole('dialog')).toHaveTextContent('Practice First Timer');
-  expect(view.getByRole('dialog')).toHaveTextContent('1 person recorded as a first timer');
+  expect(view.getByRole('dialog')).toHaveTextContent('1 person recorded as a first timer in this period');
+  expect(view.getByRole('dialog')).not.toHaveTextContent('all time');
   expect(view.queryByRole('button', { name: 'Inspect Non-member visits' })).not.toBeInTheDocument();
   expect(view.getByRole('dialog')).toHaveTextContent('special service');
 });
