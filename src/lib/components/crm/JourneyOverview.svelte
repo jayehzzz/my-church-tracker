@@ -2,6 +2,11 @@
   let { data = null, loading = false, error = '', onRetry = null, onOpen = null, firstTimersOnly = false, fromDate = $bindable(''), toDate = $bindable(''), showDates = true } = $props();
   let activeList = $state('first_timers');
   let search = $state('');
+  let serviceType = $state('all');
+  function matchesService(event) {
+    const type = event.service_type || event.label?.replaceAll(' ', '_');
+    return serviceType === 'all' || (serviceType === 'special' ? ['special_service', 'easter_service', 'christmas_service'].includes(type) : type === serviceType);
+  }
   const today = new Date();
   function dateOnly(value) { return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`; }
   function choosePeriod(period) {
@@ -18,7 +23,7 @@
     const needle = search.trim().toLocaleLowerCase();
     return records.map(record => ({
       ...record,
-      visibleEvents: (record.events || []).filter(event => (!fromDate || event.date >= fromDate) && (!toDate || event.date <= toDate)),
+      visibleEvents: (record.events || []).filter(event => (!fromDate || event.date >= fromDate) && (!toDate || event.date <= toDate) && matchesService(event)),
     })).filter(record => record.visibleEvents.length > 0 && (!needle || [
       record.person?.first_name, record.person?.last_name, record.person?.phone, record.person?.email,
       record.assigned_worker?.first_name, record.assigned_worker?.last_name,
@@ -26,7 +31,7 @@
     ].filter(Boolean).join(' ').toLocaleLowerCase().includes(needle)))
       .sort((a, b) => String(b.visibleEvents.at(-1)?.date || '').localeCompare(String(a.visibleEvents.at(-1)?.date || '')));
   });
-  const unnamedEvents = $derived((data?.unnamed_decisions || []).filter(event => (!fromDate || event.date >= fromDate) && (!toDate || event.date <= toDate)));
+  const unnamedEvents = $derived((data?.unnamed_decisions || []).filter(event => (!fromDate || event.date >= fromDate) && (!toDate || event.date <= toDate) && matchesService(event)));
   const unnamedCount = $derived(unnamedEvents.reduce((total, event) => total + Number(event.count || 0), 0));
 
   function personName(person) {
@@ -47,7 +52,7 @@
 <section class="overflow-hidden rounded-xl border border-border bg-card" aria-label="First visits and salvation overview">
   <header class="border-b border-border p-5">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div><h2 class="text-lg font-semibold text-foreground">{activeList === 'first_timers' ? 'First timers' : 'Salvation decisions'}</h2><p class="mt-1 text-sm text-muted-foreground">First timers are people explicitly recorded as first timers when they joined.</p></div>
+      <div><h2 class="text-lg font-semibold text-foreground">{activeList === 'first_timers' ? 'First timers' : 'Salvation decisions'}</h2><p class="mt-1 text-sm text-muted-foreground">Recorded first visits across all church services, including special services. Confirmed first timers and first recorded visits are labelled separately.</p></div>
       {#if activeList === 'new_converts' && data?.unnamed_decisions_available && unnamedCount}
         <div class="rounded-lg bg-secondary/60 px-3 py-2 text-sm"><span class="font-semibold text-foreground">{unnamedCount}</span><span class="ml-1 text-muted-foreground">unnamed service decisions</span></div>
       {/if}
@@ -61,6 +66,7 @@
       <button type="button" class="rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary" onclick={() => choosePeriod('30days')}>Last 30 days</button>
       <button type="button" class="rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary" onclick={() => choosePeriod('all')}>All time</button>
     </div>{/if}
+    <label class="mt-4 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">Service type<select bind:value={serviceType} class="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"><option value="all">All services (including special services)</option><option value="sunday_service">Sunday services</option><option value="special">Special services (including Easter and Christmas)</option><option value="midweek_service">Midweek services</option></select></label>
     <div class="mt-4 grid gap-3 {showDates ? 'sm:grid-cols-3' : ''}">
       <label><span class="sr-only">Search people and gatherings</span><input type="search" bind:value={search} placeholder="Search name, phone or worker" class="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" /></label>
       {#if showDates}
@@ -68,7 +74,7 @@
       <label class="flex items-center gap-2 text-xs text-muted-foreground">To <input aria-label="To date" type="date" bind:value={toDate} class="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-2 text-sm text-foreground" /></label>
       {/if}
     </div>
-    {#if !loading && !error && (!fromDate || !toDate || fromDate <= toDate)}<p class="mt-3 text-sm font-semibold" role="status">{matchingPeople.length} {matchingPeople.length === 1 ? 'person' : 'people'}{activeList === 'first_timers' ? ' recorded as first timers' : ' with salvation decisions'}{fromDate || toDate ? ' in this period' : ' · all time'}</p>{/if}
+    {#if !loading && !error && (!fromDate || !toDate || fromDate <= toDate)}<p class="mt-3 text-sm font-semibold" role="status">{matchingPeople.length} {matchingPeople.length === 1 ? 'person' : 'people'}{activeList === 'first_timers' ? matchingPeople.length === 1 ? ' recorded as a first timer' : ' recorded as first timers' : ' with salvation decisions'}{fromDate || toDate ? ' in this period' : ' · all time'}</p>{/if}
     {#if fromDate && toDate && fromDate > toDate}<p class="mt-2 text-sm text-destructive" role="alert">The start date must be on or before the end date.</p>{/if}
   </header>
 
@@ -90,6 +96,7 @@
               {#if record.assigned_worker}<span>Worker: {personName(record.assigned_worker)}</span>{/if}
               {#if record.person.member_status === 'archived'}<span class="font-medium text-warning">Archived profile</span>{/if}
             </div>
+            {#if activeList === 'first_timers'}<p class="mt-2 text-xs font-medium text-primary">{record.visibleEvents.some(event => event.confirmed_first_timer === true) ? 'Confirmed first timer' : 'First recorded visit'}</p>{/if}
             <p class="mt-2 text-sm text-muted-foreground">{activeList === 'first_timers' ? 'First visit' : 'Decision recorded'}: {formatDate(record.visibleEvents[0]?.date)}</p>
             <details class="mt-2 text-xs text-muted-foreground"><summary class="cursor-pointer hover:text-foreground">Visit details</summary><ul class="mt-2 space-y-1.5">
               {#each record.visibleEvents as event (`${event.id || 'date'}-${event.date}`)}
@@ -102,7 +109,7 @@
       {/each}
     </div>
   {:else}
-    <p class="px-5 py-16 text-center text-sm text-muted-foreground">{search || fromDate || toDate ? 'No records match your search and date range.' : activeList === 'first_timers' ? 'No people have been explicitly recorded as first timers.' : 'No service salvation decisions have been recorded.'}</p>
+    <p class="px-5 py-16 text-center text-sm text-muted-foreground">{search || fromDate || toDate || serviceType !== 'all' ? 'No records match your search, service type and date range.' : activeList === 'first_timers' ? 'No first visits have been recorded at church services.' : 'No service salvation decisions have been recorded.'}</p>
   {/if}
 
   {#if !loading && !error && activeList === 'new_converts' && data?.unnamed_decisions_available && unnamedEvents.length}

@@ -1,3 +1,4 @@
+import { getJourneyOverview } from "./followUpCrmService.js";
 import { roundedAverage } from '$lib/utils/comparisonMetrics.js';
 /**
  * Dashboard Service
@@ -82,7 +83,7 @@ export async function getDashboardKPIs(dateRange) {
   const prior = previousRange(dateRange);
   const hasRange = dateRange?.startDate && dateRange?.endDate;
 
-  const [membersResult, leadersResult, currentResult, previousResult, attendanceResult, peopleResult] = await Promise.all([
+  const [membersResult, leadersResult, currentResult, previousResult, attendanceResult, peopleResult, journeyResult] = await Promise.all([
     peopleService.getByStatus("member"),
     peopleService.getByStatus("leader"),
     hasRange
@@ -93,9 +94,10 @@ export async function getDashboardKPIs(dateRange) {
       : Promise.resolve({ data: [] }),
     attendanceService.getAll(),
     peopleService.getAll(),
+    getJourneyOverview(),
   ]);
 
-  for (const result of [membersResult, leadersResult, currentResult, previousResult, attendanceResult, peopleResult]) if (result.error) throw result.error;
+  for (const result of [membersResult, leadersResult, currentResult, previousResult, attendanceResult, peopleResult, journeyResult]) if (result.error) throw result.error;
   const currentServices = (currentResult.data || []).filter((service) => isCompleted(service, "service_date"));
   const previousServices = (previousResult.data || []).filter((service) => isCompleted(service, "service_date"));
   const currentSundays = currentServices.filter(isSundayService);
@@ -112,15 +114,20 @@ export async function getDashboardKPIs(dateRange) {
   const previousAttendance = previousSundaySummary.serviceCount
     ? roundedAverage(previousSundaySummary.totalAttendance, previousSundaySummary.serviceCount)
     : 0;
-  const guests = currentSummary.guestAttendance;
-  const previousGuests = previousSummary.guestAttendance;
+  if (!journeyResult.data) throw new Error('First timer records could not be loaded.');
+  const firstPeopleFor = services => {
+    const ids = new Set(services.map(service => String(service._id || service.id)));
+    return (journeyResult.data.first_timers || []).map(row => ({ ...row, events: row.events.filter(event => ids.has(String(event.id))) })).filter(row => row.events.length);
+  };
+  const firstTimerPeople = firstPeopleFor(currentServices);
+  const previousFirstTimers = firstPeopleFor(previousServices).length;
   const salvations = currentSummary.decisions;
   const previousSalvations = previousSummary.decisions;
   const churchFamily = new Set([...(membersResult.data || []), ...(leadersResult.data || [])].map(person => String(person._id || person.id))).size;
 
   return {
     periodLabel: formatPeriodLabel(dateRange),
-    sources: { currentServices, currentSundays, attendanceRows, people: peopleResult.data || [], members: [...new Map([...(membersResult.data || []), ...(leadersResult.data || [])].map(person => [String(person._id || person.id), person])).values()] },
+    sources: { firstTimerPeople, currentServices, currentSundays, attendanceRows, people: peopleResult.data || [], members: [...new Map([...(membersResult.data || []), ...(leadersResult.data || [])].map(person => [String(person._id || person.id), person])).values()] },
     kpis: [
       {
         id: "attendance",
@@ -134,13 +141,13 @@ export async function getDashboardKPIs(dateRange) {
         variant: "info",
       },
       {
-        id: "guests",
-        title: "Non-member visits",
-        value: guests,
-        trend: percentChange(guests, previousGuests),
+        id: "firstTimers",
+        title: "First timers",
+        value: firstTimerPeople.length,
+        trend: percentChange(firstTimerPeople.length, previousFirstTimers),
         format: "number",
-        description: "First timers + returning guests",
-        href: "/services",
+        description: "Recorded first visits · all service types",
+        href: "/pipeline?view=first-timers",
         icon: "user-plus",
         variant: "default",
       },

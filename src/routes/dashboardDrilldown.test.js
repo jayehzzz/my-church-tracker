@@ -12,7 +12,7 @@ const services = [
   { id: 'sun-2', service_type: 'sunday_service', service_date: '2026-09-13', total_attendance: 12, guests_count: 2, sermon_topic: 'Second Sunday' },
 ];
 vi.mock('$lib/services/dashboardService.js', () => ({
-  getDashboardKPIs: async () => ({ kpis: [{ id: 'attendance', title: 'Avg attendance', value: 10 }], sources: { currentSundays: services, currentServices: services, attendanceRows: [], people: [] } }),
+  getDashboardKPIs: async () => ({ kpis: [{ id: 'attendance', title: 'Avg attendance', value: 10 }, { id: 'firstTimers', title: 'First timers', value: 1 }], sources: { firstTimerPeople: [{ person: { id: 'first', first_name: 'Practice First Timer' }, events: [{ id: 'special', date: '2026-09-16', label: 'special service', service_type: 'special_service', confirmed_first_timer: false }] }],  currentSundays: services, currentServices: services, attendanceRows: [], people: [] } }),
   getAttendanceChartData: async () => ({ data: services.map(service => ({ id: service.id, date: service.service_date, attendance: service.total_attendance, guests: service.guests_count, service })), contextLabel: 'September' }),
   getRecentActivities: async () => [],
 }));
@@ -36,12 +36,12 @@ it('opens the dashboard average from its exact Sunday sources and restores it af
   await waitFor(() => expect(returned.getByRole('dialog')).toHaveTextContent('20 across 2 services ≈ 10 per service'));
   await fireEvent.click(returned.getByRole('button', { name: 'Close modal' }));
   await fireEvent.change(returned.getByRole('combobox', { name: 'Chart time scale' }), { target: { value: 'month' } });
-  await fireEvent.change(returned.getByRole('combobox', { name: 'Compare attendance with' }), { target: { value: 'guests' } });
+  await fireEvent.change(returned.getByRole('combobox', { name: 'Compare attendance with' }), { target: { value: 'firstTimers' } });
   await fireEvent.click(returned.getByRole('button', { name: 'View Sept 2026 details' }));
-  await fireEvent.click(returned.getByRole('button', { name: /Series B · Non-member visits/ }));
-  expect(returned.getByRole('dialog')).toHaveTextContent('3 across 2 services');
+  await fireEvent.click(returned.getByRole('button', { name: /Series B · First-timer visits/ }));
+  expect(returned.getByRole('dialog')).toHaveTextContent('0 across 2 services');
   expect(returned.getByRole('dialog')).toHaveTextContent('2 services included');
-  expect(returned.getByRole('dialog')).toHaveTextContent('Non-member visits: 1');
+  expect(returned.getByRole('dialog')).toHaveTextContent('First-timer visits: 0');
 }, 15000);
 
 it('can show special services on their own without dropping their source records', async () => {
@@ -57,4 +57,14 @@ it('can show special services on their own without dropping their source records
     expect(view.getByRole('dialog')).not.toHaveTextContent('First Sunday');
     expect(view.getByRole('dialog')).not.toHaveTextContent('Second Sunday');
   } finally { services.pop(); }
+});
+
+it('opens the overview First timers card as the matching people list, including special services', async () => {
+  const { default: Page } = await import('./+page.svelte');
+  const view = render(Page);
+  await fireEvent.click(await view.findByRole('button', { name: 'Inspect First timers' }));
+  expect(view.getByRole('dialog')).toHaveTextContent('Practice First Timer');
+  expect(view.getByRole('dialog')).toHaveTextContent('1 person recorded as a first timer');
+  expect(view.queryByRole('button', { name: 'Inspect Non-member visits' })).not.toBeInTheDocument();
+  expect(view.getByRole('dialog')).toHaveTextContent('special service');
 });
