@@ -1,6 +1,7 @@
 <script>
   import { session } from '$lib/auth/session.js';
   import { goto } from "$app/navigation";
+  import JourneyOverview from "$lib/components/crm/JourneyOverview.svelte";
   import ServiceDrilldown from "$lib/components/drilldown/ServiceDrilldown.svelte";
   import { openDrilldown, createChoice, createSelection } from "$lib/components/drilldown/selection.js";
   import { metricLabels, serviceId } from "$lib/components/drilldown/serviceAdapter.js";
@@ -27,15 +28,17 @@
   let kpiSources = $state(null);
   let drilldown = $state(null);
   let chartServiceType = $state("all");
+  let firstTimerDrilldown = $state(false);
   let memberDrilldown = $state(false);
   let pendingSnapshot = null;
-  export const snapshot = { capture: () => { const token = `dashboard-${crypto.randomUUID()}`; saveDomainReturn(token, { drilldown, memberDrilldown, chartServiceType, range: [$dateRange.startDate, $dateRange.endDate] }); return { token }; }, restore: value => { pendingSnapshot = value?.token ? takeDomainReturn(value.token) : null; if (pendingSnapshot && !loading) restoreSnapshot(); } };
+  export const snapshot = { capture: () => { const token = `dashboard-${crypto.randomUUID()}`; saveDomainReturn(token, { drilldown, memberDrilldown, firstTimerDrilldown, chartServiceType, range: [$dateRange.startDate, $dateRange.endDate] }); return { token }; }, restore: value => { pendingSnapshot = value?.token ? takeDomainReturn(value.token) : null; if (pendingSnapshot && !loading) restoreSnapshot(); } };
   function restoreSnapshot() {
     const frame = pendingSnapshot;
     pendingSnapshot = null;
     if (!frame || frame.range[0] !== $dateRange.startDate || frame.range[1] !== $dateRange.endDate) return;
     drilldown = frame.drilldown;
     memberDrilldown = Boolean(frame.memberDrilldown);
+    firstTimerDrilldown = Boolean(frame.firstTimerDrilldown);
     chartServiceType = frame.chartServiceType || "all";
   }
   function openDashboardMetric(metricKey, services, mode = "total", label = $dateRange.label) {
@@ -51,7 +54,7 @@
   function inspectKpi(id) {
     if (id === "family") { memberDrilldown = true; return; }
     if (id === "attendance") openDashboardMetric("total", kpiSources?.currentSundays || [], "average");
-    if (id === "guests") openDashboardMetric("guests", kpiSources?.currentServices || []);
+    if (id === "firstTimers") firstTimerDrilldown = true;
   }
   let attendanceChart = $state({ data: [], contextLabel: "Selected period" });
   let recentActivities = $state([]);
@@ -116,9 +119,9 @@
         ...byId.attendance,
         title: "Avg attendance",
       },
-      byId.guests && {
-        ...byId.guests,
-        title: "Non-member visits",
+      byId.firstTimers && {
+        ...byId.firstTimers,
+        title: "First timers",
       },
       {
         id: "followups",
@@ -163,7 +166,7 @@
     const request = ++dashboardRequest;
     loading = true;
     error = "";
-    if (!pendingSnapshot) { drilldown = null; memberDrilldown = false; }
+    if (!pendingSnapshot) { drilldown = null; memberDrilldown = false; firstTimerDrilldown = false; }
     try {
       const [kpiResult, chartResult, activities, crmResult] = await Promise.all([
         dashboardService.getDashboardKPIs(range),
@@ -258,7 +261,7 @@
         {#if loading && !attendanceChart.data.length}
           <div class="min-h-[430px] animate-pulse rounded-2xl border border-border bg-card"></div>
         {:else}
-          <FullscreenWrapper title="Attendance & non-member visits">
+          <FullscreenWrapper title="Attendance & first timers">
             {#snippet filters()}
               <FilterBar compact />
             {/snippet}
@@ -272,11 +275,10 @@
             </div>
             <AttendanceTrend
               data={attendanceTrendData}
-              title="Attendance & non-member visits"
+              title="Attendance & first timers"
               itemLabel={attendanceChart.isFallback ? "recent services" : "services"}
               periodLabel={attendanceChart.contextLabel}
               comparisonOptions={[
-                { key: "guests", label: "Non-member visits (both groups)", color: "warning" },
                 { key: "firstTimers", label: "First-timer visits", color: "info" },
                 { key: "decisions", label: "Salvation decisions", color: "success" },
                 { key: "tithers", label: "Tithers", color: "warning" },
@@ -303,4 +305,8 @@
 <Modal bind:isOpen={memberDrilldown} title="Current members and leaders" size="xl">
   <p class="mb-4 text-sm text-muted-foreground">Current directory snapshot · {kpiSources?.members?.length || 0} members including leaders</p>
   <ContributionList domain="person" records={(kpiSources?.members || []).map(person => ({ id: person._id || person.id, title: [person.first_name, person.last_name].filter(Boolean).join(' ') || person.name || 'Member', note: person.member_status }))} status={loading ? 'loading' : error ? 'unavailable' : 'ready'} {error} onretry={() => loadDashboardData($dateRange)} />
+</Modal>
+
+<Modal bind:isOpen={firstTimerDrilldown} title={`${$dateRange.label || 'Selected period'} · First timers`} size="lg">
+  <JourneyOverview data={{ first_timers: kpiSources?.firstTimerPeople || [] }} {loading} {error} onRetry={() => loadDashboardData($dateRange)} firstTimersOnly showDates={false} fromDate={$dateRange.startDate || ''} toDate={$dateRange.endDate || ''} onOpen={person => goto(`/people/${encodeURIComponent(person.id)}`)} />
 </Modal>

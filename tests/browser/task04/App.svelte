@@ -1,4 +1,9 @@
 <script>
+  import JourneyOverview from '$lib/components/crm/JourneyOverview.svelte';
+  import { getJourneyOverview } from '$lib/services/followUpCrmService.js';
+  import { getDashboardKPIs } from '$lib/services/dashboardService.js';
+  let journey = $state(null), firstKpi = $state(null);
+  const checkFirstTimers = new URLSearchParams(window.location.search).get('fixture') === 'first-timers';
   import ReviewFeedback from './ReviewFeedback.svelte';
   const reviewFeedback = new URLSearchParams(window.location.search).get('fixture') === 'review-feedback';
   import { onMount } from 'svelte';
@@ -22,7 +27,7 @@
   const mappedPeople = $derived((state?.people || []).map(p => ({...p,id:p._id})));
   const guest = $derived(state?.people.find(p=>p._id===state.ids.person));
   const commitment = $derived(state?.commitments.find(c=>c._id===state.ids.commitment));
-  async function refresh() { try {state=await request({kind:'state'});} catch(e){error=e.message;} }
+  async function refresh() { try {state=await request({kind:'state'}); if (checkFirstTimers) { const [first, kpis] = await Promise.all([getJourneyOverview(), getDashboardKPIs({ startDate: '2026-09-01', endDate: '2026-09-30' })]); if (first.error) throw first.error; journey = first.data; firstKpi = kpis.kpis.find(kpi => kpi.id === 'firstTimers'); } } catch(e){error=e.message;} }
   async function resolve(gathering) { const result=await resolveCommitment(state.ids.commitment,'attended',gathering); await refresh(); return result; }
   async function finishCare() {
     const next=state.care[0]?.next_task_id;
@@ -61,6 +66,7 @@
       {#each state.meetings as meeting}<p>Meeting {meeting.meeting_date}: total {meeting.attendance_count}, unnamed {meeting.unnamed_guests_count}</p>{/each}
       {#each state.history as item}<p>History {item.follow_up_date}: {item.notes || item.outcome}</p>{/each}
     </div>
+    {#if checkFirstTimers && firstKpi}<p role="status" aria-label="Overview First timers">{firstKpi.title}: {firstKpi.value}</p><JourneyOverview data={journey} firstTimersOnly />{/if}
     <ExpectedGuests rows={guestRows} serviceDate="2026-10-18" today="2026-10-19" canManage={true} forecast={guestForecast} onChanged={refreshGuests} />
     <ServiceForm bind:isOpen={serviceOpen} service={newService ? null : {...state.services[0],id:state.services[0]._id}} serviceRecords={state.services} onsave={refresh} />
     <MeetingForm bind:isOpen={meetingOpen} people={mappedPeople} initialOneOff={true} onsave={refresh} />

@@ -29,6 +29,14 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 ## Handoffs
 
+### First timers across services and the dashboard overview (28 October 2026)
+
+- Started `codex/first-timers-overview` from current `main` `95e0750`; preserved the inherited uncommitted release/deployment notes in this file without staging them.
+- Read-only Practice audit found one recorded/confirmed first visit at the 13 September special service, alongside two returning guest visits. Follow-up had used only separate explicit first-visit evidence while service totals also use recorded first-timer attendance. The journey query now includes both across Sunday, special, Easter, Christmas and midweek services, deduplicates each person/service and retains confirmation provenance. No dates-only profiles or returning-guest rows become first timers; completed-service and worker access scope remain enforced. No records or schema were changed.
+- Follow-up’s First timers view labels confirmed first timers versus first recorded visits and supports a service-type filter with Special services included. The dashboard replaces the combined non-member card with distinct First timers from the same journey records and selected service cohort, with a matching people drilldown and period comparison. Its chart title/options now focus on attendance and first timers; other pages retain non-member reporting.
+- Checks: `npm run verify` passed (437 frontend tests, 139 backend tests, backend TypeScript and production build), coverage with two workers, all five Playwright workflows, and final focused UI/KPI checks after wording updates. New backend cases cover recorded special/Easter/Christmas/midweek first visits and exclude returning visits. The browser scenario saves a first visit at a special service without explicit confirmation and checks both Follow-up and overview count. A fresh final production build passed.
+- Practice identity `standing-mongoose-699` and a fresh private file-inclusive backup under `~/.codex/private/church-first-timers-20261028/practice-before.zip` verified. Publish the matching backend and Preview from this branch’s pushed clean source, preserve Practice edits, and record deployed source/checks below. The prior live-release approval covered PR #10; these new changes require separate live-release approval.
+
 ### Practice browser feedback — people, special services and absence markers (28 October 2026)
 
 - Continued `codex/guest-entry-flow` from `562f450`, retaining all previous guest-entry fixes. Inherited only the existing uncommitted deployment/release documentation in this file; preserved it unstaged and excluded it from this commit.

@@ -802,7 +802,7 @@ export async function getJourneyOverview(options = {}) {
       const person = peopleById.get(String(row.person_id));
       if (!service || !person) continue;
       const events = eventsByPerson.get(String(row.person_id)) || [];
-      events.push({ id: service.id, date: service.service_date, label: service.service_type.replaceAll("_", " "), time: service.service_time, location: service.location });
+      events.push({ id: service.id, date: service.service_date, label: service.service_type.replaceAll("_", " "), service_type: service.service_type, confirmed_first_timer: false, time: service.service_time, location: service.location });
       eventsByPerson.set(String(row.person_id), events);
     }
     const firstTimers = [...eventsByPerson.entries()].flatMap(([id, events]) => {

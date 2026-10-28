@@ -77,7 +77,7 @@ describe("crm.getJourneyOverview", () => {
         expect(evidence.filter(row => row.kind === "explicit_first_visit")).toHaveLength(1);
     });
 
-    it("returns only explicitly recorded first visits, service decisions and unnamed counts", async () => {
+    it("returns recorded first service visits with confirmation provenance, service decisions and unnamed counts", async () => {
         const { owner, ids } = await setup();
         const result = await owner.query(api.crm.getJourneyOverview, {});
         const first = result.first_timers.find(row => row.person.id === ids.inScope);
@@ -85,7 +85,8 @@ describe("crm.getJourneyOverview", () => {
         expect(first?.events[0]).toMatchObject({ date: "2026-09-06", label: "sunday service", time: "10:00", location: "Main Hall" });
         expect(result.first_timers.some(row => row.person.id === ids.archived)).toBe(true);
         expect(result.first_timers.some(row => row.person.id === ids.dateOnly)).toBe(false);
-        expect(result.first_timers.some(row => row.person.id === ids.inferred)).toBe(false);
+        expect(result.first_timers.find(row => row.person.id === ids.inferred)?.events[0].confirmed_first_timer).toBe(false);
+        expect(first?.events[0].confirmed_first_timer).toBe(true);
         expect(result.first_timers.some(row => row.person.id === ids.meetingFirst)).toBe(false);
         expect(result.new_converts).toHaveLength(1);
         expect(result.new_converts.some(row => row.person.id === ids.outreachOnly)).toBe(false);
@@ -112,4 +113,20 @@ describe("crm.getJourneyOverview", () => {
         expect(denied.first_timers.some(row => row.person.id === ids.inScope)).toBe(false);
         expect(denied.first_timers.some(row => row.person.id === ids.outOfScope)).toBe(false);
     });
+});
+
+it.each(['special_service', 'easter_service', 'christmas_service', 'midweek_service'])('includes a recorded first visit at a %s without inventing explicit confirmation', async (service_type) => {
+  const { t, owner } = await setup();
+  const person = await owner.mutation(api.people.create, { first_name: 'Recorded First', member_status: 'guest' });
+  const record = await owner.mutation(api.services.record, {
+    service_date: '2026-09-16', service_type, total_attendance: 1, guests_count: 1, salvation_decisions: 0, tithers_count: 0,
+    attendanceData: [{ person_id: person!._id, first_timer: true, explicit_first_visit: false, gave_tithe: false, made_salvation_decision: false }],
+  });
+  const overview = await owner.query(api.crm.getJourneyOverview, {});
+  expect(overview.first_timers.find(row => row.person.id === person!._id)?.events).toMatchObject([{ id: record!._id, service_type, confirmed_first_timer: false }]);
+  expect(await t.run(ctx => ctx.db.query('attendance_visit_evidence').withIndex('by_person', q => q.eq('person_id', person!._id)).collect())).toHaveLength(0);
+  // A later returning visit never becomes another first-timer entry.
+  await owner.mutation(api.services.record, { service_date: '2026-09-23', service_type, total_attendance: 1, guests_count: 1, salvation_decisions: 0, tithers_count: 0, attendanceData: [{ person_id: person!._id, first_timer: false, gave_tithe: false, made_salvation_decision: false }] });
+  expect((await owner.query(api.crm.getJourneyOverview, {})).first_timers.filter(row => row.person.id === person!._id)).toHaveLength(1);
+  expect((await owner.query(api.crm.getJourneyOverview, {})).first_timers.find(row => row.person.id === person!._id)?.events).toHaveLength(1);
 });

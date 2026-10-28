@@ -1,3 +1,4 @@
+import { isCompletedService } from "../src/lib/utils/reportingMetrics.js";
 import { sundayConfirmationRows, latestSundayCommitments, sundayResponseVersion } from "../src/lib/services/sundayConfirmationLogic.js";
 import { candidates, selectGathering, setActualAttendance, reconcilePerson, present } from "./lib/attendanceWorkflow";
 import { canDiscoverOutreach, cancelPendingOutreach, requireFollowUpAllowed, isDelegatedFollowUpTask } from "./lib/contactPolicy";
@@ -1116,35 +1117,36 @@ export const getJourneyOverview = queryFor("crm:getJourneyOverview")({
         );
         const servicesById = new Map(serviceDocs.filter(Boolean).map(service => [String(service!._id), service!]));
 
+        function addFirstVisit(person: Doc<"people">, service: Doc<"services">, confirmed: boolean) {
+            const key = String(person._id);
+            const current = firstTimers.get(key) || { person, events: [], dateOnly: false, assignedWorker: null };
+            const existing = current.events.find(event => event.id === String(service._id));
+            if (existing) existing.confirmed_first_timer ||= confirmed;
+            else current.events.push({ id: String(service._id), date: service.service_date,
+                label: service.service_type.replaceAll("_", " "), service_type: service.service_type,
+                time: service.service_time, location: service.location, confirmed_first_timer: confirmed });
+            firstTimers.set(key, current);
+        }
         for (const row of serviceAttendance) {
             const person = peopleById.get(String(row.person_id));
             const service = servicesById.get(String(row.service_id));
-            if (!person || !service || !inSelectedScope(person._id)) continue;
-            const event = {
-                id: String(service._id), date: service.service_date,
-                label: service.service_type.replaceAll("_", " "),
-                time: service.service_time, location: service.location,
-            };
+            if (!person || !service || !isCompletedService(service) || !inSelectedScope(person._id)) continue;
+            if (row.first_timer === true) addFirstVisit(person, service, false);
             if (row.made_salvation_decision === true) {
                 const key = String(person._id);
                 const current = newConverts.get(key) || { person, events: [], assignedWorker: null };
-                current.events.push(event);
+                current.events.push({ id: String(service._id), date: service.service_date,
+                    label: service.service_type.replaceAll("_", " "), service_type: service.service_type,
+                    time: service.service_time, location: service.location });
                 newConverts.set(key, current);
             }
         }
         for (const row of explicitFirstVisits) {
             const person = peopleById.get(String(row.person_id));
             const service = servicesById.get(String(row.service_id));
-            if (!person || !service || !inSelectedScope(person._id)) continue;
-            const key = String(person._id);
-            const current = firstTimers.get(key) || { person, events: [], dateOnly: false, assignedWorker: null };
-            const event = {
-                id: String(service._id), date: service.service_date,
-                label: service.service_type.replaceAll("_", " "),
-                time: service.service_time, location: service.location,
-            };
-            if (!current.events.some(existing => existing.id === event.id)) current.events.push(event);
-            firstTimers.set(key, current);
+            if (!person || !service || !isCompletedService(service) || !inSelectedScope(person._id)) continue;
+            if (!serviceAttendance.some(attendee => attendee.person_id === person._id && attendee.service_id === service._id)) continue;
+            addFirstVisit(person, service, true);
         }
         await Promise.all([
             ...[...firstTimers.values()].map(async row => { row.assignedWorker = await workerFor(row.person._id); }),

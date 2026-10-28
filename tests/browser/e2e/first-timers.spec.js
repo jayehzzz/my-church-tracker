@@ -1,0 +1,22 @@
+import { expect, test } from '@playwright/test';
+test('a first recorded visit at a special service counts in Follow-up and the overview', async ({ page }) => {
+  await page.goto('/tests/browser/task04/?fixture=first-timers');
+  await page.getByRole('button', { name: 'Record Sunday service', exact: true }).click();
+  const service = page.getByRole('dialog', { name: 'Record service', exact: true });
+  await service.getByLabel('Service Type', { exact: true }).selectOption('special_service');
+  await service.getByLabel('Service Date').fill('2026-09-16');
+  await service.getByRole('button', { name: /2 Attendance/ }).click();
+  await service.getByRole('button', { name: 'Everyone', exact: true }).click();
+  await service.getByRole('button', { name: 'Browser Guest Non-member profile', exact: true }).click();
+  await service.getByRole('button', { name: 'Review service', exact: true }).click();
+  await service.getByRole('button', { name: 'Record service', exact: true }).click();
+  await expect(service).not.toBeVisible();
+  await expect(page.getByRole('status', { name: 'Overview First timers' })).toHaveText('First timers: 1');
+  const followUp = page.getByRole('region', { name: 'First visits and salvation overview' });
+  await expect(followUp.getByRole('button', { name: 'Browser Guest', exact: true })).toBeVisible();
+  await expect(followUp.getByText('First recorded visit', { exact: true })).toBeVisible();
+  await followUp.getByLabel('Service type').selectOption('special');
+  await expect(followUp.getByRole('status')).toContainText('1 person recorded as a first timer');
+  await followUp.getByText('Visit details', { exact: true }).click();
+  await expect(followUp.getByText(/special service\s*·\s*16 Sept 2026/)).toBeVisible();
+});

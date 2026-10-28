@@ -51,13 +51,14 @@ describe("Dashboard Recent Activity and Person Profile Resolution", () => {
         expect(salvationKpi.href).toBe("/services");
     });
 
-    it("labels the combined non-member count with both visit types", async () => {
+    it("shows first timers on the overview instead of combined non-member visits", async () => {
         const result = await dashboardService.getDashboardKPIs();
-        const guestKpi = result.kpis.find((kpi) => kpi.id === "guests");
+        const guestKpi = result.kpis.find((kpi) => kpi.id === "firstTimers");
         const familyKpi = result.kpis.find((kpi) => kpi.id === "family");
 
-        expect(guestKpi.title).toBe("Non-member visits");
-        expect(guestKpi.description).toBe("First timers + returning guests");
+        expect(guestKpi.title).toBe("First timers");
+        expect(guestKpi.description).toBe("Recorded first visits · all service types");
+        expect(result.kpis.some(kpi => kpi.id === "guests")).toBe(false);
         expect(familyKpi.description).toBe("Members, including leaders");
     });
 

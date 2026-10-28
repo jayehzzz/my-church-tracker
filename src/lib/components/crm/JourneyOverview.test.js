@@ -30,7 +30,7 @@ it('shows first visits and service decisions with people, gathering details and 
   const onOpen = vi.fn();
   const view = render(JourneyOverview, { props: { data: overview, onOpen } });
   expect(view.getByText('Ama Mensah')).toBeInTheDocument();
-  expect(view.getByText('First timers are people explicitly recorded as first timers when they joined.')).toBeInTheDocument();
+  expect(view.getByText('Recorded first visits across all church services, including special services. Confirmed first timers and first recorded visits are labelled separately.')).toBeInTheDocument();
   expect(view.getByRole('listitem').textContent).toContain('sunday service');
   expect(view.getByRole('listitem').textContent).toContain('6 Sept 2026');
   expect(view.getByRole('listitem').textContent).toContain('Main Hall');
@@ -51,13 +51,13 @@ it('filters history by search and date and exposes retry and empty states', asyn
   expect(view.getByText('Ama Mensah')).toBeInTheDocument();
   expect(view.queryByText('Kofi Owusu')).not.toBeInTheDocument();
   await fireEvent.input(view.getByLabelText('From date'), { target: { value: '2026-09-07' } });
-  await waitFor(() => expect(view.getByText('No records match your search and date range.')).toBeInTheDocument());
+  await waitFor(() => expect(view.getByText('No records match your search, service type and date range.')).toBeInTheDocument());
   const onRetry = vi.fn();
   const failure = render(JourneyOverview, { props: { error: 'Could not load records.', onRetry } });
   await fireEvent.click(failure.getByRole('button', { name: 'Retry' }));
   expect(onRetry).toHaveBeenCalledOnce();
   const empty = render(JourneyOverview, { props: { data: { first_timers: [], new_converts: [], unnamed_decisions: [] } } });
-  expect(empty.getByText('No people have been explicitly recorded as first timers.')).toBeInTheDocument();
+  expect(empty.getByText('No first visits have been recorded at church services.')).toBeInTheDocument();
 });
 
 it('shows unique people in an inclusive period and reacts to shared record changes', async () => {
@@ -67,7 +67,7 @@ it('shows unique people in an inclusive period and reacts to shared record chang
     { person: { id: 'p3', first_name: 'Outside', last_name: 'Period' }, events: [{ id: 's4', date: '2026-08-31', label: 'sunday service' }] },
   ] };
   const view = render(JourneyOverview, { data, firstTimersOnly: true, fromDate: '2026-09-06', toDate: '2026-09-20', onOpen });
-  expect(view.getByRole('status')).toHaveTextContent('1 person recorded as first timers in this period');
+  expect(view.getByRole('status')).toHaveTextContent('1 person recorded as a first timer in this period');
   expect(view.getAllByRole('button', { name: 'Ama Mensah' })).toHaveLength(1);
   expect(view.queryByText('Outside Period')).not.toBeInTheDocument();
   await fireEvent.click(view.getByRole('button', { name: 'View person' }));
@@ -92,4 +92,16 @@ it('provides this-month, last-30-days and all-time shortcuts', async () => {
   await fireEvent.click(view.getByRole('button', { name: 'All time' }));
   expect(view.getByLabelText('From date')).toHaveValue('');
   expect(view.getByRole('button', { name: 'Ama Mensah' })).toBeInTheDocument();
+});
+
+it('counts special-service first timers and filters them separately from Sunday first visits', async () => {
+  const special = { person: { id: 'special-first', first_name: 'Practice Special First' }, events: [{ id: 'special', date: '2026-09-13', label: 'special service', service_type: 'special_service', confirmed_first_timer: true }] };
+  const view = render(JourneyOverview, { data: { first_timers: [...overview.first_timers, special] } });
+  expect(view.getByRole('status')).toHaveTextContent('2 people recorded as first timers');
+  expect(view.getByText('First recorded visit')).toBeInTheDocument();
+  expect(view.getByText('Confirmed first timer')).toBeInTheDocument();
+  await fireEvent.change(view.getByRole('combobox', { name: /Service type/ }), { target: { value: 'special' } });
+  expect(view.getByRole('status')).toHaveTextContent('1 person recorded as a first timer');
+  expect(view.getByRole('button', { name: 'Practice Special First' })).toBeInTheDocument();
+  expect(view.queryByRole('button', { name: 'Ama Mensah' })).not.toBeInTheDocument();
 });
