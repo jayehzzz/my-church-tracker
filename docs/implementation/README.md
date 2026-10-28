@@ -29,6 +29,14 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 ## Handoffs
 
+### Practice browser feedback — people, special services and absence markers (28 October 2026)
+
+- Continued `codex/guest-entry-flow` from `562f450`, retaining all previous guest-entry fixes. Inherited only the existing uncommitted deployment/release documentation in this file; preserved it unstaged and excluded it from this commit.
+- Non-member, returning-guest and first-timer breakdowns now start with distinct linked people, each person’s visit count, dates and profile action. Visits without available names remain explicit in the total; service contributions remain expandable. The dashboard attendance chart includes every completed service, with all/Sunday/special (Easter and Christmas included)/midweek filtering and original service IDs retained for drilldowns. The Sunday-average KPI keeps its Sunday scope.
+- People defaults to Members + Leaders, retaining explicit filters on return from profiles. The matrix uses ✓ attended, × absent from a named register, ! an explicit yes resolved as no-show, and – before tracking/no usable result. Membership/history evidence prevents pre-joining absences; imports use historical visits ahead of recent creation dates. Empty/future/cancelled registers do not establish ordinary absences. Filters and person histories distinguish no-shows, while promise reliability remains based only on explicit commitments.
+- Checks passed: `npm run verify` (433 frontend tests, 135 backend tests, backend TypeScript, production build), full coverage with two workers, and all four Playwright workflows. Built-in local browser inspected the markers and legend. The first browser run overlapped coverage’s Vite configuration regeneration and reloaded two open test dialogs; a fresh server after coverage passed every workflow.
+- Frontend-only changes; backend code/schema and both databases remain unchanged. Push this source, verify the matching Preview and required PR checks, then update only the permanent Practice alias. No Practice refresh or production release is authorized. Hosted verification/source/deployment details will be recorded below after publication.
+
 ### Guest entry across Follow-up and Sunday Services (28 October 2026)
 
 - Started `codex/guest-entry-flow` from up-to-date `main` `4bf404e`. Inherited only an uncommitted October 12 release-handoff correction in this file; it is preserved unstaged and excluded from this change’s commit.

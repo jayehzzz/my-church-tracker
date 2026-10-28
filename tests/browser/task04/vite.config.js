@@ -18,6 +18,6 @@ export default defineConfig({
       });
     },
   }],
-  resolve: { alias: [{find:'$lib/convex.js', replacement:resolve('tests/browser/task04/client.js')}, {find:'$app/environment', replacement:resolve('tests/browser/task04/environment.js')}, {find:'$lib', replacement:resolve('src/lib')}] },
+  resolve: { alias: [{find:'$app/navigation', replacement:resolve('tests/browser/task04/navigation.js')}, {find:'$lib/auth/session.js', replacement:resolve('tests/browser/task04/session.js')}, {find:'$lib/convex.js', replacement:resolve('tests/browser/task04/client.js')}, {find:'$app/environment', replacement:resolve('tests/browser/task04/environment.js')}, {find:'$lib', replacement:resolve('src/lib')}] },
   server: {host:'127.0.0.1', port:5194, strictPort:true},
 });

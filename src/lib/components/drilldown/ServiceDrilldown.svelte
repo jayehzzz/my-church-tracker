@@ -4,12 +4,13 @@
   import ContributionList from './ContributionList.svelte';
   import EventDetail from './EventDetail.svelte';
   import { selectedChoice } from './selection.js';
-  import { serviceId, metricLabels, selectServiceContributions, serviceContribution, namedServicePeople } from './serviceAdapter.js';
+  import { serviceId, metricLabels, selectServiceContributions, serviceContribution, namedServicePeople, selectServicePeople } from './serviceAdapter.js';
   let { state = $bindable(null), services = [], attendance = [], people = [], status = 'ready', error = '', onretry = null, onedit = null, onprofile = null, wholeNumberAverages = true } = $props();
   const confidential = $derived($session.status === 'demo' || $session.user?.canViewGiving === true);
   function date(value) { return value ? new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Date unavailable'; }
   function title(service) { return service.sermon_topic || String(service.service_type || 'Service').replaceAll('_', ' '); }
   function name(person) { return [person.first_name, person.last_name].filter(Boolean).join(' ') || person.name || 'Named attendee'; }
+  const peopleMetrics = new Set(['guests', 'returning', 'returningGuests', 'first', 'firstTimers']);
   function rowsFor(choice) { return selectServiceContributions(services, choice, attendance, people); }
 </script>
 
@@ -36,8 +37,8 @@
     {@render list(current.choice, navigate)}
   {:else if current.kind === 'history'}
     {@const matching = (current.statuses || []).map(status => ({ ...status, service: services.find(service => serviceId(service) === serviceId(status.service)) })).filter(status => status.service)}
-    <p class="mb-3 text-sm">Sunday history for the selected person. Here, missed and before tracked period follow the selected matrix filters.</p>
-    <ContributionList domain="service" records={matching.map(status => ({ id: serviceId(status.service), title: title(status.service), date: date(status.service.service_date), note: status.state === 'present' ? 'Here' : status.state === 'missed' ? 'Missed' : 'Before tracked period' }))} onselect={row => navigate({ kind: "service", title: row.title, id: row.id, metricKey: "total", personId: current.personId }, row.id)} />
+    <p class="mb-3 text-sm">Sunday history for the selected person. Attendance and confirmed no-shows are shown separately.</p>
+    <ContributionList domain="service" records={matching.map(status => ({ id: serviceId(status.service), title: title(status.service), date: date(status.service.service_date), note: status.state === 'present' ? 'Here' : status.state === 'no-show' ? 'Said yes · did not attend' : status.state === 'missed' ? 'Absent from register' : 'Before tracked period / no result' }))} onselect={row => navigate({ kind: "service", title: row.title, id: row.id, metricKey: "total", personId: current.personId }, row.id)} />
   {:else if current.kind === 'service'}
     {@const service = services.find(item => serviceId(item) === current.id)}
     {#if service}
@@ -65,9 +66,23 @@
   <p class="mb-2 text-sm text-muted-foreground">{choice.contextLabel ? `${choice.contextLabel} · ` : ""}{choice.pointBounds?.startDate || choice.scopeBounds?.startDate || 'Selected period'} – {choice.pointBounds?.endDate || choice.scopeBounds?.endDate || 'today'}{choice.scopeBounds && choice.pointBounds && (choice.scopeBounds.startDate !== choice.pointBounds.startDate || choice.scopeBounds.endDate !== choice.pointBounds.endDate) ? ` · Selected scope ${choice.scopeBounds.startDate} – ${choice.scopeBounds.endDate}` : ''} · {metricLabels[choice.metricKey] || choice.metricKey}</p>
   {@const shown = choice.mode === "average" && (choice.displayPrecision === 0 || wholeNumberAverages) ? Math.round(result.total / result.denominator) : result.displayed}
   <p class="mb-2 font-medium">{choice.mode === 'average' ? result.denominator ? `${result.total} across ${result.denominator} services ≈ ${shown} per service (rounded to a whole person)` : 'Average unavailable: no recorded services in this selection.' : `${result.total} across ${result.denominator} services`}</p>
-  <p class="mb-4 text-sm text-muted-foreground">This breakdown shows how each service contributes to the selected number. A 0 means the service is included in the period but added nothing to this measure.</p>
-  <ContributionList domain="service" records={result.rows.map(({ service, contribution }) => ({ id: serviceId(service), title: title(service), date: date(service.service_date), contribution, note: String(service.service_type || '').replaceAll('_', ' ') }))} countLabel={`${result.denominator} service${result.denominator === 1 ? '' : 's'} included`} contributionLabel={metricLabels[choice.metricKey] || choice.metricKey} onselect={row => navigate({ kind: 'service', title: row.title, id: row.id, metricKey: choice.metricKey }, row.id)} />
+  {#if peopleMetrics.has(choice.metricKey)}
+    {@const contributors = selectServicePeople(services, choice, attendance, people)}
+    <p class="mb-4 text-sm text-muted-foreground">People linked to these visits. Each person appears once; repeat visits are counted alongside their name.</p>
+    <ContributionList domain="person" records={contributors.people.map(item => ({ id: item.id, title: name(item.person), contribution: item.services.length, note: item.services.map(service => `${date(service.service_date)} · ${title(service)}`).join('; ') }))} countLabel={`${contributors.people.length} named ${contributors.people.length === 1 ? 'person' : 'people'} · ${contributors.namedVisits} linked ${contributors.namedVisits === 1 ? 'visit' : 'visits'}`} contributionLabel="Visits" onselect={onprofile ? row => onprofile(row.id, state) : null} />
+    {#if contributors.unlinkedVisits}<p class="mt-3 text-sm text-muted-foreground">{contributors.unlinkedVisits} {contributors.unlinkedVisits === 1 ? 'visit has' : 'visits have'} no available linked name. These visits remain in the total.</p>{/if}
+    <details class="mt-4"><summary class="cursor-pointer text-sm font-medium">Services contributing to this total</summary>
+      <div class="mt-3">{@render serviceList(result, choice, navigate)}</div>
+    </details>
+  {:else}
+    <p class="mb-4 text-sm text-muted-foreground">This breakdown shows how each service contributes to the selected number. A 0 means the service is included in the period but added nothing to this measure.</p>
+    {@render serviceList(result, choice, navigate)}
+  {/if}
   {#if choice.value != null && Number(choice.value) !== result.displayed && Number(choice.value) !== shown}<p class="mt-3 text-sm text-warning">The chart displays {choice.value}; source records currently calculate {shown}. Refresh the page if records changed.</p>{/if}
+{/snippet}
+
+{#snippet serviceList(result, choice, navigate)}
+  <ContributionList domain="service" records={result.rows.map(({ service, contribution }) => ({ id: serviceId(service), title: title(service), date: date(service.service_date), contribution, note: String(service.service_type || '').replaceAll('_', ' ') }))} countLabel={`${result.denominator} service${result.denominator === 1 ? '' : 's'} included`} contributionLabel={metricLabels[choice.metricKey] || choice.metricKey} onselect={row => navigate({ kind: 'service', title: row.title, id: row.id, metricKey: choice.metricKey }, row.id)} />
 {/snippet}
 
 <DrilldownDialog bind:state renderView={view} />

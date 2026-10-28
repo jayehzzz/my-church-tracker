@@ -1,4 +1,6 @@
 <script>
+  import ReviewFeedback from './ReviewFeedback.svelte';
+  const reviewFeedback = new URLSearchParams(window.location.search).get('fixture') === 'review-feedback';
   import { onMount } from 'svelte';
   import SearchableSelect from '$lib/components/ui/SearchableSelect.svelte';
   import { personOptions } from '$lib/utils/personOptions.js';
@@ -30,6 +32,7 @@
   }
   onMount(refresh);
 </script>
+{#if reviewFeedback}<ReviewFeedback />{:else}
 <main class="max-w-4xl mx-auto p-6 space-y-5">
   <h1 class="text-2xl font-bold">Task 04 isolated workflow checks</h1>
   <p>Test fixtures only · authenticated in-memory Convex · no real church database</p>
@@ -65,3 +68,5 @@
     <GatheringAttendanceDialog bind:isOpen={actualOpen} gatheringDate="2026-08-02" personName="Browser Guest" onconfirm={resolve} />
   {/if}
 </main>
+
+{/if}

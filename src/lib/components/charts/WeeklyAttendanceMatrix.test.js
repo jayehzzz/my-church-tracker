@@ -45,7 +45,7 @@ const services = [
 const confirmedMiss = [{ id: "confirmed-miss", person_id: "person-1", gathering_type: "sunday_service", gathering_date: "2026-08-30", response: "yes", resolution: "no_show" }];
 
 describe("WeeklyAttendanceMatrix", () => {
-  it("shows recorded visits and only identifies a confirmed no-show as missed", () => {
+  it("distinguishes recorded attendance from a confirmed no-show", () => {
     const { getByRole, queryByText } = render(WeeklyAttendanceMatrix, {
       props: { services, people, commitments: confirmedMiss },
     });
@@ -55,7 +55,7 @@ describe("WeeklyAttendanceMatrix", () => {
     ).toBeDefined();
     expect(
       getByRole("button", {
-        name: "Ama Mensah missed Sun, 30 Aug 2026",
+        name: "Ama Mensah said yes but did not attend Sun, 30 Aug 2026",
       }),
     ).toBeDefined();
     expect(
@@ -74,7 +74,7 @@ describe("WeeklyAttendanceMatrix", () => {
 
     await fireEvent.click(
       getByRole("button", {
-        name: "Ama Mensah missed Sun, 30 Aug 2026",
+        name: "Ama Mensah said yes but did not attend Sun, 30 Aug 2026",
       }),
     );
     expect(onServiceClick).toHaveBeenCalledWith(services[0], people[0], expect.arrayContaining([expect.objectContaining({ service: services[0] })]));
@@ -247,7 +247,7 @@ describe("WeeklyAttendanceMatrix", () => {
     });
     expect(
       getByRole("button", {
-        name: "Ama Mensah missed Sun, 30 Aug 2026",
+        name: "Ama Mensah said yes but did not attend Sun, 30 Aug 2026",
       }),
     ).toBeDefined();
     expect(
@@ -288,7 +288,7 @@ describe("WeeklyAttendanceMatrix", () => {
     await fireEvent.click(row);
 
     expect(getByRole("heading", { name: "Ama Mensah · Sunday attendance" })).toBeDefined();
-    expect(getByText("Recorded result rate")).toBeDefined();
+    expect(getByText("Register attendance rate")).toBeDefined();
     expect(getByText("Sunday-by-Sunday history")).toBeDefined();
   });
 
@@ -353,7 +353,7 @@ describe("WeeklyAttendanceMatrix", () => {
 
     expect(getByText("Sundays with results")).toBeDefined();
     expect(queryByText("Expected Sundays")).toBeNull();
-    expect(getByText(/Only recorded visits and resolved Sunday confirmations count here/)).toBeDefined();
+    expect(getByText(/means absent from a named register/)).toBeDefined();
   });
 
   it("quick-filters a person's modal history by attendance status", async () => {
@@ -377,4 +377,16 @@ describe("WeeklyAttendanceMatrix", () => {
     expect(dialog.getByText("Sundays missed").closest("div")).toHaveTextContent("1Sundays missed");
     expect(dialog.getByText("Sundays with results").closest("div")).toHaveTextContent("1Sundays with results");
   });
+});
+
+it('uses a cross for ordinary register absence and an amber exclamation for a confirmed no-show', async () => {
+  const third = { id: 'third', service_date: '2026-09-06', service_type: 'sunday_service', individuals: ['person-2'] };
+  const view = render(WeeklyAttendanceMatrix, { services: [...services, third], people, commitments: confirmedMiss });
+  const absent = view.getByRole('button', { name: 'Ama Mensah missed Sun, 6 Sept 2026' });
+  const noShow = view.getByRole('button', { name: 'Ama Mensah said yes but did not attend Sun, 30 Aug 2026' });
+  expect(absent).toHaveTextContent('×');
+  expect(noShow).toHaveTextContent('!');
+  await fireEvent.change(view.getByLabelText('Attendance'), { target: { value: 'no-show' } });
+  expect(view.getByText('Ama Mensah')).toBeDefined();
+  expect(view.queryByText('Daniel Brown')).toBeNull();
 });

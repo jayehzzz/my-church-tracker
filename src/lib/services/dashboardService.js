@@ -188,23 +188,21 @@ export async function getAttendanceChartData(dateRange) {
   if (peopleResult.error) throw peopleResult.error;
   const attendanceRows = attendanceResult.data || [];
   let services = (result.data || [])
-    .filter(isSundayService)
     .filter((service) => isCompleted(service, "service_date"))
     .sort((a, b) => String(a.service_date).localeCompare(String(b.service_date)));
 
-  let contextLabel = dateRange?.label || formatPeriodLabel(dateRange) || "All completed Sundays";
+  let contextLabel = dateRange?.label || formatPeriodLabel(dateRange) || "All completed services";
   let isFallback = false;
 
   if (!services.length && hasRange) {
     const allResult = await servicesService.getAll();
     if (allResult.error) throw allResult.error;
     services = (allResult.data || [])
-      .filter(isSundayService)
       .filter((service) => isCompleted(service, "service_date"))
       .sort((a, b) => String(a.service_date).localeCompare(String(b.service_date)))
       .slice(-8);
     if (services.length) {
-      contextLabel = "Latest 8 completed Sundays · no service in selected period";
+      contextLabel = "Latest 8 completed services · no service in selected period";
       isFallback = true;
     }
   }
