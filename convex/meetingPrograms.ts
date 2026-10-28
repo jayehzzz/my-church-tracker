@@ -313,24 +313,24 @@ export const archive = mutationFor("meetingPrograms:archive")({
 
 export const addGuest = mutationFor("meetingPrograms:addGuest")({
     args: {
-        programId: v.id("meeting_programs"), firstName: v.string(), lastName: v.string(), phone: v.optional(v.string()),
+        programId: v.id("meeting_programs"), firstName: v.string(), lastName: v.optional(v.string()), phone: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         const program = await ctx.db.get(args.programId);
         if (!program || !program.active) forbidden();
         const firstName = args.firstName.trim();
-        const lastName = args.lastName.trim();
+        const lastName = args.lastName?.trim() || "";
         const phone = args.phone?.trim();
-        if (!firstName || !lastName || firstName.length > 100 || lastName.length > 100) throw new Error("Enter the guest's first and last name");
+        if (!firstName || firstName.length > 100 || lastName.length > 100) throw new Error("Enter a first name; names must be at most 100 characters");
         if (phone && phone.length > 40) throw new Error("Keep the phone number within 40 characters");
         const visiblePeople = await ctx.db.query("people").collect();
         const duplicate = visiblePeople.find(person =>
             phone && person.phone?.replace(/\D/g, "") === phone.replace(/\D/g, "")
-            || person.first_name.trim().toLowerCase() === firstName.toLowerCase() && person.last_name.trim().toLowerCase() === lastName.toLowerCase());
+            || person.first_name.trim().toLowerCase() === firstName.toLowerCase() && (person.last_name || "").trim().toLowerCase() === lastName.toLowerCase());
         if (duplicate) throw new Error("A matching person is already available. Select their existing profile instead.");
         const now = new Date().toISOString();
         const id = await ctx.db.insert("people", {
-            first_name: firstName, last_name: lastName, phone: phone || undefined,
+            first_name: firstName, last_name: lastName, surname_status: lastName ? "known" : "missing", phone: phone || undefined,
             member_status: "guest",
             created_at: now, updated_at: now,
         });

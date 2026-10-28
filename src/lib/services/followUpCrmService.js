@@ -1033,20 +1033,21 @@ export async function saveExpectedGuest(action, args) {
         if (row.inviter_id !== data.inviter_id || row.service_date !== data.service_date) row.friend_number = Math.max(0, ...state.guestInvitations.filter(item => item._id !== row._id && item.inviter_id === data.inviter_id && item.service_date === data.service_date).map(item => item.friend_number)) + 1;
         Object.assign(row, data);
       }
-    } else if (action === "link") {
+    }
+    if (action === "link" || action === "create" && (args.personId || args.createPerson)) {
       if (row.entered_in_error) throw new Error("Correct the invalidated invitation before linking it");
       if (Boolean(args.personId) === Boolean(args.createPerson)) throw new Error("Choose an existing person or explicitly create one");
       let person = people.find(person => String(person._id || person.id) === String(args.personId));
       if (args.createPerson) {
         if (row.person_id || row.name_unknown || !row.first_name) throw new Error("Add the real name before creating a person, and do not create another linked person");
         if (people.some(person => person.member_status !== "archived" && ((normalizeEmail(row.email) && normalizeEmail(row.email) === normalizeEmail(person.email)) || (normalizePhone(row.phone) && normalizePhone(row.phone) === normalizePhone(person.phone))))) throw new Error("An existing person has matching contact details. Link them instead");
-        person = { _id: makeId("demo-person"), first_name: row.first_name, last_name: row.last_name || "", member_status: "guest", phone: row.phone, email: row.email, invited_by_id: row.inviter_id, created_at: at, updated_at: at };
+        person = { _id: makeId("demo-person"), first_name: row.first_name, last_name: row.last_name || "", member_status: "guest", surname_status: row.last_name ? "known" : "missing", phone: row.phone, email: row.email, invited_by_id: row.inviter_id, created_at: at, updated_at: at };
         state.people.push(person);
       }
       if (!person || person.member_status === "archived" || person.contact_category === "do_not_contact" || person.is_paused) throw new Error("Choose an active, unrestricted person");
       if (String(person._id || person.id) === String(row.inviter_id)) throw new Error("The guest cannot be their own inviter");
       Object.assign(row, { person_id: person._id || person.id, name_unknown: false, first_name: person.first_name, last_name: person.last_name || undefined });
-    } else throw new Error("Unsupported invitation action");
+    } else if (!["create", "update"].includes(action)) throw new Error("Unsupported invitation action");
     row.history.push({ at, action: action === "link" ? args.createPerson ? "known_person_created_and_linked" : "existing_person_linked" : action === "create" ? "invitation_added" : "invitation_corrected", change_reason: args.changeReason, before, after: { ...row, history: undefined } });
     if (action !== "create") row.revision++;
     row.updated_at = at;

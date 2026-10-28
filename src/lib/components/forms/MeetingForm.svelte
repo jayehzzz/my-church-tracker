@@ -325,8 +325,8 @@
   }
 
   async function quickAddPerson() {
-    if (!quickAddData.first_name.trim() || !quickAddData.last_name.trim()) {
-      errors = { ...errors, quickAdd: "First and last name are required" };
+    if (!quickAddData.first_name.trim()) {
+      errors = { ...errors, quickAdd: "First name is required" };
       return;
     }
     quickAddSaving = true;
@@ -643,7 +643,7 @@
           <div class="rounded-xl border border-border bg-secondary/20 p-4">
             <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
               <Input label="First name" bind:value={quickAddData.first_name} />
-              <Input label="Last name" bind:value={quickAddData.last_name} />
+              <Input label="Last name (optional)" bind:value={quickAddData.last_name} />
               <Input label="Phone" type="tel" bind:value={quickAddData.phone} />
             </div>
             {#if errors.quickAdd}

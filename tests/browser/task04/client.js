@@ -1,6 +1,6 @@
 import { getFunctionName } from 'convex/server';
 export async function request(payload) {
-  const response = await fetch('/__task04', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+  const response = await fetch('/__task04', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ fixtureId: new URLSearchParams(window.location.search).get('fixture') || 'default', ...payload })});
   const result = await response.json();
   if (result.error) throw new Error(result.error);
   return result.data;

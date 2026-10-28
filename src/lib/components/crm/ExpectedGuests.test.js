@@ -57,3 +57,25 @@ describe('expected guest invitations', () => {
     return rerender({ rows: null }).then(() => expect(screen.getByRole('alert')).toHaveTextContent('unavailable'));
   });
 });
+
+it('saves and links a first-name-only guest in a single request', async () => {
+  render(ExpectedGuests, { rows: [], serviceDate: '2026-10-04', canManage: true });
+  await fireEvent.click(screen.getByRole('button', { name: 'Add expected guest' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save invitation' })).toBeEnabled());
+  await fireEvent.input(screen.getByLabelText('Guest first name'), { target: { value: 'Ama' } });
+  expect(screen.getByLabelText('Guest surname (optional)')).not.toBeRequired();
+  await fireEvent.click(screen.getByRole('button', { name: 'Save invitation' }));
+  await waitFor(() => expect(saveExpectedGuest).toHaveBeenCalledWith('create', expect.objectContaining({ firstName: 'Ama', lastName: undefined, createPerson: true, state: 'tentative' })));
+});
+
+it('reuses an existing person when adding a Sunday invitation', async () => {
+  render(ExpectedGuests, { rows: [], serviceDate: '2026-10-04', canManage: true });
+  await fireEvent.click(screen.getByRole('button', { name: 'Add expected guest' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Save invitation' })).toBeEnabled());
+  await fireEvent.click(screen.getByRole('button', { name: 'Use an existing person (optional)' }));
+  await fireEvent.input(screen.getByPlaceholderText('Search existing people by name, phone or email'), { target: { value: 'Nia' } });
+  await fireEvent.click(screen.getByRole('button', { name: 'Practice Nia' }));
+  await fireEvent.click(screen.getByRole('button', { name: 'Save invitation' }));
+  await waitFor(() => expect(saveExpectedGuest).toHaveBeenCalledWith('create', expect.objectContaining({ personId: 'nia', nameUnknown: false })));
+  expect(saveExpectedGuest.mock.calls[0][1]).not.toHaveProperty('createPerson');
+});

@@ -29,6 +29,14 @@ These split the five earlier broad batches into smaller assignments. Task 07 is 
 
 ## Handoffs
 
+### Guest entry across Follow-up and Sunday Services (28 October 2026)
+
+- Started `codex/guest-entry-flow` from up-to-date `main` `4bf404e`. Inherited only an uncommitted October 12 release-handoff correction in this file; it is preserved unstaged and excluded from this change’s commit.
+- Named Follow-up invitations now create/link a People profile in the same transaction, with an existing-person picker and duplicate-contact/restriction checks. Sunday Services shows dated Follow-up guests, lets older invitations link/create a profile in place, and searches the whole directory across filters. Coming guests retain the editable draft preselection; tentative guests remain unselected. Adding/linking alone never records actual attendance.
+- Last names are optional in Sunday, meeting and Bacenta newcomer entry; outreach labels also make this explicit. Existing service edits preserve saved check-ins, including with an empty directory. Quick-add can reuse a profile, clears a hiding search, and blocks navigation while saving. Directory/forecast and history/register reads run concurrently to reduce waiting.
+- Verified locally: `npm run verify` (420 frontend tests, 135 backend tests, backend TypeScript and production build), coverage with two workers, and all three Playwright workflows. The new browser scenario exercises first-name-only Follow-up entry through an actual saved Sunday register and proves one profile/one check-in. Fixtures isolate its state from attendance/care tests. Built-in browser also verified the named guest in the dated Sunday checklist.
+- Practice release pending from this branch’s pushed source commit. Pinned `standing-mongoose-699` identity and Vercel project `prj_VeY7scEGmWJI7PhJphdIiSxzitta`/Preview settings verified. Private file-inclusive Practice backup saved before backend deployment. No refresh, import, migration or production deployment is needed/authorized. Production still requires the owner’s explicit live-release approval.
+
 ### Confirmed Sunday checklist and complete update release (12 October 2026)
 
 - The owner asked to ensure all other updates are live. Audited recent chats, repository changes, merged PRs and deployment source: PRs #5–#8 were already in production; the only pending feature was the uncommitted confirmed-attendance checklist on `codex/confirmed-attendance-prefill` from `c63e4e2`. That inherited code and both earlier release handoffs were preserved, committed under this explicit release request, and merged with `origin/main` `0895f11`.

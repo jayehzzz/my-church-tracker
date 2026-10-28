@@ -1,8 +1,9 @@
 <script>
+  import { guestInvitationName, guestInvitationVersion } from "$lib/services/expectedGuestLogic.js";
   import { untrack } from "svelte";
   import * as templates from "$lib/services/serviceTemplatesService.js";
   import * as followUpCrm from "$lib/services/followUpCrmService.js";
-  import { Modal, Button, Input, Select } from "$lib/components/ui";
+  import { Modal, Button, Input, Select, SearchableSelect } from "$lib/components/ui";
   import {
     buildAttendanceData,
     suggestedSundayDate,
@@ -22,6 +23,12 @@
   let templateRequest = 0;
   const usualIds = $derived(new Set(template?.expected_person_ids || []));
   let confirmedIds = $state(new Set());
+  let guestInvitations = $state([]);
+  let pendingInvitation = $state(null);
+  let existingGuestId = $state('');
+  let guestNotice = $state('');
+  const availableInvitations = $derived(guestInvitations.filter(row => !row.entered_in_error && !row.person_archived && ['coming', 'tentative'].includes(row.state)));
+  const invitedIds = $derived(new Set(availableInvitations.map(row => row.person_id).filter(Boolean)));
   let confirmedLoadError = $state('');
   let activeStep = $state(1);
   let formData = $state(emptyForm());
@@ -72,8 +79,12 @@
   ];
 
   const filteredPeople = $derived(() => {
-    let result = people;
-    if (attendeeFilter === "confirmed") {
+    let result = people.filter(person => person.member_status !== "archived" || selectedPersonIds.has(personId(person)));
+    if (searchQuery.trim()) {
+      // A name search spans the whole directory, including people outside the current tab.
+    } else if (attendeeFilter === "invited") {
+      result = result.filter(person => invitedIds.has(personId(person)));
+    } else if (attendeeFilter === "confirmed") {
       result = result.filter(person => confirmedIds.has(String(personId(person))));
     } else if (attendeeFilter === "usual") {
       result = result.filter(person => person.member_status !== "archived" && usualIds.has(personId(person)));
@@ -116,6 +127,7 @@
     showQuickAdd = false;
     quickAddData = { first_name: "", last_name: "", phone: "" };
     quickAddError = null;
+    guestInvitations = []; pendingInvitation = null; existingGuestId = ''; guestNotice = '';
     uploadError = null;
     formData = nextFormData;
     photos = (service?.photos || []).map((url, index) => ({
@@ -195,59 +207,59 @@
     attendanceDataLoaded = false;
     try {
       const peopleService = await import("$lib/services/peopleService");
-      const peopleResult = await peopleService.getAll();
+      const [peopleResult, forecastResult] = await Promise.all([
+        peopleService.getAll(),
+        serviceType === 'sunday_service' ? followUpCrm.getDashboard({ serviceDate }) : Promise.resolve(null),
+      ]);
       if (key !== attendanceRequest) return;
       if (peopleResult.error) throw peopleResult.error;
       people = peopleResult.data || [];
       const ids = people.map(personId).filter(Boolean);
 
-      if (ids.length) {
-        const attendanceService = await import("$lib/services/attendanceService");
-        const historyResult = await attendanceService.getAttendanceHistory(ids, serviceDate);
-        if (key !== attendanceRequest) return;
-        if (historyResult.error) throw historyResult.error;
-        priorAttendance = historyResult.data || {};
+      if (serviceType === "sunday_service") {
+        guestInvitations = forecastResult.data?.guest_invitations || [];
+        if (forecastResult.error) confirmedLoadError = 'Sunday guest invitations could not be loaded. You can still use the People directory.';
+      }
+      const attendanceService = await import("$lib/services/attendanceService");
+      const [historyResult, attendanceResult] = await Promise.all([
+        attendanceService.getAttendanceHistory(ids, serviceDate),
+        editingId ? attendanceService.getByService(editingId) : Promise.resolve(null),
+      ]);
+      if (key !== attendanceRequest) return;
+      if (historyResult.error) throw historyResult.error;
+      priorAttendance = historyResult.data || {};
 
-        if (editingId) {
-          const attendanceResult = await attendanceService.getByService(editingId);
-          if (key !== attendanceRequest) return;
-          if (attendanceResult.error) throw attendanceResult.error;
-          const records = attendanceResult.data || [];
-          selectedPersonIds = new Set(records.map((record) => record.person_id));
-          attendanceMetadata = Object.fromEntries(records.map((record) => [record.person_id, {
-            gave_tithe: Boolean(record.gave_tithe),
-            made_salvation_decision: Boolean(record.made_salvation_decision),
-            first_timer: Boolean(record.first_timer),
-            explicit_first_visit: Boolean(record.explicit_first_visit),
-          }]));
-          confirmedExistingIds = new Set(records.filter((record) => record.explicit_first_visit).map((record) => record.person_id));
-        } else {
-          selectedPersonIds = new Set();
-          attendanceMetadata = {};
-          if (serviceType === "sunday_service") {
-            const forecastResult = await followUpCrm.getDashboard({ serviceDate });
-            if (key !== attendanceRequest) return;
-            const forecastIds = forecastResult.data?.attendance_forecast?.expected_person_ids;
-            if (forecastResult.error || !Array.isArray(forecastIds)) {
-              confirmedLoadError = 'Sunday confirmations could not be loaded. No one has been preselected.';
-              attendeeFilter = 'all';
-            } else {
-              const availableIds = new Set(ids.map(String));
-              confirmedIds = new Set(forecastIds.map(String).filter(id => availableIds.has(id)));
-              selectedPersonIds = new Set(confirmedIds);
-              attendanceMetadata = Object.fromEntries([...confirmedIds].map(id => {
-                const person = people.find(candidate => String(personId(candidate)) === id);
-                const isFirstGuestVisit = !priorAttendance[id] && (isGuest(person) || isOutreachContact(person));
-                return [id, { first_timer: isFirstGuestVisit, explicit_first_visit: false }];
-              }));
-              attendeeFilter = "confirmed";
-            }
-          } else attendeeFilter = "members";
-        }
+      if (editingId) {
+        if (attendanceResult.error) throw attendanceResult.error;
+        const records = attendanceResult.data || [];
+        selectedPersonIds = new Set(records.map((record) => record.person_id));
+        attendanceMetadata = Object.fromEntries(records.map((record) => [record.person_id, {
+          gave_tithe: Boolean(record.gave_tithe),
+          made_salvation_decision: Boolean(record.made_salvation_decision),
+          first_timer: Boolean(record.first_timer),
+          explicit_first_visit: Boolean(record.explicit_first_visit),
+        }]));
+        confirmedExistingIds = new Set(records.filter((record) => record.explicit_first_visit).map((record) => record.person_id));
       } else {
         selectedPersonIds = new Set();
         attendanceMetadata = {};
-        priorAttendance = {};
+        if (serviceType === "sunday_service") {
+          const forecastIds = forecastResult.data?.attendance_forecast?.expected_person_ids;
+          if (forecastResult.error || !Array.isArray(forecastIds)) {
+            confirmedLoadError = 'Sunday confirmations could not be loaded. No one has been preselected.';
+            attendeeFilter = 'all';
+          } else {
+            const availableIds = new Set(ids.map(String));
+            confirmedIds = new Set(forecastIds.map(String).filter(id => availableIds.has(id)));
+            selectedPersonIds = new Set(confirmedIds);
+            attendanceMetadata = Object.fromEntries([...confirmedIds].map(id => {
+              const person = people.find(candidate => String(personId(candidate)) === id);
+              const isFirstGuestVisit = !priorAttendance[id] && (isGuest(person) || isOutreachContact(person));
+              return [id, { first_timer: isFirstGuestVisit, explicit_first_visit: false }];
+            }));
+            attendeeFilter = confirmedIds.size ? "confirmed" : availableInvitations.length ? "invited" : "all";
+          }
+        } else attendeeFilter = "members";
       }
       attendanceDataLoaded = true;
     } catch (loadError) {
@@ -297,10 +309,11 @@
     attendanceMetadata = {};
     confirmedIds = new Set();
     confirmedLoadError = '';
+    guestInvitations = []; pendingInvitation = null; showQuickAdd = false;
   }
 
   async function goToStep(step) {
-    if (templateLoading || loadingPeople) return;
+    if (templateLoading || loadingPeople || quickAddSaving) return;
     if (step > 1) {
       const setupErrors = validateServiceSetup(formData);
       if (Object.keys(setupErrors).length) {
@@ -325,39 +338,60 @@
     formData.tithers_count = String(namedSummary.tithers);
   }
 
+  function startGuest(invitation = null) {
+    pendingInvitation = invitation;
+    existingGuestId = '';
+    quickAddData = { first_name: invitation?.first_name || '', last_name: invitation?.last_name || '', phone: invitation?.phone || '' };
+    showQuickAdd = true; quickAddError = null; guestNotice = '';
+  }
+
+  function checkInGuest(person, explicitFirstVisit = false) {
+    const id = personId(person);
+    if (!people.some(candidate => personId(candidate) === id)) people = [...people, { ...person, id }];
+    if (!selectedPersonIds.has(id)) togglePerson(id);
+    if (explicitFirstVisit) attendanceMetadata = { ...attendanceMetadata, [id]: { ...attendanceMetadata[id], first_timer: true, explicit_first_visit: true } };
+    searchQuery = ''; attendeeFilter = 'all'; showQuickAdd = false; pendingInvitation = null;
+    guestNotice = `${personName(person)} is on this service’s checklist. Save the service to record attendance.`;
+  }
+
   async function handleQuickAdd() {
-    if (!quickAddData.first_name.trim() || !quickAddData.last_name.trim()) {
-      quickAddError = "First and last name are required";
-      return;
+    if (quickAddSaving || !attendanceDataLoaded) return;
+    if (!existingGuestId && !quickAddData.first_name.trim()) {
+      quickAddError = "First name is required"; return;
     }
-    quickAddSaving = true;
-    quickAddError = null;
+    quickAddSaving = true; quickAddError = null;
     try {
       const peopleService = await import("$lib/services/peopleService");
-      const result = await peopleService.create({
-        first_name: quickAddData.first_name.trim(),
-        last_name: quickAddData.last_name.trim(),
-        phone: quickAddData.phone.trim() || undefined,
-        member_status: "guest",
-      });
-      if (result.error) throw result.error;
-      const newPerson = result.data;
-      const id = personId(newPerson);
-      people = [...people, { ...newPerson, id }];
-      selectedPersonIds = new Set([...selectedPersonIds, id]);
-      attendanceMetadata = {
-        ...attendanceMetadata,
-        [id]: { first_timer: true, explicit_first_visit: true, gave_tithe: false, made_salvation_decision: false },
-      };
-      priorAttendance = { ...priorAttendance, [id]: false };
-      quickAddData = { first_name: "", last_name: "", phone: "" };
-      showQuickAdd = false;
-      attendeeFilter = "guests";
-    } catch (quickAddFailure) {
-      quickAddError = quickAddFailure?.message || "The first timer could not be added";
-    } finally {
-      quickAddSaving = false;
-    }
+      const existing = people.find(person => personId(person) === existingGuestId);
+      let person = existing;
+      if (pendingInvitation) {
+        const result = await followUpCrm.saveExpectedGuest('link', {
+          invitationId: pendingInvitation._id || pendingInvitation.id,
+          expectedVersion: pendingInvitation.version || guestInvitationVersion(pendingInvitation),
+          ...(existing ? { personId: personId(existing) } : { createPerson: true }),
+          changeReason: 'Guest identified while preparing the Sunday service attendance checklist',
+        });
+        if (result.error) throw result.error;
+        // Linking retains the saved invitation's details; it does not record attendance.
+        if (!existing) person = { id: result.data.person_id, first_name: result.data.first_name, last_name: result.data.last_name || '', member_status: 'guest', phone: result.data.phone };
+        guestInvitations = guestInvitations.map(row => (row._id || row.id) === (pendingInvitation._id || pendingInvitation.id) ? result.data : row);
+      } else if (!existing) {
+        const duplicates = await peopleService.findDuplicates({ phone: quickAddData.phone.trim() || undefined });
+        if (duplicates.error) throw new Error('Existing guests could not be checked. Try again before adding another record.');
+        if (duplicates.data?.length) throw new Error('A person has this phone number. Choose their existing profile above.');
+        const result = await peopleService.create({
+          first_name: quickAddData.first_name.trim(), last_name: quickAddData.last_name.trim(),
+          surname_status: quickAddData.last_name.trim() ? 'known' : 'missing',
+          phone: quickAddData.phone.trim() || undefined, member_status: 'guest',
+        });
+        if (result.error) throw result.error;
+        person = result.data;
+      }
+      checkInGuest(person, !existing && !pendingInvitation);
+      quickAddData = { first_name: '', last_name: '', phone: '' };
+    } catch (failure) {
+      quickAddError = failure?.message || 'The guest could not be added';
+    } finally { quickAddSaving = false; }
   }
 
   async function handleFileUpload(event) {
@@ -409,7 +443,7 @@
   }
 
   async function handleSubmit() {
-    if (saving || loadingPeople || !attendanceDataLoaded) return;
+    if (saving || quickAddSaving || loadingPeople || !attendanceDataLoaded) return;
     const setupErrors = validateServiceSetup(formData);
     if (Object.keys(setupErrors).length) {
       errors = setupErrors;
@@ -455,7 +489,7 @@
 </script>
 
 <Modal bind:isOpen title={modalTitle} size="2xl" closable={false} closeOnBackdrop={false} closeOnEscape={false} {...restProps}>
-  <form class="space-y-5" onsubmit={(event) => { event.preventDefault(); handleSubmit(); }}>
+  <form class="space-y-5" onsubmit={(event) => { event.preventDefault(); if (showQuickAdd) void handleQuickAdd(); else if (activeStep < 3) void goToStep(activeStep + 1); else void handleSubmit(); }}>
     <nav class="grid grid-cols-3 gap-2 rounded-xl border border-border bg-secondary/15 p-2" aria-label="Service recording steps">
       {#each steps as step (step.number)}
         <button
@@ -516,27 +550,37 @@
         {#if confirmedLoadError}<div role="status" class="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">{confirmedLoadError}</div>{/if}
 
         <div class="grid grid-cols-2 gap-1 rounded-lg bg-secondary/30 p-1 sm:grid-cols-4" aria-label="Attendance directory filters">
-          {#each [...(mode === "create" && formData.service_type === "sunday_service" ? [["confirmed", `Confirmed (${confirmedIds.size})`]] : []), ...(formData.service_type === "sunday_service" && usualIds.size ? [["usual", "Usual people"]] : []), ["members", "Members"], ["guests", "Non-member profiles"], ["contacts", "Outreach contacts"], ["all", "Everyone"]] as option}
+          {#each [...(mode === "create" && formData.service_type === "sunday_service" ? [["confirmed", `Confirmed (${confirmedIds.size})`]] : []), ...(formData.service_type === "sunday_service" && usualIds.size ? [["usual", "Usual people"]] : []), ...(formData.service_type === "sunday_service" ? [["invited", `Guests from Follow-up (${availableInvitations.length})`]] : []), ["members", "Members"], ["guests", "Non-member profiles"], ["contacts", "Outreach contacts"], ["all", "Everyone"]] as option}
             <button type="button" class="rounded-md px-3 py-2 text-xs font-medium transition-colors {attendeeFilter === option[0] ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}" onclick={() => attendeeFilter = option[0]}>{option[1]}</button>
           {/each}
         </div>
 
         {#if attendeeFilter === "confirmed"}<p class="text-sm text-muted-foreground">Confirmed for {formData.service_date}. They start selected as a checklist; untick anyone who did not attend.</p>{:else if attendeeFilter === "usual"}<p class="text-sm text-muted-foreground">Your usual Sunday list. Select each person who is here.</p>{/if}
+        {#if guestNotice}<p role="status" class="text-sm text-primary">{guestNotice}</p>{/if}
         <div class="flex flex-col gap-2 sm:flex-row">
-          <div class="min-w-0 flex-1"><Input label="" bind:value={searchQuery} placeholder="Search by name..." disabled={saving} /></div>
-          <Button variant="secondary" onclick={() => showQuickAdd = !showQuickAdd} disabled={saving}>+ Add first timer</Button>
+          <div class="min-w-0 flex-1"><Input label="Search all people" bind:value={searchQuery} placeholder="Search by name..." disabled={saving || quickAddSaving} /></div>
+          <Button variant="secondary" onclick={() => startGuest()} disabled={saving || quickAddSaving || loadingPeople || !attendanceDataLoaded}>+ Add first timer</Button>
         </div>
+        {#if searchQuery.trim()}<p class="text-xs text-muted-foreground">Searching everyone, including guests and outreach contacts.</p>{/if}
+        {#if attendeeFilter === 'invited' && !searchQuery.trim()}
+          <p class="text-sm text-muted-foreground">Guests saved in Follow-up for {formData.service_date}. Select those who attended; tentative invitations start unselected.</p>
+          {#each availableInvitations.filter(row => !row.person_id) as invitation (invitation._id || invitation.id)}
+            <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3"><div><p class="text-sm font-medium">{guestInvitationName(invitation)}</p><p class="text-xs text-muted-foreground">{invitation.state === 'coming' ? 'Reported coming' : 'Tentative'} · {invitation.name_unknown ? 'Add their name in Follow-up, or link an existing person here.' : 'Link this saved invitation to a person for named attendance.'}</p></div><Button size="sm" variant="secondary" disabled={quickAddSaving} onclick={() => startGuest(invitation)}>Add to checklist</Button></div>
+          {/each}
+        {/if}
 
         {#if showQuickAdd}
           <div class="rounded-xl border border-primary/25 bg-primary/5 p-4">
-            <div><h4 class="text-sm font-semibold text-foreground">Add a first timer</h4><p class="mt-1 text-xs text-muted-foreground">They will be added to the People Directory, checked in, and confirmed as a first timer for this service.</p></div>
+            <div><h4 class="text-sm font-semibold text-foreground">{pendingInvitation ? 'Add guest from Follow-up' : 'Add a first timer'}</h4><p class="mt-1 text-xs text-muted-foreground">Choose an existing person or add a new guest with just a first name. They will appear on this checklist. Save the service to record attendance.</p></div>
             {#if quickAddError}<p class="mt-3 text-xs text-destructive" role="alert">{quickAddError}</p>{/if}
-            <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div class="mt-3"><SearchableSelect label="Existing guest or new person" bind:value={existingGuestId} disabled={quickAddSaving} placeholder="Search existing people by name, phone or email" options={[{ value: '', label: 'Add a new guest' }, ...people.filter(person => person.member_status !== 'archived').map(person => ({ value: personId(person), label: `${personName(person)}${person.phone ? ` · ${person.phone}` : ''}${person.email ? ` · ${person.email}` : ''}` }))]} /></div>
+            {#if !existingGuestId && !pendingInvitation}<div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Input label="First Name" bind:value={quickAddData.first_name} required disabled={quickAddSaving} />
-              <Input label="Last Name" bind:value={quickAddData.last_name} required disabled={quickAddSaving} />
+              <Input label="Last Name (optional)" bind:value={quickAddData.last_name} disabled={quickAddSaving} />
               <Input label="Phone" type="tel" bind:value={quickAddData.phone} disabled={quickAddSaving} />
-            </div>
-            <div class="mt-3 flex gap-2"><Button size="sm" onclick={handleQuickAdd} loading={quickAddSaving}>Add and check in</Button><Button size="sm" variant="ghost" onclick={() => { showQuickAdd = false; quickAddError = null; }}>Cancel</Button></div>
+            </div>{/if}
+            {#if pendingInvitation && !existingGuestId}<p class="mt-3 text-sm">{pendingInvitation.person_id ? 'This invitation is now linked. Reopen the service to load the profile.' : pendingInvitation.name_unknown ? 'Choose their existing profile above. To create a new person, add their real name in Follow-up first.' : `Create a person using the saved details for ${guestInvitationName(pendingInvitation)}.`}</p>{/if}
+            <div class="mt-3 flex gap-2"><Button size="sm" onclick={handleQuickAdd} loading={quickAddSaving} disabled={!existingGuestId && Boolean(pendingInvitation?.name_unknown || pendingInvitation?.person_id)}>Add and check in</Button><Button size="sm" variant="ghost" disabled={quickAddSaving} onclick={() => { showQuickAdd = false; quickAddError = null; }}>Cancel</Button></div>
           </div>
         {/if}
 
@@ -611,13 +655,13 @@
 
   {#snippet footer()}
     <div class="flex w-full items-center justify-between gap-3">
-      <Button variant="ghost" onclick={handleCancel} disabled={saving || uploading}>Cancel</Button>
+      <Button variant="ghost" onclick={handleCancel} disabled={saving || uploading || quickAddSaving}>Cancel</Button>
       <div class="flex gap-2">
         {#if activeStep > 1}<Button variant="secondary" onclick={() => goToStep(activeStep - 1)} disabled={saving}>Back</Button>{/if}
         {#if activeStep < 3}
           <Button onclick={() => goToStep(activeStep + 1)} disabled={saving || loadingPeople}>{activeStep === 1 ? "Continue to attendance" : "Review service"}</Button>
         {:else}
-          <Button onclick={handleSubmit} loading={saving} disabled={loadingPeople || !attendanceDataLoaded}>{mode === "edit" ? "Save service record" : "Record service"}</Button>
+          <Button onclick={handleSubmit} loading={saving} disabled={quickAddSaving || loadingPeople || !attendanceDataLoaded}>{mode === "edit" ? "Save service record" : "Record service"}</Button>
         {/if}
       </div>
     </div>

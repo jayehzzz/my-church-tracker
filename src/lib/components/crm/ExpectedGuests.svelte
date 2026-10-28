@@ -28,12 +28,21 @@
     if (result.error) { directoryError = result.error.message || 'People could not be loaded.'; return; }
     directory = result.data || [];
   }
+  function chooseExisting({ value }) {
+    const person = directory.find(person => person._id === value);
+    if (person) {
+      form.nameUnknown = false;
+      form.firstName = person.first_name || person.name;
+      form.lastName = person.last_name || '';
+      form.phone = person.phone || ''; form.email = person.email || '';
+    }
+  }
   function nameUnknownChanged(event) {
-    if (event.currentTarget.checked) { form.firstName = ''; form.lastName = ''; form.reportSource = 'inviter_report'; }
+    if (event.currentTarget.checked) { form.firstName = ''; form.lastName = ''; form.reportSource = 'inviter_report'; linkPerson = ''; }
   }
   function reviewed() { return { invitationId: editing._id || editing.id, expectedVersion: editing.version || guestInvitationVersion(editing) }; }
   async function save() {
-    if (saving) return;
+    if (saving || directoryLoading || directoryError) return;
     saving = true; error = '';
     let result;
     try {
@@ -41,10 +50,10 @@
       else if (mode === 'attendance-correction') result = await saveExpectedGuest('attendance', { ...reviewed(), attended: false, serviceId: editing.attendance_service_id, afterRemoval: form.state, changeReason });
       else {
         const args = { ...form, firstName: form.firstName.trim() || undefined, lastName: form.lastName.trim() || undefined, phone: form.phone.trim() || undefined, email: form.email.trim() || undefined, inviterId: form.inviterId || undefined, leaderId: form.leaderId || undefined, note: form.note.trim() || undefined };
-        result = await saveExpectedGuest(mode === 'create' ? 'create' : 'update', mode === 'create' ? args : { ...args, ...reviewed(), changeReason, enteredInError });
+        result = await saveExpectedGuest(mode === 'create' ? 'create' : 'update', mode === 'create' ? { ...args, ...(!form.nameUnknown ? linkPerson ? { personId: linkPerson } : { createPerson: true } : {}) } : { ...args, ...reviewed(), changeReason, enteredInError });
       }
       if (result?.error) { error = result.error.message || 'Invitation could not be saved.'; return; }
-      modalOpen = false; notice = mode === 'create' ? 'Invitation saved. No outreach activity or attendance was recorded.' : 'Invitation updated; its history is retained.';
+      modalOpen = false; notice = mode === 'create' ? form.nameUnknown ? 'Invitation saved. Add their name when known to include them in the named Sunday checklist.' : 'Guest saved to People and this Sunday’s guest list. Record who actually attended in Sunday Services.' : 'Invitation updated; its history is retained.';
       await onChanged();
     } catch (e) { error = e.message || 'Invitation could not be saved.'; }
     finally { saving = false; }
@@ -94,7 +103,7 @@
   {/if}
 </section>
 
-<Modal bind:isOpen={modalOpen} title={mode === 'create' ? 'Add expected guest' : mode === 'link' ? 'Link guest to a person' : mode === 'attendance-correction' ? 'Correct actual attendance' : 'Update guest invitation'} size="lg">
+<Modal bind:isOpen={modalOpen} title={mode === 'create' ? 'Add expected guest' : mode === 'link' ? 'Link guest to a person' : mode === 'attendance-correction' ? 'Correct actual attendance' : 'Update guest invitation'} size="lg" closable={!saving} closeOnBackdrop={!saving} closeOnEscape={!saving}>
   <form class="space-y-4" onsubmit={event => { event.preventDefault(); void save(); }}>
     {#if editing}<p class="font-medium">{editing.display_name || guestInvitationName(editing)} · {dated(editing.service_date)}</p>{/if}
     {#if directoryLoading}<p>Loading people…</p>{/if}
@@ -108,10 +117,11 @@
       <p class="text-sm">This explicitly removes the linked person's check-in from the church register for this service. If several invitations link to them, all reflect the same corrected check-in.</p>
       <label class="block text-sm">Invitation state after removal<select bind:value={form.state} class="mt-1 w-full rounded-lg border border-border bg-input p-2"><option value="coming">Coming, result pending</option><option value="no_show">Did not arrive</option><option value="cancelled">Cancelled</option></select></label>
     {:else}
-      <p class="text-sm text-muted-foreground">No outreach date, salvation, membership or first attendance will be recorded by this form.</p>
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={form.nameUnknown} disabled={Boolean(editing?.person_id)} onchange={nameUnknownChanged} />Name not known yet</label>
-      {#if !form.nameUnknown}<div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">Guest first name<input bind:value={form.firstName} maxlength="100" required class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label><label class="text-sm">Guest surname (optional)<input bind:value={form.lastName} maxlength="100" class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label></div>{/if}
-      <div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">Guest phone (optional)<input type="tel" bind:value={form.phone} class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label><label class="text-sm">Guest email (optional)<input type="email" bind:value={form.email} class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label></div>
+      <p class="text-sm text-muted-foreground">Named guests are saved to People and appear in Sunday Services for this date. “Reported coming” starts selected in a new service; tentative guests are available to select when they arrive. Attendance is recorded when you save the service.</p>
+      {#if mode === 'create'}<SearchableSelect label="Use an existing person (optional)" bind:value={linkPerson} onchange={chooseExisting} disabled={saving || directoryLoading} placeholder="Search existing people by name, phone or email" options={[{ value: '', label: 'Add a new guest' }, ...directory.filter(person => !person.blocked_reason).map(person => ({ value: person._id, label: `${person.name}${person.phone ? ` · ${person.phone}` : person.email ? ` · ${person.email}` : ''}` }))]} />{/if}
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" bind:checked={form.nameUnknown} disabled={Boolean(editing?.person_id) || Boolean(linkPerson)} onchange={nameUnknownChanged} />Name not known yet</label>
+      {#if !form.nameUnknown}<div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">Guest first name<input bind:value={form.firstName} disabled={Boolean(linkPerson)} maxlength="100" required class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label><label class="text-sm">Guest surname (optional)<input bind:value={form.lastName} disabled={Boolean(linkPerson)} maxlength="100" class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label></div>{/if}
+      <div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">Guest phone (optional)<input type="tel" bind:value={form.phone} disabled={Boolean(linkPerson)} class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label><label class="text-sm">Guest email (optional)<input type="email" bind:value={form.email} disabled={Boolean(linkPerson)} class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label></div>
       <SearchableSelect label="Inviter" bind:value={form.inviterId} placeholder="Search for the inviter" options={[{ value: '', label: 'Not recorded' }, ...directory.map(person => ({ value: person._id, label: person.name }))]} />
       <label class="block text-sm">Who reported the plan?<select bind:value={form.reportSource} disabled={form.nameUnknown} class="mt-1 w-full rounded-lg border border-border bg-input p-2"><option value="inviter_report">The inviter</option><option value="guest_report">The guest</option></select></label>
       <div class="grid gap-3 sm:grid-cols-2"><label class="text-sm">Sunday<input type="date" bind:value={form.serviceDate} required class="mt-1 w-full rounded-lg border border-border bg-input p-2" /></label><SearchableSelect label="Responsible leader (optional)" bind:value={form.leaderId} placeholder="Search leaders" options={[{ value: '', label: 'Not assigned' }, ...leaders.map(person => ({ value: person._id, label: person.name }))]} /></div>

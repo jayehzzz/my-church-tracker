@@ -3,6 +3,11 @@
   import SearchableSelect from '$lib/components/ui/SearchableSelect.svelte';
   import { personOptions } from '$lib/utils/personOptions.js';
   let inviter = $state('');
+  import ExpectedGuests from '$lib/components/crm/ExpectedGuests.svelte';
+  import { getDashboard } from '$lib/services/followUpCrmService.js';
+  let guestRows = $state([]);
+  let guestForecast = $state({});
+  async function refreshGuests() { const result = await getDashboard({ serviceDate: '2026-10-18' }); guestRows = result.data?.guest_invitations || []; guestForecast = result.data?.attendance_forecast || {}; await refresh(); }
   import ServiceForm from '$lib/components/forms/ServiceForm.svelte';
   import MeetingForm from '$lib/components/forms/MeetingForm.svelte';
   import VisitationForm from '$lib/components/forms/VisitationForm.svelte';
@@ -53,6 +58,7 @@
       {#each state.meetings as meeting}<p>Meeting {meeting.meeting_date}: total {meeting.attendance_count}, unnamed {meeting.unnamed_guests_count}</p>{/each}
       {#each state.history as item}<p>History {item.follow_up_date}: {item.notes || item.outcome}</p>{/each}
     </div>
+    <ExpectedGuests rows={guestRows} serviceDate="2026-10-18" today="2026-10-19" canManage={true} forecast={guestForecast} onChanged={refreshGuests} />
     <ServiceForm bind:isOpen={serviceOpen} service={newService ? null : {...state.services[0],id:state.services[0]._id}} serviceRecords={state.services} onsave={refresh} />
     <MeetingForm bind:isOpen={meetingOpen} people={mappedPeople} initialOneOff={true} onsave={refresh} />
     <VisitationForm bind:isOpen={careOpen} visitation={editingCare} people={mappedPeople} initialPersonId={state.ids.person} onsave={refresh} />
