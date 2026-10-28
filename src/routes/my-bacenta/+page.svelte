@@ -364,7 +364,7 @@
     {#if error}<p role="alert" class="text-sm text-destructive">{error}</p>{/if}
     <p class="text-sm text-muted-foreground">This adds a new guest and assigns their follow-up to you. If they already have a church profile, ask the owner to link them to your bacenta.</p>
     <label class="block text-sm">First name<input class="mt-1 w-full rounded-lg border border-border bg-card p-2" bind:value={newcomerFirstName} maxlength="100" required /></label>
-    <label class="block text-sm">Last name<input class="mt-1 w-full rounded-lg border border-border bg-card p-2" bind:value={newcomerLastName} maxlength="100" required /></label>
+    <label class="block text-sm">Last name (optional)<input class="mt-1 w-full rounded-lg border border-border bg-card p-2" bind:value={newcomerLastName} maxlength="100" /></label>
     <label class="block text-sm">Phone (optional)<input class="mt-1 w-full rounded-lg border border-border bg-card p-2" type="tel" bind:value={newcomerPhone} maxlength="40" /></label>
     <div class="flex justify-end gap-2"><Button type="button" variant="secondary" onclick={() => newcomerOpen = false}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Add newcomer'}</Button></div>
   </form>

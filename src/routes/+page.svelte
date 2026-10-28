@@ -26,15 +26,17 @@
   let kpiData = $state([]);
   let kpiSources = $state(null);
   let drilldown = $state(null);
+  let chartServiceType = $state("all");
   let memberDrilldown = $state(false);
   let pendingSnapshot = null;
-  export const snapshot = { capture: () => { const token = `dashboard-${crypto.randomUUID()}`; saveDomainReturn(token, { drilldown, memberDrilldown, range: [$dateRange.startDate, $dateRange.endDate] }); return { token }; }, restore: value => { pendingSnapshot = value?.token ? takeDomainReturn(value.token) : null; if (pendingSnapshot && !loading) restoreSnapshot(); } };
+  export const snapshot = { capture: () => { const token = `dashboard-${crypto.randomUUID()}`; saveDomainReturn(token, { drilldown, memberDrilldown, chartServiceType, range: [$dateRange.startDate, $dateRange.endDate] }); return { token }; }, restore: value => { pendingSnapshot = value?.token ? takeDomainReturn(value.token) : null; if (pendingSnapshot && !loading) restoreSnapshot(); } };
   function restoreSnapshot() {
     const frame = pendingSnapshot;
     pendingSnapshot = null;
     if (!frame || frame.range[0] !== $dateRange.startDate || frame.range[1] !== $dateRange.endDate) return;
     drilldown = frame.drilldown;
     memberDrilldown = Boolean(frame.memberDrilldown);
+    chartServiceType = frame.chartServiceType || "all";
   }
   function openDashboardMetric(metricKey, services, mode = "total", label = $dateRange.label) {
     const selection = periodServiceSelection(metricKey, services, { mode, range: $dateRange });
@@ -58,8 +60,15 @@
   let error = $state("");
   let dashboardRequest = 0;
 
+  const chartServices = $derived(attendanceChart.data.filter(point => {
+    const type = point.service?.service_type || 'sunday_service';
+    if (chartServiceType === 'special') return ['special_service', 'easter_service', 'christmas_service'].includes(type);
+    if (chartServiceType === 'sunday') return type === 'sunday' || type.includes('sunday');
+    if (chartServiceType === 'midweek') return type === 'midweek_service';
+    return true;
+  }));
   const attendanceTrendData = $derived(
-    attendanceChart.data.map((point) => ({
+    chartServices.map((point) => ({
       date: point.date || point.key,
       total: Number(point.attendance) || 0,
       guests: Number(point.guests) || 0,
@@ -67,7 +76,7 @@
       decisions: Number(point.decisions) || 0,
       tithers: Number(point.tithers) || 0,
       id: point.id || point.service_id || "",
-      topic: point.service?.sermon_topic,
+      topic: [point.service?.sermon_topic, point.service?.service_type?.replaceAll("_", " ")].filter(Boolean).join(" · "),
     })),
   );
 
@@ -253,10 +262,18 @@
             {#snippet filters()}
               <FilterBar compact />
             {/snippet}
+            <div class="mb-3 space-y-2 px-1">
+              <label class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">Services shown
+                <select bind:value={chartServiceType} class="rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground">
+                  <option value="all">All completed services</option><option value="sunday">Sunday services</option><option value="special">Special services (including Easter and Christmas)</option><option value="midweek">Midweek services</option>
+                </select>
+              </label>
+              <p class="text-xs text-muted-foreground">Includes Sunday, special, Easter, Christmas and midweek services. Choose a type to compare its attendance over time.</p>
+            </div>
             <AttendanceTrend
               data={attendanceTrendData}
               title="Attendance & non-member visits"
-              itemLabel={attendanceChart.isFallback ? "recent Sundays" : "periods"}
+              itemLabel={attendanceChart.isFallback ? "recent services" : "services"}
               periodLabel={attendanceChart.contextLabel}
               comparisonOptions={[
                 { key: "guests", label: "Non-member visits (both groups)", color: "warning" },

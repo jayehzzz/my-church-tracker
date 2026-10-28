@@ -46,11 +46,35 @@ async function invitationFields(ctx: MutationCtx, args: any) {
     };
 }
 
+// Creation and linking share the same duplicate/restriction checks and transaction.
+async function resolvePerson(ctx: MutationCtx, row: { person_id?: Id<"people">; name_unknown: boolean; first_name?: string; last_name?: string; phone?: string; email?: string; inviter_id?: Id<"people">; service_date: string }, existingPersonId?: Id<"people">, createPerson?: boolean) {
+    let personId = existingPersonId;
+    if (createPerson) {
+        if (row.person_id) throw new Error("This invitation is already linked. Choose an existing person to correct the link");
+        if (row.name_unknown || !row.first_name) throw new Error("Add the guest's real name before creating a person");
+        const all = await ctx.db.query("people").collect();
+        if (all.some(person => person.member_status !== "archived" && ((normalizeEmail(row.email) && normalizeEmail(row.email) === normalizeEmail(person.email)) || (normalizePhone(row.phone) && normalizePhone(row.phone) === normalizePhone(person.phone))))) throw new Error("An existing person has matching contact details. Review and link that person instead");
+        const at = new Date().toISOString();
+        personId = await ctx.db.insert("people", { first_name: row.first_name, last_name: row.last_name || "", surname_status: row.last_name ? "known" : "missing", phone: row.phone, email: row.email, invited_by_id: row.inviter_id, member_status: "guest", created_at: at, updated_at: at });
+    }
+    const person = await identity(ctx, personId!);
+    if (person._id === row.inviter_id) throw new Error("The guest cannot be their own inviter");
+    if (person.contact_category === "do_not_contact" || person.is_paused) throw new Error("Follow-up is restricted for this person. Use the existing correction/reactivation workflow");
+    const event = (await personGatherings(ctx, person._id)).find(event => event.sunday && event.date === row.service_date);
+    return { person, event };
+}
+
 export const create = mutationFor("expectedGuests:create")({
-    args: fields,
+    args: { ...fields, personId: v.optional(v.id("people")), createPerson: v.optional(v.boolean()) },
     handler: async (ctx, args) => {
         if (!["tentative", "coming"].includes(args.state)) throw new Error("Add an invitation as tentative or coming");
-        const data = await invitationFields(ctx, args);
+        let data = { ...await invitationFields(ctx, args) } as Awaited<ReturnType<typeof invitationFields>> & { person_id?: Id<"people">; attendance_service_id?: Id<"services"> };
+        if (args.personId && args.createPerson) throw new Error("Choose an existing person or explicitly create one");
+        if (args.nameUnknown && (args.personId || args.createPerson)) throw new Error("Add the guest's real name before linking a person");
+        if (args.personId || args.createPerson) {
+            const { person, event } = await resolvePerson(ctx, data, args.personId, args.createPerson);
+            data = { ...data, person_id: person._id, first_name: person.first_name, last_name: person.last_name || undefined, attendance_service_id: event?.serviceId };
+        }
         const previous = args.inviterId ? await ctx.db.query("guest_invitations").withIndex("by_inviter", q => q.eq("inviter_id", args.inviterId)).collect() : [];
         const friendNumber = Math.max(0, ...previous.filter(row => row.service_date === args.serviceDate).map(row => row.friend_number)) + 1;
         const at = new Date().toISOString();
@@ -86,19 +110,7 @@ export const link = mutationFor("expectedGuests:link")({
         if (row.entered_in_error) throw new Error("Correct the invalidated invitation before linking it");
         if (row.attendance_service_id) throw new Error("Correct actual attendance before changing the linked person");
         if (Boolean(args.personId) === Boolean(args.createPerson)) throw new Error("Choose an existing person or explicitly create one");
-        let personId = args.personId;
-        if (args.createPerson) {
-            if (row.person_id) throw new Error("This invitation is already linked. Choose an existing person to correct the link");
-            if (row.name_unknown || !row.first_name) throw new Error("Add the guest's real name before creating a person");
-            const all = await ctx.db.query("people").collect();
-            if (all.some(person => person.member_status !== "archived" && ((normalizeEmail(row.email) && normalizeEmail(row.email) === normalizeEmail(person.email)) || (normalizePhone(row.phone) && normalizePhone(row.phone) === normalizePhone(person.phone))))) throw new Error("An existing person has matching contact details. Review and link that person instead");
-            const at = new Date().toISOString();
-            personId = await ctx.db.insert("people", { first_name: row.first_name, last_name: row.last_name || "", surname_status: row.last_name ? "known" : "missing", phone: row.phone, email: row.email, invited_by_id: row.inviter_id, member_status: "guest", created_at: at, updated_at: at });
-        }
-        const person = await identity(ctx, personId!);
-        if (person._id === row.inviter_id) throw new Error("The guest cannot be their own inviter");
-        if (person.contact_category === "do_not_contact" || person.is_paused) throw new Error("Follow-up is restricted for this person. Use the existing correction/reactivation workflow");
-        const event = (await personGatherings(ctx, person._id)).find(event => event.sunday && event.date === row.service_date);
+        const { person, event } = await resolvePerson(ctx, row, args.personId, args.createPerson);
         return await changeInvitation(ctx, row, { person_id: person._id, name_unknown: false, first_name: person.first_name, last_name: person.last_name || undefined, attendance_service_id: event?.serviceId }, args.createPerson ? "known_person_created_and_linked" : "existing_person_linked", changeReason, authenticatedUser(ctx)._id);
     },
 });

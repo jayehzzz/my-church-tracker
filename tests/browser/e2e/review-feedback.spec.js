@@ -1,0 +1,24 @@
+import { expect, test } from '@playwright/test';
+test('non-member totals open people, and the matrix distinguishes absence from a confirmed no-show', async ({ page }) => {
+  await page.goto('/tests/browser/task04/?fixture=review-feedback');
+  const present = page.getByRole('button', { name: 'Practice Member was here on Sun, 6 Sept 2026' });
+  const noShow = page.getByRole('button', { name: 'Practice Member said yes but did not attend Sun, 13 Sept 2026' });
+  const absent = page.getByRole('button', { name: 'Practice Member missed Sun, 20 Sept 2026' });
+  await expect(present).toHaveText('✓');
+  await expect(noShow).toHaveText('!');
+  await expect(absent).toHaveText('×');
+  await page.getByRole('button', { name: 'Open Practice Member attendance summary' }).click();
+  const history = page.getByRole('dialog', { name: 'Practice Member · Sunday attendance' });
+  await expect(history.getByText('Absent from register', { exact: true })).toBeVisible();
+  await history.getByRole('button', { name: 'Said yes · did not attend', exact: true }).click();
+  await expect(history.getByText('Sun, 13 Sept 2026', { exact: true })).toBeVisible();
+  await expect(history.getByText('Sun, 20 Sept 2026', { exact: true })).toHaveCount(0);
+  await history.getByRole('button', { name: 'Close modal' }).click();
+  await page.getByRole('button', { name: 'Inspect non-member people' }).click();
+  const guests = page.getByRole('dialog', { name: 'Non-member visits', exact: true });
+  await expect(guests.getByText('Practice Guest', { exact: true })).toBeVisible();
+  await expect(guests.getByText('Visits: 2', { exact: true })).toBeVisible();
+  await expect(guests.getByText('1 visit has no available linked name. These visits remain in the total.')).toBeVisible();
+  await guests.getByRole('button', { name: 'View profile', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Opened profile: guest');
+});

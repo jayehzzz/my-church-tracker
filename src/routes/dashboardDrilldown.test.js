@@ -43,3 +43,18 @@ it('opens the dashboard average from its exact Sunday sources and restores it af
   expect(returned.getByRole('dialog')).toHaveTextContent('2 services included');
   expect(returned.getByRole('dialog')).toHaveTextContent('Non-member visits: 1');
 }, 15000);
+
+it('can show special services on their own without dropping their source records', async () => {
+  services.push({ id: 'special', service_type: 'special_service', service_date: '2026-09-16', total_attendance: 20, guests_count: 4, sermon_topic: 'Practice Special Wednesday' });
+  try {
+    const { default: Page } = await import('./+page.svelte');
+    const view = render(Page);
+    await waitFor(() => expect(view.getByRole('combobox', { name: /Services shown/ })).toBeInTheDocument());
+    await fireEvent.change(view.getByRole('combobox', { name: /Services shown/ }), { target: { value: 'special' } });
+    await fireEvent.click(view.getByRole('button', { name: 'View 2026-09-16 details' }));
+    expect(view.getByRole('dialog')).toHaveTextContent('20 across 1 services');
+    expect(view.getByRole('dialog')).toHaveTextContent('Practice Special Wednesday');
+    expect(view.getByRole('dialog')).not.toHaveTextContent('First Sunday');
+    expect(view.getByRole('dialog')).not.toHaveTextContent('Second Sunday');
+  } finally { services.pop(); }
+});

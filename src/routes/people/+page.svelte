@@ -34,7 +34,7 @@
   let error = $state(getDataSource() === "unavailable" ? getConfigurationError() : null);
 
   // Filter state
-  let statusFilter = $state("all");
+  let statusFilter = $state("church_family");
   let roleFilter = $state("all");
   let activityFilter = $state("all");
   let peopleComparison = $state(null);

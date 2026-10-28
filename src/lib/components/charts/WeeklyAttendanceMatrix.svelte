@@ -4,6 +4,8 @@
 -->
 
 <script>
+  import { weeklyAttendanceStatus, isAttendanceAbsence } from "$lib/utils/weeklyAttendance.js";
+  import { isCompletedService } from "$lib/utils/reportingMetrics.js";
   import { goto } from "$app/navigation";
   import { Modal } from "$lib/components/ui";
   import SundayReliabilitySummary from "$lib/components/shared/SundayReliabilitySummary.svelte";
@@ -108,30 +110,15 @@
     return ["member", "leader"].includes(person?.member_status);
   }
 
-  function wasExpected(person, serviceDate) {
-    return commitmentsForPerson(person).some((commitment) =>
-      commitment.gathering_type === "sunday_service"
-      && commitment.gathering_date === serviceDate
-      && commitment.response === "yes"
-      && commitment.resolution === "no_show");
-  }
-
   function statusForPerson(person, service) {
-    const personId = recordId(person);
-    const attendeeIds = new Set(
-      (service.individuals || []).map((attendee) => recordId(attendee)),
-    );
-    return {
-      state: attendeeIds.has(personId) ? "present" : wasExpected(person, service.service_date) ? "missed" : "not-expected",
-      service,
-    };
+    return weeklyAttendanceStatus(person, service, services, commitments);
   }
 
   const allRecentServices = $derived(() =>
     (services || [])
       .filter(
         (service) =>
-          isSundayService(service) &&
+          isSundayService(service) && isCompletedService(service) &&
           Array.isArray(service?.individuals) &&
           service.individuals.length > 0,
       )
@@ -186,7 +173,7 @@
       .map((person) => {
         const statuses = serviceList.map((service) => statusForPerson(person, service));
         const missedCount = statuses.filter(
-          (status) => status.state === "missed",
+          (status) => isAttendanceAbsence(status),
         ).length;
         const expectedCount = statuses.filter(
           (status) => status.state !== "not-expected",
@@ -203,6 +190,7 @@
         return false;
       }
       if (attendanceFilter === "missing") return row.missedCount > 0;
+      if (attendanceFilter === "no-show") return row.statuses.some(status => status.state === "no-show");
       if (attendanceFilter === "repeated") return row.missedCount > 1;
       if (attendanceFilter === "present") return row.expectedCount > 0 && row.missedCount === 0;
       return true;
@@ -297,6 +285,7 @@
     const name = fullName(person);
     const date = formatFullDate(status.service.service_date);
     if (status.state === "present") return `${name} was here on ${date}`;
+    if (status.state === "no-show") return `${name} said yes but did not attend ${date}`;
     if (status.state === "missed") return `${name} missed ${date}`;
     return `No attendance result recorded for ${name} on ${date}`;
   }
@@ -318,7 +307,7 @@
       if (Number.isFinite(count)) statuses = statuses.slice(-count);
     }
     if (modalAttendanceFilter !== "all") {
-      statuses = statuses.filter((status) => status.state === modalAttendanceFilter);
+      statuses = statuses.filter((status) => modalAttendanceFilter === "missed" ? isAttendanceAbsence(status) : status.state === modalAttendanceFilter);
     }
     return statuses;
   });
@@ -327,7 +316,7 @@
     const statuses = modalStatuses();
     const expectedStatuses = statuses.filter((status) => status.state !== "not-expected");
     const attended = expectedStatuses.filter((status) => status.state === "present").length;
-    const missed = expectedStatuses.filter((status) => status.state === "missed").length;
+    const missed = expectedStatuses.filter(isAttendanceAbsence).length;
     const lastAttended = [...statuses].reverse().find((status) => status.state === "present")?.service || null;
     return {
       attended,
@@ -353,7 +342,7 @@
   });
 
   function attendanceScopeNote() {
-    return "Only recorded visits and resolved Sunday confirmations count here. A blank register does not establish that someone missed church.";
+    return "× means absent from a named register after membership or attendance tracking began. ! means a recorded yes was resolved as a no-show. A dash is before tracking began or has no usable result. Incomplete registers can omit someone who attended; correct the service register when needed. Promise reliability uses only explicit Sunday confirmations.";
   }
 
   function openProfile(person, event) {
@@ -462,13 +451,15 @@
         </label>
         <span>{recordedServiceLabel()}</span>
         <span class="inline-flex items-center gap-1.5">
-          <span class="h-2.5 w-2.5 rounded-sm bg-success" aria-hidden="true"></span>
+          <span class="font-bold text-success" aria-hidden="true">✓</span>
           Here
         </span>
         <span class="inline-flex items-center gap-1.5">
-          <span class="h-2.5 w-2.5 rounded-sm bg-destructive" aria-hidden="true"></span>
-          Missed
+          <span class="font-bold text-destructive" aria-hidden="true">×</span>
+          Absent from register
         </span>
+        <span class="inline-flex items-center gap-1.5"><span class="font-bold text-warning" aria-hidden="true">!</span>Said yes · did not attend</span>
+        <span class="inline-flex items-center gap-1.5"><span aria-hidden="true">–</span>Before tracking / no result</span>
         {#if selectedSunday === "all" && periodServices().length > visibleServiceCount}
           <div class="flex items-center overflow-hidden rounded-lg border border-border bg-secondary/20">
             <button
@@ -540,6 +531,7 @@
             {#if selectedSunday === "all"}
               <option value="repeated">Repeated misses</option>
             {/if}
+            <option value="no-show">Said yes · did not attend</option>
             <option value="present">{selectedSunday === "all" ? "Perfect attendance" : "Here"}</option>
           </select>
         </label>
@@ -594,7 +586,7 @@
               <th scope="col" style="left: -16px; width: 256px; min-width: 256px;" class="sticky top-0 z-50 bg-card px-6 py-3 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground shadow-[10px_0_14px_-12px_hsl(var(--foreground)/.9)]">
                 Person
               </th>
-              {#each selectedServices() as service (service.id)}
+              {#each selectedServices() as service (recordId(service))}
                 {@const columnDate = formatColumnDate(service.service_date)}
                 <th scope="col" style="width: {serviceColumnWidth}px; min-width: {serviceColumnWidth}px;" class="sticky top-0 z-40 bg-card px-1 py-3 text-center text-[11px] font-medium text-muted-foreground">
                   <span class="block text-foreground">{columnDate.day}</span>
@@ -607,7 +599,7 @@
             </tr>
           </thead>
           <tbody>
-            {#each visibleRows() as row (row.person.id)}
+            {#each visibleRows() as row (recordId(row.person))}
               <tr
                 class="group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
                 tabindex="0"
@@ -646,7 +638,7 @@
                     </span>
                   </button>
                 </th>
-                {#each row.statuses as status (status.service.id)}
+                {#each row.statuses as status (recordId(status.service))}
                   <td style="width: {serviceColumnWidth}px;" class="bg-card px-1 py-1.5 text-center group-hover:bg-card-elevated">
                     <button
                       type="button"
@@ -654,10 +646,10 @@
                         event.stopPropagation();
                         onServiceClick?.(status.service, row.person, row.statuses);
                       }}
-                      class="mx-auto flex h-9 w-9 items-center justify-center rounded-lg text-sm font-semibold transition-all {onServiceClick ? 'cursor-pointer hover:scale-105' : 'cursor-default'} {status.state === 'present' ? 'bg-success/10 text-success hover:bg-success/20' : status.state === 'missed' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20' : 'bg-secondary/40 text-muted-foreground'}"
+                      class="mx-auto flex h-9 w-9 items-center justify-center rounded-lg text-sm font-semibold transition-all {onServiceClick ? 'cursor-pointer hover:scale-105' : 'cursor-default'} {status.state === 'present' ? 'bg-success/10 text-success hover:bg-success/20' : status.state === 'no-show' ? 'bg-warning/10 text-warning hover:bg-warning/20' : status.state === 'missed' ? 'bg-destructive/10 text-destructive hover:bg-destructive/20' : 'bg-secondary/40 text-muted-foreground'}"
                       aria-label={statusLabel(status, row.person)}
                     >
-                      {status.state === "present" ? "✓" : status.state === "missed" ? "×" : "–"}
+                      {status.state === "present" ? "✓" : status.state === "no-show" ? "!" : status.state === "missed" ? "×" : "–"}
                     </button>
                   </td>
                 {/each}
@@ -739,7 +731,7 @@
             </select>
           </label>
           <div class="flex overflow-hidden rounded-md border border-border bg-card" aria-label="Modal attendance status filter">
-            {#each [["all", "All"], ["present", "Here"], ["missed", "Missed"]] as option}
+            {#each [["all", "All"], ["present", "Here"], ["missed", "Missed"], ["no-show", "Said yes · did not attend"]] as option}
               <button
                 type="button"
                 aria-pressed={modalAttendanceFilter === option[0]}
@@ -754,10 +746,10 @@
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-success">{modalSummary().attended}</p><p class="text-xs text-muted-foreground">Sundays here</p></div>
         <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-destructive">{modalSummary().missed}</p><p class="text-xs text-muted-foreground">Sundays missed</p></div>
-        <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-primary">{modalSummary().rate}%</p><p class="text-xs text-muted-foreground">Recorded result rate</p></div>
+        <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-primary">{modalSummary().rate}%</p><p class="text-xs text-muted-foreground">Register attendance rate</p></div>
         <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-foreground">{modalSummary().expected}</p><p class="text-xs text-muted-foreground">Sundays with results</p></div>
         <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-foreground">{modalSummary().lastAttended ? formatCompactDate(modalSummary().lastAttended.service_date) : "—"}</p><p class="text-xs text-muted-foreground">Last Sunday attended</p></div>
-        <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-success">{selectedAttendanceRow.recentPresentCount}/{selectedAttendanceRow.recentExpectedCount}</p><p class="text-xs text-muted-foreground">Resolved results in last 4 Sundays</p></div>
+        <div class="rounded-xl border border-border bg-secondary/15 p-3"><p class="text-xl font-bold text-success">{selectedAttendanceRow.recentPresentCount}/{selectedAttendanceRow.recentExpectedCount}</p><p class="text-xs text-muted-foreground">Register results in last 4 Sundays</p></div>
       </div>
 
       {#if commitmentsUnavailable}
@@ -775,7 +767,7 @@
       <div>
         <h4 class="mb-2 text-sm font-semibold text-foreground">Sunday-by-Sunday history</h4>
         <div class="max-h-64 divide-y divide-border overflow-y-auto rounded-xl border border-border">
-          {#each [...modalStatuses()].reverse() as status (status.service.id)}
+          {#each [...modalStatuses()].reverse() as status (recordId(status.service))}
             <button
               type="button"
               class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-secondary/30"
@@ -785,8 +777,8 @@
               }}
             >
               <span class="text-sm text-foreground">{formatFullDate(status.service.service_date)}</span>
-              <span class="rounded-full px-2 py-1 text-xs font-semibold {status.state === 'present' ? 'bg-success/10 text-success' : status.state === 'missed' ? 'bg-destructive/10 text-destructive' : 'bg-secondary text-muted-foreground'}">
-                {status.state === "present" ? "Here" : status.state === "missed" ? "Missed after saying yes" : "No result recorded"}
+              <span class="rounded-full px-2 py-1 text-xs font-semibold {status.state === 'present' ? 'bg-success/10 text-success' : status.state === 'no-show' ? 'bg-warning/10 text-warning' : status.state === 'missed' ? 'bg-destructive/10 text-destructive' : 'bg-secondary text-muted-foreground'}">
+                {status.state === "present" ? "Here" : status.state === "no-show" ? "Said yes · did not attend" : status.state === "missed" ? "Absent from register" : "Before tracking / no result"}
               </span>
             </button>
           {:else}

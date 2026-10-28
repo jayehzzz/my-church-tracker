@@ -54,3 +54,19 @@ export function namedServicePeople(service, metricKey, attendance = [], people =
     }
   }).filter(item => item.person);
 }
+
+/** One person per row, retaining each contributing service visit for reconciliation. */
+export function selectServicePeople(services, choice, attendance = [], people = []) {
+  const result = selectServiceContributions(services, choice, attendance, people);
+  const byPerson = new Map();
+  for (const { service } of result.rows) {
+    for (const item of namedServicePeople(service, choice.metricKey, attendance, people)) {
+      if (!byPerson.has(item.id)) byPerson.set(item.id, { ...item, services: [] });
+      byPerson.get(item.id).services.push(service);
+    }
+  }
+  const rows = [...byPerson.values()].sort((a, b) =>
+    [a.person.first_name, a.person.last_name].filter(Boolean).join(' ').localeCompare([b.person.first_name, b.person.last_name].filter(Boolean).join(' ')));
+  const namedVisits = rows.reduce((sum, row) => sum + row.services.length, 0);
+  return { ...result, people: rows, namedVisits, unlinkedVisits: Math.max(0, result.total - namedVisits) };
+}

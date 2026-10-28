@@ -42,10 +42,10 @@ describe('service dialog interaction', () => {
       { service: services[0], state: 'present' }, { service: services[1], state: 'missed' }
     ] });
     const ui = render(ServiceDrilldown, { state, services, attendance: [], people: [] });
-    expect(ui.getByText('Missed')).toBeDefined();
+    expect(ui.getByText('Absent from register')).toBeDefined();
     await fireEvent.click(ui.getAllByRole('button', { name: 'View service' })[1]);
     await fireEvent.click(ui.getByRole('button', { name: 'Back to previous details' }));
-    expect(ui.getByText('Missed')).toBeDefined();
+    expect(ui.getByText('Absent from register')).toBeDefined();
     expect(document.activeElement).toBe(ui.getAllByRole('button', { name: 'View service' })[1]);
   });
   it('focuses the dialog content when Back reaches a root with no saved trigger', async () => {
@@ -54,4 +54,20 @@ describe('service dialog interaction', () => {
     await fireEvent.click(ui.getByRole('button', { name: 'Back to previous details' }));
     expect(document.activeElement).toBe(ui.getByRole('dialog').querySelector('[data-drilldown-scroll]'));
   });
+});
+
+it('opens non-member totals as distinct people with visit counts, dates and profile actions', async () => {
+  const onprofile = vi.fn();
+  const guest = { id: 'guest', first_name: 'Practice Ama', member_status: 'guest' };
+  const attendance = services.map(service => ({ service_id: service.id, person_id: guest.id, first_timer: false }));
+  const guestServices = services.map((service, index) => ({ ...service, guests_count: index === 0 ? 2 : 1 }));
+  const selection = periodServiceSelection('guests', guestServices);
+  const ui = render(ServiceDrilldown, { state: openDrilldown({ kind: 'selection', title: 'Non-member visits', selection }), services: guestServices, attendance, people: [guest], onprofile });
+  expect(ui.getByText('Practice Ama')).toBeDefined();
+  expect(ui.getByText('1 named person · 2 linked visits')).toBeDefined();
+  expect(ui.getByText('Visits: 2')).toBeDefined();
+  expect(ui.getByText(/6 September 2026 · Morning gathering; 13 September 2026 · Second gathering/)).toBeDefined();
+  expect(ui.getByText('1 visit has no available linked name. These visits remain in the total.')).toBeDefined();
+  await fireEvent.click(ui.getByRole('button', { name: 'View profile' }));
+  expect(onprofile).toHaveBeenCalledWith('guest', expect.any(Object));
 });

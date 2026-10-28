@@ -3,15 +3,16 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import ServiceForm from './ServiceForm.svelte';
 import { suggestedSundayDate } from '$lib/utils/serviceRecording.js';
 import * as followUpCrm from '$lib/services/followUpCrmService.js';
+import * as peopleService from '$lib/services/peopleService';
 import * as attendance from '$lib/services/attendanceService';
 import * as services from '$lib/services/servicesService';
 import * as templates from '$lib/services/serviceTemplatesService.js';
 
 vi.mock('svelte/transition', () => ({ fade: () => ({}), fly: () => ({}), scale: () => ({}) }));
-vi.mock('$lib/services/followUpCrmService.js', () => ({ getDashboard: vi.fn() }));
+vi.mock('$lib/services/followUpCrmService.js', () => ({ getDashboard: vi.fn(), saveExpectedGuest: vi.fn() }));
 vi.mock('$lib/services/servicesService', () => ({ record: vi.fn() }));
 vi.mock('$lib/services/serviceTemplatesService.js', () => ({ get: vi.fn() }));
-vi.mock('$lib/services/peopleService', () => ({ getAll: vi.fn(async () => ({ data: [{ id: 'usual', first_name: 'Usual', last_name: 'Guest', member_status: 'guest' }, { id: 'other', first_name: 'Other', last_name: 'Member', member_status: 'member' }] })) }));
+vi.mock('$lib/services/peopleService', () => ({ create: vi.fn(), findDuplicates: vi.fn(async () => ({ data: [] })), getAll: vi.fn(async () => ({ data: [{ id: 'usual', first_name: 'Usual', last_name: 'Guest', member_status: 'guest' }, { id: 'other', first_name: 'Other', last_name: 'Member', member_status: 'member' }] })) }));
 vi.mock('$lib/services/attendanceService', () => ({ getAttendanceHistory: vi.fn(async () => ({ data: {} })), getByService: vi.fn(async () => ({ data: [] })) }));
 afterEach(cleanup);
 beforeEach(() => {
@@ -92,10 +93,11 @@ it('preselects the confirmed checklist, allows unticking, and saves only the fin
 
 it('preserves saved actual check-ins when editing instead of applying Sunday confirmations', async () => {
   attendance.getByService.mockResolvedValue({ data: [{ person_id: 'other', gave_tithe: true }] });
+  followUpCrm.getDashboard.mockResolvedValue({ data: { attendance_forecast: { expected_person_ids: ['usual'] } } });
   const view = render(ServiceForm, { isOpen: true, service: { id: 'existing', service_date: '2026-10-11', total_attendance: 1, guests_count: 0, tithers_count: 1 } });
   await fireEvent.click(view.getByRole('button', { name: /2 Attendance/ }));
   expect(await view.findByRole('button', { name: 'Other Member Member' })).toHaveAttribute('aria-pressed', 'true');
-  expect(followUpCrm.getDashboard).not.toHaveBeenCalled();
+  expect(followUpCrm.getDashboard).toHaveBeenCalledWith({ serviceDate: '2026-10-11' });
   expect(view.queryByRole('button', { name: 'Confirmed (0)' })).not.toBeInTheDocument();
   await fireEvent.click(view.getByRole('button', { name: 'Review service', exact: true }));
   await fireEvent.click(view.getByRole('button', { name: 'Save service record', exact: true }));
@@ -150,4 +152,71 @@ it('blocks saving when existing attendance fails to load and supports retry', as
   expect(services.record).not.toHaveBeenCalled();
   await fireEvent.click(view.getByRole('button', { name: 'Retry attendance' }));
   expect(await view.findByRole('button', { name: 'Other Member Member' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+async function openAttendance() {
+  const view = render(ServiceForm, { isOpen: true });
+  await waitFor(() => expect(view.queryByText('Loading Sunday defaults…')).not.toBeInTheDocument());
+  await fireEvent.click(view.getByRole('button', { name: /2 Attendance/ }));
+  await waitFor(() => expect(view.getByRole('button', { name: 'Review service', exact: true })).toBeEnabled());
+  return view;
+}
+
+it('finds guests across filters and clears a previous search when adding a first-name-only guest', async () => {
+  peopleService.create.mockResolvedValue({ data: { id: 'new', first_name: 'Nia', last_name: '', member_status: 'guest' } });
+  const view = await openAttendance();
+  await fireEvent.click(view.getByRole('button', { name: 'Members', exact: true }));
+  await fireEvent.input(view.getByLabelText('Search all people'), { target: { value: 'Usual' } });
+  expect(view.getByRole('button', { name: 'Usual Guest Non-member profile' })).toBeInTheDocument();
+  await fireEvent.click(view.getByRole('button', { name: '+ Add first timer', exact: true }));
+  expect(view.getByLabelText('Last Name (optional)')).not.toBeRequired();
+  await fireEvent.input(view.getByLabelText(/First Name/), { target: { value: 'Nia' } });
+  await fireEvent.click(view.getByRole('button', { name: 'Add and check in', exact: true }));
+  expect(await view.findByRole('button', { name: 'Nia Non-member profile' })).toHaveAttribute('aria-pressed', 'true');
+  expect(view.getByLabelText('Search all people')).toHaveValue('');
+  expect(peopleService.create).toHaveBeenCalledWith(expect.objectContaining({ first_name: 'Nia', last_name: '', surname_status: 'missing' }));
+  expect(services.record).not.toHaveBeenCalled();
+});
+
+it('brings an older named invitation onto the checklist without recording attendance or losing selections', async () => {
+  followUpCrm.getDashboard.mockResolvedValue({ data: { attendance_forecast: { expected_person_ids: ['other'] }, guest_invitations: [{ _id: 'invite', version: '0:stamp', first_name: 'Ama', name_unknown: false, state: 'coming' }] } });
+  followUpCrm.saveExpectedGuest.mockResolvedValue({ data: { _id: 'invite', person_id: 'linked', first_name: 'Ama', state: 'coming' } });
+  const view = await openAttendance();
+  await fireEvent.click(view.getByRole('button', { name: 'Guests from Follow-up (1)' }));
+  await fireEvent.click(view.getByRole('button', { name: 'Add to checklist' }));
+  await fireEvent.click(view.getByRole('button', { name: 'Add and check in', exact: true }));
+  expect(await view.findByRole('button', { name: 'Ama Non-member profile' })).toHaveAttribute('aria-pressed', 'true');
+  expect(view.getByRole('button', { name: 'Other Member Member' })).toHaveAttribute('aria-pressed', 'true');
+  expect(followUpCrm.saveExpectedGuest).toHaveBeenCalledWith('link', expect.objectContaining({ invitationId: 'invite', expectedVersion: '0:stamp', createPerson: true }));
+  expect(services.record).not.toHaveBeenCalled();
+});
+
+it('retains an invitation linking failure for retry without a duplicate creation or check-in', async () => {
+  followUpCrm.getDashboard.mockResolvedValue({ data: { attendance_forecast: { expected_person_ids: [] }, guest_invitations: [{ _id: 'invite', version: '0:stamp', first_name: 'Ama', name_unknown: false, state: 'tentative' }] } });
+  followUpCrm.saveExpectedGuest.mockResolvedValue({ error: new Error('Invitation changed. Reload before saving') });
+  const view = await openAttendance();
+  await fireEvent.click(view.getByRole('button', { name: 'Add to checklist' }));
+  await fireEvent.click(view.getByRole('button', { name: 'Add and check in', exact: true }));
+  expect(await view.findByRole('alert')).toHaveTextContent('Invitation changed');
+  expect(peopleService.create).not.toHaveBeenCalled();
+  expect(services.record).not.toHaveBeenCalled();
+});
+
+it('shows tentative guests for the chosen Sunday without preselecting them', async () => {
+  followUpCrm.getDashboard.mockResolvedValue({ data: { attendance_forecast: { expected_person_ids: [] }, guest_invitations: [{ _id: 'tentative', person_id: 'usual', state: 'tentative' }] } });
+  const view = await openAttendance();
+  expect(view.getByRole('button', { name: 'Guests from Follow-up (1)' })).toBeInTheDocument();
+  expect(view.getByRole('button', { name: 'Usual Guest Non-member profile' })).toHaveAttribute('aria-pressed', 'false');
+});
+
+it('loads saved attendance even when the directory returns no people', async () => {
+  peopleService.getAll.mockResolvedValueOnce({ data: [] });
+  attendance.getByService.mockResolvedValue({ data: [{ person_id: 'saved-person' }] });
+  const view = render(ServiceForm, { isOpen: true, service: { id: 'existing', service_date: '2026-10-11' } });
+  await fireEvent.click(view.getByRole('button', { name: /2 Attendance/ }));
+  await waitFor(() => expect(view.getByRole('button', { name: 'Review service', exact: true })).toBeEnabled());
+  expect(attendance.getByService).toHaveBeenCalledWith('existing');
+  await fireEvent.click(view.getByRole('button', { name: 'Review service', exact: true }));
+  await fireEvent.click(view.getByRole('button', { name: 'Save service record', exact: true }));
+  await waitFor(() => expect(services.record).toHaveBeenCalledWith(expect.objectContaining({ attendanceData: [expect.objectContaining({ person_id: 'saved-person' })] })));
 });

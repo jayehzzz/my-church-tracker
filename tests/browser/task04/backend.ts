@@ -1,6 +1,14 @@
 import { convexTest } from 'convex-test';
 import schema from '../../../convex/schema';
 const modules = import.meta.glob(['../../../convex/**/*.ts', '!../../../convex/**/*.test.ts']);
+// Keep guest-entry checks separate from the existing attendance/care scenario.
+const fixtures = new Map<string, ReturnType<typeof createFixture>>();
+export async function request(input: any) {
+  const key = input.fixtureId || 'default';
+  if (!fixtures.has(key)) fixtures.set(key, createFixture());
+  return fixtures.get(key)!(input);
+}
+function createFixture() {
 const t = convexTest(schema, modules);
 const owner = t.withIdentity({ tokenIdentifier: 'https://browser-fixture.example|owner', issuer: 'https://browser-fixture.example', subject: 'owner' });
 const stamp = '2026-08-01T12:00:00Z';
@@ -25,9 +33,12 @@ async function initializeFixture() {
   await owner.mutation(api.crm.recordCommitment, {personId:ids.leader, leaderId:ids.leader, gatheringType:'sunday_service', gatheringDate:'2026-10-11', response:'yes'});
   ids.commitment = (await owner.mutation(api.crm.recordCommitment, {personId:ids.person, leaderId:ids.leader, gatheringType:'sunday_service', gatheringDate:'2026-08-02', response:'yes'}))!._id;
 }
-export async function request({kind, name, args = {}}: any) {
+async function fixtureRequest({kind, name, args = {}}: any) {
   await initialize();
   if (kind === 'state') return t.run(async ctx => ({ ids, people: await ctx.db.query('people').collect(), services: await ctx.db.query('services').collect(), attendance: await ctx.db.query('attendance').collect(), commitments: await ctx.db.query('gathering_commitments').collect(), care: await ctx.db.query('visitations').collect(), history: await ctx.db.query('follow_ups').collect(), tasks: await ctx.db.query('follow_up_tasks').collect(), meetings: await ctx.db.query('meetings').collect() }));
   if (kind !== 'query' && kind !== 'mutation') throw new Error('Unknown fixture request');
   return owner[kind](name, args);
+}
+
+  return fixtureRequest;
 }

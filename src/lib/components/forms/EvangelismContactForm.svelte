@@ -224,7 +224,7 @@
       <div><h3 id="contact-identity-title" class="text-sm font-semibold text-foreground">Contact details</h3><p class="mt-1 text-xs text-muted-foreground">Record who you met and how to reach them.</p></div>
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input label="First Name" bind:value={formData.first_name} error={errors.first_name} required disabled={saving} />
-        <Input label="Last Name" bind:value={formData.last_name} disabled={saving} />
+        <Input label="Last Name (optional)" bind:value={formData.last_name} disabled={saving} />
         <Input label="Phone" type="tel" bind:value={formData.phone} disabled={saving} />
         <Input label="Contact Date" type="date" bind:value={formData.contact_date} error={errors.contact_date} required disabled={saving} />
       </div>

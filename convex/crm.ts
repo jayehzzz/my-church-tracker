@@ -1341,7 +1341,7 @@ export const getAssignmentDirectory = queryFor("crm:getAssignmentDirectory")({
         return people.filter(row => row.member_status !== "archived").map(row => {
             const owner = owners.get(row._id);
             return {
-                _id: row._id, name: personName(row), phone: row.phone,
+                _id: row._id, name: personName(row), first_name: row.first_name, last_name: row.last_name, phone: row.phone, email: row.email,
                 member_status: row.member_status,
                 assignment_id: owner?._id ?? null,
                 assigned_leader_id: owner?.assigned_leader_id ?? null,

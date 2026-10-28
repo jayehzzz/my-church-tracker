@@ -152,3 +152,27 @@ describe("expected guests without outreach", () => {
     expect(moved!.person_id).toBe(target!._id); expect(moved!.inviter_id).toBe(ids.layla); expect(moved!.history.at(-1)!.action).toBe("person_records_merged");
   });
 });
+
+it("creates a first-name-only person and invitation together, and counts only saved attendance", async () => {
+  const { t, owner, create, dashboard } = await fixture();
+  const row = await create({ serviceDate: '2026-09-27', nameUnknown: false, firstName: 'Ama', createPerson: true });
+  expect(row!.person_id).toBeTruthy();
+  expect(await t.run(ctx => ctx.db.get(row!.person_id!))).toMatchObject({ first_name: 'Ama', last_name: '', surname_status: 'missing', member_status: 'guest' });
+  expect((await dashboard('2026-09-27')).attendance_forecast.expected_person_ids).toContain(row!.person_id);
+  expect(await t.run(ctx => ctx.db.query('attendance').collect())).toHaveLength(0);
+  const saved = await owner.mutation(api.services.record, { service_date: '2026-09-27', service_type: 'sunday_service', total_attendance: 1, guests_count: 1, salvation_decisions: 0, tithers_count: 0, attendanceData: [{ person_id: row!.person_id!, first_timer: true, gave_tithe: false, made_salvation_decision: false }] });
+  expect((await t.run(ctx => ctx.db.get(row!._id)))!.attendance_service_id).toBe(saved!._id);
+  expect(await owner.query(api.attendance.getByService, { serviceId: saved!._id })).toHaveLength(1);
+});
+it("reuses existing profiles and rolls back both records when duplicate contact details are rejected", async () => {
+  const { t, create, ids, dashboard } = await fixture();
+  await expect(create({ nameUnknown: false, firstName: 'Duplicate', phone: '07123456789', createPerson: true })).rejects.toThrow(/matching contact/);
+  expect(await t.run(ctx => ctx.db.query('guest_invitations').collect())).toHaveLength(0);
+  expect(await t.run(ctx => ctx.db.query('people').collect())).toHaveLength(4);
+  const row = await create({ nameUnknown: false, firstName: 'Nia', personId: ids.guest });
+  expect(row!.person_id).toBe(ids.guest);
+  expect((await dashboard()).attendance_forecast.expected_person_ids).toEqual([ids.guest]);
+  expect((await t.run(ctx => ctx.db.get(ids.guest)))!.invited_by_id).toBe(ids.other);
+  await expect(create({ createPerson: true })).rejects.toThrow(/real name/);
+  await expect(create({ nameUnknown: false, firstName: 'Layla', personId: ids.layla })).rejects.toThrow(/own inviter/);
+});

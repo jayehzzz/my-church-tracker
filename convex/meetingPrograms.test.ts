@@ -92,3 +92,11 @@ it('archives and restores a template without deleting its meetings or roster', a
   expect((await as('owner').query(api.meetingPrograms.getAll, {})).map(program => program._id)).toContain(ids.a);
   await expect(as('a').mutation(api.meetingPrograms.archive, { id: ids.a })).rejects.toThrow();
 });
+
+it('lets a Bacenta leader add a newcomer without a surname and keeps the profile available for follow-up', async () => {
+  const { t, ids, as } = await fixture();
+  const guest = await as('a').mutation(api.meetingPrograms.addGuest, { programId: ids.a, firstName: 'Ama' });
+  expect(guest).toMatchObject({ first_name: 'Ama', last_name: '', surname_status: 'missing', member_status: 'guest' });
+  expect((await as('a').query(api.people.getAll, {})).map(person => person._id)).toContain(guest!._id);
+  expect((await t.run(ctx => ctx.db.query('follow_up_assignments').collect())).find(row => row.person_id === guest!._id)?.assigned_leader_id).toBe(ids.leaderA);
+});
